@@ -1,0 +1,6 @@
+---
+- name: Ensure HermesDev config directory exists
+  ansible.builtin.file:
+    path: "{{ hermesdev_home }}/.config/noesis/hermesdev"
+    state: directory
+    mode: '0755'

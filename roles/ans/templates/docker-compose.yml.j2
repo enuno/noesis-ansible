@@ -1,0 +1,10 @@
+version: "3.8"
+services:
+  ans:
+    image: {{ ans_image }}
+    container_name: {{ ans_name }}
+    ports:
+      - "{{ ans_port }}:8080"
+    volumes:
+      - {{ ans_data_dir }}/data:/data
+    restart: unless-stopped

@@ -1,0 +1,4 @@
+---
+- name: Skip launchd on non-macOS
+  ansible.builtin.debug:
+    msg: "launchd only for macOS deployments"

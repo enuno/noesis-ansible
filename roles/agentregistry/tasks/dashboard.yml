@@ -1,0 +1,6 @@
+---
+- name: Configure Agent Registry dashboard
+  ansible.builtin.template:
+    src: registry-dashboard.yml.j2
+    dest: "{{ agentregistry_data_dir }}/dashboard.yml"
+    mode: '0644'

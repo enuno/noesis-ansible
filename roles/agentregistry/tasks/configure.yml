@@ -1,0 +1,7 @@
+---
+- name: Deploy Agent Registry docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ agentregistry_data_dir }}/docker-compose.yml"
+    mode: '0644'
+  notify: restart_agentregistry

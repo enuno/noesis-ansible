@@ -1,0 +1,4 @@
+---
+- name: Backup ACP registry data
+  ansible.builtin.debug:
+    msg: "Backup ACP registry from {{ acp_registry_data_dir }}"

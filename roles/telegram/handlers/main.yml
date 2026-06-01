@@ -1,0 +1,5 @@
+---
+- name: Restart Telegram bot
+  ansible.builtin.debug:
+    msg: "Restart Telegram bot service"
+  listen: restart_telegram_bot

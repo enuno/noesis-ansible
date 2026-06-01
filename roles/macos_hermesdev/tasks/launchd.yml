@@ -1,0 +1,7 @@
+---
+- name: Deploy HermesDev launchd plist
+  ansible.builtin.template:
+    src: com.noesis.hermesdev.plist.j2
+    dest: "{{ hermesdev_home }}/Library/LaunchAgents/com.noesis.hermesdev.plist"
+    mode: '0644'
+  notify: load_hermesdev_launchd

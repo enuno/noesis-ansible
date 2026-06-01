@@ -1,0 +1,4 @@
+---
+- name: Register baseline agents in ACP registry
+  ansible.builtin.debug:
+    msg: "Register agents into ACP registry"

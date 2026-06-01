@@ -1,0 +1,5 @@
+---
+- name: Restart A2A registry
+  ansible.builtin.debug:
+    msg: "Restart A2A registry container"
+  listen: restart_a2a_registry

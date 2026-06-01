@@ -1,0 +1,6 @@
+---
+- name: Ensure Hermes data directory exists
+  ansible.builtin.file:
+    path: "{{ hermes_data_dir }}"
+    state: directory
+    mode: '0755'

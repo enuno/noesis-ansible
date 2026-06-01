@@ -1,0 +1,6 @@
+---
+- name: Deploy Telegram bot env
+  ansible.builtin.template:
+    src: telegram-bot.env.j2
+    dest: /opt/noesispraxis/telegram/bot.env
+    mode: '0600'

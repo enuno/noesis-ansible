@@ -1,0 +1,11 @@
+---
+- name: Deploy HermesDev config
+  ansible.builtin.template:
+    src: hermes-config.json.j2
+    dest: "{{ hermesdev_home }}/.config/noesis/hermesdev/config.json"
+    mode: '0644'
+- name: Deploy resource budget
+  ansible.builtin.template:
+    src: resource-budget.yml.j2
+    dest: "{{ hermesdev_home }}/.config/noesis/hermesdev/resource-budget.yml"
+    mode: '0644'

@@ -1,0 +1,6 @@
+---
+- name: Ensure Agent Registry data directory exists
+  ansible.builtin.file:
+    path: "{{ agentregistry_data_dir }}"
+    state: directory
+    mode: '0755'

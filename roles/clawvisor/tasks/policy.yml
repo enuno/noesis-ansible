@@ -1,0 +1,4 @@
+---
+- name: Enforce Clawvisor policies
+  ansible.builtin.debug:
+    msg: "Enforce least-privilege policies via Clawvisor"

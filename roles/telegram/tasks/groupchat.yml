@@ -1,0 +1,4 @@
+---
+- name: Join NoesisWorld group chat
+  ansible.builtin.debug:
+    msg: "Join Telegram group {{ telegram_group }}"

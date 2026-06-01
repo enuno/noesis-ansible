@@ -1,0 +1,3 @@
+---
+deployment_env: macos
+agent_runtime: launchd

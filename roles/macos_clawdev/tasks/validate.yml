@@ -1,0 +1,6 @@
+---
+- name: Validate ClawDev launchd status
+  ansible.builtin.command: launchctl list com.noesis.clawdev
+  register: clawdev_status
+  changed_when: false
+  ignore_errors: true

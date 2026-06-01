@@ -1,0 +1,4 @@
+---
+- name: Register Telegram bot in agent registry
+  ansible.builtin.debug:
+    msg: "Register bot {{ telegram_bot_name }} in registries"

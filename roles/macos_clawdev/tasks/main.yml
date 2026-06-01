@@ -1,0 +1,11 @@
+---
+- name: Include ClawDev install
+  ansible.builtin.include_tasks: install.yml
+- name: Include ClawDev configure
+  ansible.builtin.include_tasks: configure.yml
+- name: Include ClawDev launchd
+  ansible.builtin.include_tasks: launchd.yml
+- name: Include ClawDev network
+  ansible.builtin.include_tasks: network.yml
+- name: Include ClawDev validate
+  ansible.builtin.include_tasks: validate.yml

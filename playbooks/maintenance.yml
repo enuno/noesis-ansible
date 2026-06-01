@@ -1,0 +1,9 @@
+---
+- name: Rolling maintenance for NoesisPraxis stack
+  hosts: all
+  gather_facts: true
+  serial: 1
+  tasks:
+    - name: Placeholder maintenance task
+      ansible.builtin.debug:
+        msg: "Maintenance window for {{ inventory_hostname }}"

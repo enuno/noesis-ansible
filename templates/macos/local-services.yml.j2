@@ -1,0 +1,6 @@
+services:
+  - name: {{ service_name }}
+    bind_localhost: 127.0.0.1
+    bind_tailnet: {{ tailscale_ip | default('100.64.0.2') }}
+    port: {{ service_port | default(8080) }}
+    exposed: true

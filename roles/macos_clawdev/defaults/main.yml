@@ -1,0 +1,6 @@
+---
+clawdev_name: NoesisClawDev
+clawdev_user: "{{ ansible_user_id }}"
+clawdev_home: "{{ ansible_env.HOME }}"
+clawdev_cpu_limit: 50
+clawdev_ram_mb: 512

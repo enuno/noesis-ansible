@@ -1,0 +1,6 @@
+---
+- name: Deploy Hermes config
+  ansible.builtin.template:
+    src: hermes-config.json.j2
+    dest: "{{ hermes_data_dir }}/config.json"
+    mode: '0644'

@@ -1,0 +1,5 @@
+---
+agentregistry_name: noesis-agent-registry
+agentregistry_image: noesispraxis/agent-registry:latest
+agentregistry_port: 8083
+agentregistry_data_dir: /opt/noesispraxis/agent-registry

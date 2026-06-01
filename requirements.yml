@@ -1,0 +1,15 @@
+---
+# Container and Docker support
+collections:
+  - name: community.docker
+    version: ">=3.0.0"
+
+# General utilities (JSON, YAML, file, archive, command)
+  - name: community.general
+    version: ">=7.0.0"
+
+# macOS-specific helpers (launchd, defaults, pkgutil)
+  - name: community.general
+    version: ">=7.0.0"
+
+roles: []

@@ -1,0 +1,5 @@
+---
+- name: Reload Clawvisor policies
+  ansible.builtin.debug:
+    msg: "Reload Clawvisor policies"
+  listen: reload_clawvisor

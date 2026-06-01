@@ -1,0 +1,17 @@
+version: "3.8"
+services:
+  {{ service_name }}:
+    image: {{ service_image }}
+    container_name: {{ service_name }}
+    ports:
+      - "{{ service_port }}:8080"
+    volumes:
+      - {{ service_data_dir }}:/data
+    env_file:
+      - {{ service_data_dir }}/.env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

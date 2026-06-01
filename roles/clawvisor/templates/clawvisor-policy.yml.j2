@@ -1,0 +1,12 @@
+policies:
+  - name: default-deny
+    action: deny
+    resources:
+      - '*'
+  - name: allow-local-registry
+    action: allow
+    resources:
+      - 'localhost:8081'
+      - 'localhost:8082'
+      - 'localhost:8083'
+      - 'localhost:8084'

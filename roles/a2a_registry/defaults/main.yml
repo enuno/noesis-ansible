@@ -1,0 +1,5 @@
+---
+a2a_registry_name: noesis-a2a-registry
+a2a_registry_image: noesispraxis/a2a-registry:latest
+a2a_registry_port: 8084
+a2a_registry_data_dir: /opt/noesispraxis/a2a-registry

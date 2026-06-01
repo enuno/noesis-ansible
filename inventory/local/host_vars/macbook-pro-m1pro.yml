@@ -1,0 +1,18 @@
+---
+host_role: macos-dev
+agent_runtime: launchd
+ansible_connection: local
+
+# macOS resource budgets for M1 Pro / 16 GB
+macos_cpu_limit: 50
+macos_ram_mb: 512
+macos_idle_cpu_percent: 5
+
+# Service paths
+macos_config_dir: "{{ ansible_env.HOME }}/.config/noesis"
+macos_log_dir: "{{ ansible_env.HOME }}/.local/share/noesis"
+macos_launchagents_dir: "{{ ansible_env.HOME }}/Library/LaunchAgents"
+
+# Endpoints
+macos_localhost_bind: 127.0.0.1
+macos_tailscale_bind: "{{ tailscale_ip | default('100.64.0.2') }}"

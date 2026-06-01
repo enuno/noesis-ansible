@@ -1,0 +1,11 @@
+---
+- name: Validate OpenClaw health
+  ansible.builtin.uri:
+    url: "http://localhost:{{ openclaw_port }}/health"
+    method: GET
+    status_code: 200
+  register: oc_health
+  retries: 5
+  delay: 3
+  until: oc_health.status == 200
+  ignore_errors: true

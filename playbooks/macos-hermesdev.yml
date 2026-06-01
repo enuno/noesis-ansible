@@ -1,0 +1,6 @@
+---
+- name: Deploy Noesis HermesDev on macOS
+  hosts: macos
+  gather_facts: true
+  roles:
+    - macos_hermesdev

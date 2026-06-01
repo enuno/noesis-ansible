@@ -1,0 +1,6 @@
+---
+- name: Ensure Clawvisor data directory exists
+  ansible.builtin.file:
+    path: "{{ clawvisor_data_dir }}"
+    state: directory
+    mode: '0755'

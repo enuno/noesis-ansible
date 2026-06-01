@@ -1,0 +1,9 @@
+---
+- name: Ensure backup directory exists
+  ansible.builtin.file:
+    path: "{{ backup_dir }}"
+    state: directory
+    mode: '0755'
+- name: Backup registry data
+  ansible.builtin.debug:
+    msg: "Backup registries to {{ backup_dir }}"

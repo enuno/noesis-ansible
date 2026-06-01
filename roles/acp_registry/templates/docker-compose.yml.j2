@@ -1,0 +1,10 @@
+version: "3.8"
+services:
+  acp-registry:
+    image: {{ acp_registry_image }}
+    container_name: {{ acp_registry_name }}
+    ports:
+      - "{{ acp_registry_port }}:8080"
+    volumes:
+      - {{ acp_registry_data_dir }}/data:/data
+    restart: unless-stopped

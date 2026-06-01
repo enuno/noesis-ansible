@@ -1,0 +1,7 @@
+---
+- name: Deploy ClawDev launchd plist
+  ansible.builtin.template:
+    src: com.noesis.clawdev.plist.j2
+    dest: "{{ clawdev_home }}/Library/LaunchAgents/com.noesis.clawdev.plist"
+    mode: '0644'
+  notify: load_clawdev_launchd

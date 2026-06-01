@@ -1,0 +1,4 @@
+---
+- name: Deploy OpenClaw container
+  ansible.builtin.debug:
+    msg: "Deploy OpenClaw Docker container"

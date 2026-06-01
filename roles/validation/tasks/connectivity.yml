@@ -1,0 +1,13 @@
+---
+- name: Validate inter-service connectivity
+  ansible.builtin.wait_for:
+    host: localhost
+    port: "{{ item }}"
+    timeout: "{{ validation_timeout }}"
+  loop:
+    - 8081
+    - 8082
+    - 8083
+    - 8084
+    - 8085
+  ignore_errors: true

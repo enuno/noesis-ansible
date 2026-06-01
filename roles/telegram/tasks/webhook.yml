@@ -1,0 +1,4 @@
+---
+- name: Configure webhook mode
+  ansible.builtin.debug:
+    msg: "Configure Telegram webhook"

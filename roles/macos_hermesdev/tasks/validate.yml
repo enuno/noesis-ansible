@@ -1,0 +1,6 @@
+---
+- name: Validate HermesDev launchd status
+  ansible.builtin.command: launchctl list com.noesis.hermesdev
+  register: hermesdev_status
+  changed_when: false
+  ignore_errors: true

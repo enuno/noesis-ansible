@@ -1,0 +1,5 @@
+---
+- name: Restart ANS
+  ansible.builtin.debug:
+    msg: "Restart ANS container"
+  listen: restart_ans

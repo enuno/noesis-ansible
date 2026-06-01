@@ -1,0 +1,11 @@
+---
+- name: Include ACP registry install
+  ansible.builtin.include_tasks: install.yml
+- name: Include ACP registry configure
+  ansible.builtin.include_tasks: configure.yml
+- name: Include ACP registry register
+  ansible.builtin.include_tasks: register.yml
+- name: Include ACP registry validate
+  ansible.builtin.include_tasks: validate.yml
+- name: Include ACP registry backup
+  ansible.builtin.include_tasks: backup.yml

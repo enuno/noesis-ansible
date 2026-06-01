@@ -1,0 +1,9 @@
+{
+  "agent_id": "{{ inventory_hostname }}",
+  "name": "{{ agent_name | default(inventory_hostname) }}",
+  "status": "active",
+  "capabilities": [],
+  "endpoint": "http://{{ ansible_host | default('localhost') }}:{{ agent_port | default(8080) }}",
+  "registered_at": "{{ ansible_date_time.iso8601 | default('') }}",
+  "version": "1.0.0"
+}

@@ -1,0 +1,4 @@
+---
+- name: Ensure Tailscale is installed
+  ansible.builtin.debug:
+    msg: "Install Tailscale if not present"

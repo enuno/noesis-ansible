@@ -1,0 +1,4 @@
+---
+host_role: macos-dev
+agent_runtime: launchd
+ansible_connection: local

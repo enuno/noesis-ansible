@@ -1,0 +1,5 @@
+---
+- name: Validate Tailscale connectivity
+  ansible.builtin.command: tailscale status
+  register: ts_status
+  changed_when: false

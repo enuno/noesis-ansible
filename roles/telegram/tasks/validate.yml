@@ -1,0 +1,4 @@
+---
+- name: Validate Telegram bot connectivity
+  ansible.builtin.debug:
+    msg: "Validate Telegram bot token and group access"

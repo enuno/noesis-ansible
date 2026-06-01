@@ -1,0 +1,6 @@
+---
+- name: Deploy Agent Name Service
+  hosts: local
+  gather_facts: false
+  roles:
+    - ans

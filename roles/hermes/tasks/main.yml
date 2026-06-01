@@ -1,0 +1,11 @@
+---
+- name: Include Hermes install
+  ansible.builtin.include_tasks: install.yml
+- name: Include Hermes configure
+  ansible.builtin.include_tasks: configure.yml
+- name: Include Hermes launchd
+  ansible.builtin.include_tasks: launchd.yml
+- name: Include Hermes docker
+  ansible.builtin.include_tasks: docker.yml
+- name: Include Hermes validate
+  ansible.builtin.include_tasks: validate.yml

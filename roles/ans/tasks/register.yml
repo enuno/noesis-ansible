@@ -1,0 +1,4 @@
+---
+- name: Register agents in ANS
+  ansible.builtin.debug:
+    msg: "Register agents into ANS"

@@ -1,0 +1,6 @@
+---
+- name: Configure Tailscale Networking
+  hosts: all
+  gather_facts: true
+  roles:
+    - tailscale

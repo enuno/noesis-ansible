@@ -1,0 +1,9 @@
+backup:
+  service: {{ service_name }}
+  source: {{ service_data_dir }}
+  destination: {{ backup_dir }}
+  timestamp: "{{ ansible_date_time.iso8601 }}"
+  components:
+    - config
+    - data
+    - registry

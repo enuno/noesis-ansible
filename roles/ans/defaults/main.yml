@@ -1,0 +1,5 @@
+---
+ans_name: noesis-ans
+ans_image: noesispraxis/ans:latest
+ans_port: 8082
+ans_data_dir: /opt/noesispraxis/ans

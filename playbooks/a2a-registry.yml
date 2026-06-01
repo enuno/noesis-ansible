@@ -1,0 +1,6 @@
+---
+- name: Deploy A2A Registry
+  hosts: local
+  gather_facts: false
+  roles:
+    - a2a_registry

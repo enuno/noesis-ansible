@@ -1,0 +1,5 @@
+---
+mcpjungle_name: noesis-mcpjungle
+mcpjungle_image: noesispraxis/mcpjungle:latest
+mcpjungle_port: 8085
+mcpjungle_data_dir: /opt/noesispraxis/mcpjungle

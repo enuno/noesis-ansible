@@ -1,0 +1,39 @@
+---
+ansible_python_interpreter: "{{ ansible_playbook_python }}"
+deployment_env: local
+stack_name: noesispraxis
+
+# Stack component toggles
+noesispraxis_enable_acp: true
+noesispraxis_enable_ans: true
+noesispraxis_enable_agentregistry: true
+noesispraxis_enable_a2a: true
+noesispraxis_enable_mcpjungle: true
+noesispraxis_enable_clawvisor: true
+noesispraxis_enable_telegram: true
+noesispraxis_enable_generic_agents: true
+noesispraxis_enable_macos_agents: true
+noesispraxis_enable_tailscale: true
+noesispraxis_enable_backup: false
+noesispraxis_enable_validation: true
+noesispraxis_enable_registry_sync: false
+
+# Registry endpoints (localhost)
+registry_base_url: http://localhost:8080
+acp_registry_url: http://localhost:8081
+ans_url: http://localhost:8082
+agentregistry_url: http://localhost:8083
+a2a_registry_url: http://localhost:8084
+mcpjungle_url: http://localhost:8085
+
+# Paths
+base_data_dir: /opt/noesispraxis
+base_log_dir: /var/log/noesispraxis
+backup_dir: /opt/noesispraxis/backups
+
+# Resource budgets (local Docker defaults)
+local_cpu_limit: 100
+local_ram_mb: 1024
+
+# Telegram placeholders (secrets in vault)
+telegram_group: NoesisWorld

@@ -1,0 +1,10 @@
+version: "3.8"
+services:
+  agent-registry:
+    image: {{ agentregistry_image }}
+    container_name: {{ agentregistry_name }}
+    ports:
+      - "{{ agentregistry_port }}:8080"
+    volumes:
+      - {{ agentregistry_data_dir }}/data:/data
+    restart: unless-stopped

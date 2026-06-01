@@ -1,0 +1,15 @@
+---
+- name: Include Telegram install
+  ansible.builtin.include_tasks: install.yml
+- name: Include Telegram configure
+  ansible.builtin.include_tasks: configure.yml
+- name: Include Telegram webhook
+  ansible.builtin.include_tasks: webhook.yml
+- name: Include Telegram polling
+  ansible.builtin.include_tasks: polling.yml
+- name: Include Telegram groupchat
+  ansible.builtin.include_tasks: groupchat.yml
+- name: Include Telegram register
+  ansible.builtin.include_tasks: register.yml
+- name: Include Telegram validate
+  ansible.builtin.include_tasks: validate.yml

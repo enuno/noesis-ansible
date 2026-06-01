@@ -1,0 +1,7 @@
+---
+- name: Include health checks
+  ansible.builtin.include_tasks: health.yml
+- name: Include schema checks
+  ansible.builtin.include_tasks: schema.yml
+- name: Include connectivity checks
+  ansible.builtin.include_tasks: connectivity.yml

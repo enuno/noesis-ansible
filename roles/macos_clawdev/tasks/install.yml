@@ -1,0 +1,6 @@
+---
+- name: Ensure ClawDev config directory exists
+  ansible.builtin.file:
+    path: "{{ clawdev_home }}/.config/noesis/clawdev"
+    state: directory
+    mode: '0755'

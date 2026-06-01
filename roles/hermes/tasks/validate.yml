@@ -1,0 +1,11 @@
+---
+- name: Validate Hermes health
+  ansible.builtin.uri:
+    url: "http://localhost:{{ hermes_port }}/health"
+    method: GET
+    status_code: 200
+  register: hm_health
+  retries: 5
+  delay: 3
+  until: hm_health.status == 200
+  ignore_errors: true

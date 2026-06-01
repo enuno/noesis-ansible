@@ -1,0 +1,6 @@
+---
+- name: Configure Tailscale
+  ansible.builtin.template:
+    src: tailscale-network.yml.j2
+    dest: /opt/noesispraxis/tailscale-network.yml
+    mode: '0644'

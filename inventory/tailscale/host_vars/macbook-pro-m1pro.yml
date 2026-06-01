@@ -1,0 +1,14 @@
+---
+host_role: macos-dev
+agent_runtime: launchd
+tailscale_ip: 100.64.0.2
+
+# Resource budgets
+macos_cpu_limit: 50
+macos_ram_mb: 512
+macos_idle_cpu_percent: 5
+
+# Paths
+macos_config_dir: "{{ ansible_env.HOME }}/.config/noesis"
+macos_log_dir: "{{ ansible_env.HOME }}/.local/share/noesis"
+macos_launchagents_dir: "{{ ansible_env.HOME }}/Library/LaunchAgents"

@@ -1,0 +1,4 @@
+---
+host_role: local-controller
+agent_runtime: docker
+ansible_connection: local

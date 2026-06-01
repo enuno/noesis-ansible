@@ -1,0 +1,4 @@
+---
+- name: Load ClawDev launchd
+  ansible.builtin.command: launchctl load {{ clawdev_home }}/Library/LaunchAgents/com.noesis.clawdev.plist
+  listen: load_clawdev_launchd

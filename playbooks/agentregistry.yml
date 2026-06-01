@@ -1,0 +1,6 @@
+---
+- name: Deploy Agent Registry Dashboard
+  hosts: local
+  gather_facts: false
+  roles:
+    - agentregistry

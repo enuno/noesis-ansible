@@ -1,0 +1,10 @@
+version: "3.8"
+services:
+  a2a-registry:
+    image: {{ a2a_registry_image }}
+    container_name: {{ a2a_registry_name }}
+    ports:
+      - "{{ a2a_registry_port }}:8080"
+    volumes:
+      - {{ a2a_registry_data_dir }}/data:/data
+    restart: unless-stopped

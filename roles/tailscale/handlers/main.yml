@@ -1,0 +1,5 @@
+---
+- name: Restart Tailscale
+  ansible.builtin.debug:
+    msg: "Restart Tailscale"
+  listen: restart_tailscale

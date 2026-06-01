@@ -1,0 +1,4 @@
+---
+- name: Deploy Hermes container
+  ansible.builtin.debug:
+    msg: "Deploy Hermes Docker container"

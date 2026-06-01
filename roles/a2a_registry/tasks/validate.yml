@@ -1,0 +1,10 @@
+---
+- name: Validate A2A registry health
+  ansible.builtin.uri:
+    url: "http://localhost:{{ a2a_registry_port }}/health"
+    method: GET
+    status_code: 200
+  register: a2a_health
+  retries: 5
+  delay: 3
+  until: a2a_health.status == 200

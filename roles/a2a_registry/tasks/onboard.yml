@@ -1,0 +1,4 @@
+---
+- name: Onboard A2A agents
+  ansible.builtin.debug:
+    msg: "Onboard A2A agents"

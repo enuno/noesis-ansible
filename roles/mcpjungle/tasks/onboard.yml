@@ -1,0 +1,4 @@
+---
+- name: Onboard approved MCP servers
+  ansible.builtin.debug:
+    msg: "Onboard MCP servers into MCPJungle"

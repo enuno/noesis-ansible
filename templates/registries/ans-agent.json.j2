@@ -1,0 +1,11 @@
+{
+  "agent_name": "{{ agent_name | default(inventory_hostname) }}",
+  "dns_name": "{{ inventory_hostname }}.local",
+  "certificate": {},
+  "protocols": [
+    "a2a",
+    "mcp"
+  ],
+  "endpoint": "http://{{ ansible_host | default('localhost') }}:{{ agent_port | default(8080) }}",
+  "registered_at": "{{ ansible_date_time.iso8601 | default('') }}"
+}

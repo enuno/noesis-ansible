@@ -1,0 +1,4 @@
+---
+- name: Configure polling mode
+  ansible.builtin.debug:
+    msg: "Configure Telegram polling"

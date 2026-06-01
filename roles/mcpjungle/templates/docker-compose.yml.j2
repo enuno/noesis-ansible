@@ -1,0 +1,10 @@
+version: "3.8"
+services:
+  mcpjungle:
+    image: {{ mcpjungle_image }}
+    container_name: {{ mcpjungle_name }}
+    ports:
+      - "{{ mcpjungle_port }}:8080"
+    volumes:
+      - {{ mcpjungle_data_dir }}/data:/data
+    restart: unless-stopped

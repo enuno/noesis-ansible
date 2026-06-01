@@ -1,0 +1,4 @@
+---
+host_role: macos-dev
+agent_runtime: launchd
+tailscale_ip: 100.64.0.2

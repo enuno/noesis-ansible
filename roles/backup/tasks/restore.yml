@@ -1,0 +1,4 @@
+---
+- name: Restore registry data
+  ansible.builtin.debug:
+    msg: "Restore registries from {{ backup_dir }}"

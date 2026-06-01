@@ -1,0 +1,5 @@
+---
+openclaw_name: noesis-openclaw
+openclaw_image: noesispraxis/openclaw:latest
+openclaw_port: 8090
+openclaw_data_dir: /opt/noesispraxis/openclaw

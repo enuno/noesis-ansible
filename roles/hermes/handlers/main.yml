@@ -1,0 +1,5 @@
+---
+- name: Restart Hermes
+  ansible.builtin.debug:
+    msg: "Restart Hermes"
+  listen: restart_hermes

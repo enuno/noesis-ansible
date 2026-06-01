@@ -1,0 +1,10 @@
+---
+- name: Validate Agent Registry health
+  ansible.builtin.uri:
+    url: "http://localhost:{{ agentregistry_port }}/health"
+    method: GET
+    status_code: 200
+  register: ar_health
+  retries: 5
+  delay: 3
+  until: ar_health.status == 200

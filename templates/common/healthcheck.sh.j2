@@ -1,0 +1,9 @@
+#!/bin/bash
+set -e
+URL="http://localhost:{{ service_port }}/health"
+if command -v curl >/dev/null 2>&1; then
+  curl -fsS "$URL" > /dev/null
+else
+  python3 -c "import urllib.request; urllib.request.urlopen('$URL')"
+fi
+echo "OK"

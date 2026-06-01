@@ -1,0 +1,6 @@
+---
+- name: Deploy ACP Registry
+  hosts: local
+  gather_facts: false
+  roles:
+    - acp_registry

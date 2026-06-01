@@ -1,0 +1,7 @@
+---
+- name: Deploy Clawvisor policy template
+  ansible.builtin.template:
+    src: clawvisor-policy.yml.j2
+    dest: "{{ clawvisor_data_dir }}/policy.yml"
+    mode: '0644'
+  notify: reload_clawvisor

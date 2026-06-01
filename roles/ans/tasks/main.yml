@@ -1,0 +1,9 @@
+---
+- name: Include ANS install
+  ansible.builtin.include_tasks: install.yml
+- name: Include ANS configure
+  ansible.builtin.include_tasks: configure.yml
+- name: Include ANS register
+  ansible.builtin.include_tasks: register.yml
+- name: Include ANS validate
+  ansible.builtin.include_tasks: validate.yml

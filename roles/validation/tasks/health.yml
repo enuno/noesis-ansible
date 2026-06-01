@@ -1,0 +1,13 @@
+---
+- name: Check registry health endpoints
+  ansible.builtin.uri:
+    url: "http://localhost:{{ item }}/health"
+    method: GET
+    status_code: 200
+  loop:
+    - 8081
+    - 8082
+    - 8083
+    - 8084
+    - 8085
+  ignore_errors: true

@@ -1,0 +1,27 @@
+---
+deployment_env: production
+stack_name: noesispraxis
+
+# Stricter production defaults
+noesispraxis_enable_acp: true
+noesispraxis_enable_ans: true
+noesispraxis_enable_agentregistry: true
+noesispraxis_enable_a2a: true
+noesispraxis_enable_mcpjungle: true
+noesispraxis_enable_clawvisor: true
+noesispraxis_enable_telegram: false
+noesispraxis_enable_generic_agents: true
+noesispraxis_enable_macos_agents: false
+noesispraxis_enable_tailscale: false
+noesispraxis_enable_backup: true
+noesispraxis_enable_validation: true
+noesispraxis_enable_registry_sync: true
+
+# Change control
+require_approval: true
+maintenance_window_required: true
+
+# Secrets externalized — no local paths
+base_data_dir: /opt/noesispraxis
+base_log_dir: /var/log/noesispraxis
+backup_dir: /opt/noesispraxis/backups

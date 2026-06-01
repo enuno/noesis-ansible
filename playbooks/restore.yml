@@ -1,0 +1,6 @@
+---
+- name: Restore NoesisPraxis registries and configs
+  hosts: local
+  gather_facts: false
+  roles:
+    - backup

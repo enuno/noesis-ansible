@@ -1,0 +1,4 @@
+---
+- name: Load HermesDev launchd
+  ansible.builtin.command: launchctl load {{ hermesdev_home }}/Library/LaunchAgents/com.noesis.hermesdev.plist
+  listen: load_hermesdev_launchd

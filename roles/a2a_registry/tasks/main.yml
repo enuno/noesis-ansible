@@ -1,0 +1,11 @@
+---
+- name: Include A2A registry install
+  ansible.builtin.include_tasks: install.yml
+- name: Include A2A registry configure
+  ansible.builtin.include_tasks: configure.yml
+- name: Include A2A registry onboard
+  ansible.builtin.include_tasks: onboard.yml
+- name: Include A2A registry validate
+  ansible.builtin.include_tasks: validate.yml
+- name: Include A2A registry backup
+  ansible.builtin.include_tasks: backup.yml

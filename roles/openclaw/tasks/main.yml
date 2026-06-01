@@ -1,0 +1,11 @@
+---
+- name: Include OpenClaw install
+  ansible.builtin.include_tasks: install.yml
+- name: Include OpenClaw configure
+  ansible.builtin.include_tasks: configure.yml
+- name: Include OpenClaw launchd
+  ansible.builtin.include_tasks: launchd.yml
+- name: Include OpenClaw docker
+  ansible.builtin.include_tasks: docker.yml
+- name: Include OpenClaw validate
+  ansible.builtin.include_tasks: validate.yml

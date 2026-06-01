@@ -1,0 +1,5 @@
+---
+- name: Restart Agent Registry
+  ansible.builtin.debug:
+    msg: "Restart Agent Registry container"
+  listen: restart_agentregistry

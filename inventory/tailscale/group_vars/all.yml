@@ -1,0 +1,39 @@
+---
+deployment_env: tailscale
+stack_name: noesispraxis
+
+# Tailscale connectivity
+tailscale_hostname: macbook-pro-m1pro
+tailscale_magicdns: "macbook-pro-m1pro.tailnet-name.ts.net"
+tailnet_allowlist:
+  - "100.64.0.0/10"
+
+# Ansible connection defaults for remote management
+ansible_ssh_common_args: "-o ProxyCommand=none"
+ansible_port: 22
+
+# Registry endpoints (tailnet)
+registry_base_url: "http://100.64.0.2:8080"
+acp_registry_url: "http://100.64.0.2:8081"
+ans_url: "http://100.64.0.2:8082"
+agentregistry_url: "http://100.64.0.2:8083"
+a2a_registry_url: "http://100.64.0.2:8084"
+mcpjungle_url: "http://100.64.0.2:8085"
+
+# Stack toggles
+noesispraxis_enable_acp: true
+noesispraxis_enable_ans: true
+noesispraxis_enable_agentregistry: true
+noesispraxis_enable_a2a: true
+noesispraxis_enable_mcpjungle: true
+noesispraxis_enable_clawvisor: true
+noesispraxis_enable_telegram: true
+noesispraxis_enable_generic_agents: false
+noesispraxis_enable_macos_agents: true
+noesispraxis_enable_tailscale: true
+noesispraxis_enable_backup: false
+noesispraxis_enable_validation: true
+noesispraxis_enable_registry_sync: true
+
+# Validation
+validation_timeout: 30

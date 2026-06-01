@@ -1,0 +1,8 @@
+{
+  "agent_name": "{{ telegram_bot_name | default('noesis-bot') }}",
+  "type": "telegram_bot",
+  "group": "{{ telegram_group | default('NoesisWorld') }}",
+  "status": "active",
+  "transport": "polling",
+  "registered_at": "{{ ansible_date_time.iso8601 | default('') }}"
+}

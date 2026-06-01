@@ -1,0 +1,6 @@
+---
+- name: Backup NoesisPraxis registries and configs
+  hosts: local
+  gather_facts: false
+  roles:
+    - backup

@@ -1,0 +1,5 @@
+---
+- name: Restart ACP registry
+  ansible.builtin.debug:
+    msg: "Restart ACP registry container"
+  listen: restart_acp_registry

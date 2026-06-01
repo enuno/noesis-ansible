@@ -1,0 +1,4 @@
+---
+- name: Notify backup complete
+  ansible.builtin.debug:
+    msg: "Backup completed"

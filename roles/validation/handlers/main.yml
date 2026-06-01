@@ -1,0 +1,4 @@
+---
+- name: Notify validation complete
+  ansible.builtin.debug:
+    msg: "Validation completed"

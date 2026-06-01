@@ -1,0 +1,9 @@
+{
+  "name": "{{ agent_name | default(inventory_hostname) }}",
+  "description": "{{ agent_description | default('NoesisPraxis agent') }}",
+  "url": "http://{{ ansible_host | default('localhost') }}:{{ agent_port | default(8080) }}/a2a",
+  "version": "1.0.0",
+  "capabilities": {},
+  "skills": [],
+  "authentication": null
+}

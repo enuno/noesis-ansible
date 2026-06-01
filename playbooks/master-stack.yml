@@ -1,0 +1,173 @@
+---
+# master-stack.yml — Phase-oriented master orchestrator for NoesisPraxis
+# Run individual phases via tags: bootstrap, foundation, security, runtime,
+# macos, telegram, tailscale, sync, validate, backup
+
+- name: "PHASE 0 — Bootstrap"
+  hosts: all
+  gather_facts: true
+  tags: [always, bootstrap]
+  tasks:
+    - name: Bootstrap complete
+      ansible.builtin.debug:
+        msg: "Bootstrap complete for {{ inventory_hostname }}"
+
+- name: "PHASE 1 — Identity and Registries"
+  hosts: local
+  gather_facts: false
+  tags: [foundation, registries]
+  vars:
+    _enable_acp: "{{ noesispraxis_enable_acp | default(true) | bool }}"
+    _enable_ans: "{{ noesispraxis_enable_ans | default(true) | bool }}"
+    _enable_agentregistry: "{{ noesispraxis_enable_agentregistry | default(true) | bool }}"
+    _enable_a2a: "{{ noesispraxis_enable_a2a | default(true) | bool }}"
+  tasks:
+    - name: Include ACP registry
+      ansible.builtin.include_role:
+        name: acp_registry
+      when: _enable_acp
+
+    - name: Include ANS
+      ansible.builtin.include_role:
+        name: ans
+      when: _enable_ans
+
+    - name: Include Agent Registry dashboard
+      ansible.builtin.include_role:
+        name: agentregistry
+      when: _enable_agentregistry
+
+    - name: Include A2A registry
+      ansible.builtin.include_role:
+        name: a2a_registry
+      when: _enable_a2a
+
+    - name: Validate Phase 1
+      ansible.builtin.include_role:
+        name: validation
+      when: noesispraxis_enable_validation | default(true) | bool
+
+- name: "PHASE 2 — Security and Access"
+  hosts: local
+  gather_facts: false
+  tags: [security]
+  vars:
+    _enable_mcpjungle: "{{ noesispraxis_enable_mcpjungle | default(true) | bool }}"
+    _enable_clawvisor: "{{ noesispraxis_enable_clawvisor | default(true) | bool }}"
+  tasks:
+    - name: Include MCPJungle
+      ansible.builtin.include_role:
+        name: mcpjungle
+      when: _enable_mcpjungle
+
+    - name: Include Clawvisor
+      ansible.builtin.include_role:
+        name: clawvisor
+      when: _enable_clawvisor
+
+    - name: Validate Phase 2
+      ansible.builtin.include_role:
+        name: validation
+      when: noesispraxis_enable_validation | default(true) | bool
+
+- name: "PHASE 3 — Generic Runtime"
+  hosts: local
+  gather_facts: false
+  tags: [runtime, generic]
+  vars:
+    _enable_generic: "{{ noesispraxis_enable_generic_agents | default(true) | bool }}"
+  tasks:
+    - name: Include OpenClaw
+      ansible.builtin.include_role:
+        name: openclaw
+      when: _enable_generic
+
+    - name: Include Hermes
+      ansible.builtin.include_role:
+        name: hermes
+      when: _enable_generic
+
+    - name: Validate Phase 3
+      ansible.builtin.include_role:
+        name: validation
+      when: noesispraxis_enable_validation | default(true) | bool
+
+- name: "PHASE 4 — macOS-Specific Runtime"
+  hosts: macos
+  gather_facts: true
+  tags: [macos]
+  vars:
+    _enable_macos: "{{ noesispraxis_enable_macos_agents | default(true) | bool }}"
+  tasks:
+    - name: Include macOS ClawDev
+      ansible.builtin.include_role:
+        name: macos_clawdev
+      when: _enable_macos
+
+    - name: Include macOS HermesDev
+      ansible.builtin.include_role:
+        name: macos_hermesdev
+      when: _enable_macos
+
+    - name: Validate Phase 4
+      ansible.builtin.include_role:
+        name: validation
+      when: noesispraxis_enable_validation | default(true) | bool
+
+- name: "PHASE 5 — Communications"
+  hosts: local
+  gather_facts: false
+  tags: [telegram, communications]
+  vars:
+    _enable_telegram: "{{ noesispraxis_enable_telegram | default(true) | bool }}"
+  tasks:
+    - name: Include Telegram
+      ansible.builtin.include_role:
+        name: telegram
+      when: _enable_telegram
+
+    - name: Validate Phase 5
+      ansible.builtin.include_role:
+        name: validation
+      when: noesispraxis_enable_validation | default(true) | bool
+
+- name: "PHASE 6 — Networking"
+  hosts: all
+  gather_facts: true
+  tags: [tailscale, networking]
+  vars:
+    _enable_tailscale: "{{ noesispraxis_enable_tailscale | default(true) | bool }}"
+  tasks:
+    - name: Include Tailscale
+      ansible.builtin.include_role:
+        name: tailscale
+      when: _enable_tailscale
+
+    - name: Validate Phase 6
+      ansible.builtin.include_role:
+        name: validation
+      when: noesispraxis_enable_validation | default(true) | bool
+
+- name: "PHASE 7 — Synchronization and Backup"
+  hosts: local
+  gather_facts: false
+  tags: [sync, backup]
+  tasks:
+    - name: Cross-registry sync hook
+      ansible.builtin.debug:
+        msg: "Registry sync enabled: {{ noesispraxis_enable_registry_sync | default(false) }}"
+
+    - name: Include Backup
+      ansible.builtin.include_role:
+        name: backup
+      when: noesispraxis_enable_backup | default(false) | bool
+
+- name: "PHASE 8 — Final Validation"
+  hosts: all
+  gather_facts: false
+  tags: [validate, always]
+  tasks:
+    - name: Include Validation
+      ansible.builtin.include_role:
+        name: validation
+      when: noesispraxis_enable_validation | default(true) | bool

@@ -1,0 +1,11 @@
+---
+- name: Include MCPJungle install
+  ansible.builtin.include_tasks: install.yml
+- name: Include MCPJungle configure
+  ansible.builtin.include_tasks: configure.yml
+- name: Include MCPJungle onboard
+  ansible.builtin.include_tasks: onboard.yml
+- name: Include MCPJungle validate
+  ansible.builtin.include_tasks: validate.yml
+- name: Include MCPJungle backup
+  ansible.builtin.include_tasks: backup.yml

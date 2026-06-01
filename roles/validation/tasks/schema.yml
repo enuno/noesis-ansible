@@ -1,0 +1,5 @@
+---
+- name: Validate JSON schemas
+  ansible.builtin.command: "{{ playbook_dir }}/../files/scripts/validate-json.sh"
+  changed_when: false
+  ignore_errors: true

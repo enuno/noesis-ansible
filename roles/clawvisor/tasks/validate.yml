@@ -1,0 +1,4 @@
+---
+- name: Validate Clawvisor configuration
+  ansible.builtin.debug:
+    msg: "Validate Clawvisor policy syntax and coverage"

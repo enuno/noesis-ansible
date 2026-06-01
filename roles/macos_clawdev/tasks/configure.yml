@@ -1,0 +1,11 @@
+---
+- name: Deploy ClawDev config
+  ansible.builtin.template:
+    src: openclaw-config.json.j2
+    dest: "{{ clawdev_home }}/.config/noesis/clawdev/config.json"
+    mode: '0644'
+- name: Deploy resource budget
+  ansible.builtin.template:
+    src: resource-budget.yml.j2
+    dest: "{{ clawdev_home }}/.config/noesis/clawdev/resource-budget.yml"
+    mode: '0644'

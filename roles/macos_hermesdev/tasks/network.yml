@@ -1,0 +1,4 @@
+---
+- name: Configure Tailscale reachability
+  ansible.builtin.debug:
+    msg: "HermesDev reachable via localhost and tailnet"

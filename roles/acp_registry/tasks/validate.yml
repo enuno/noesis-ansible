@@ -1,0 +1,10 @@
+---
+- name: Validate ACP registry health
+  ansible.builtin.uri:
+    url: "http://localhost:{{ acp_registry_port }}/health"
+    method: GET
+    status_code: 200
+  register: acp_health
+  retries: 5
+  delay: 3
+  until: acp_health.status == 200

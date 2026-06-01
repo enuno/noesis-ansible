@@ -1,0 +1,5 @@
+---
+acp_registry_name: noesis-acp-registry
+acp_registry_image: noesispraxis/acp-registry:latest
+acp_registry_port: 8081
+acp_registry_data_dir: /opt/noesispraxis/acp-registry

@@ -1,0 +1,6 @@
+---
+- name: Ensure A2A registry data directory exists
+  ansible.builtin.file:
+    path: "{{ a2a_registry_data_dir }}"
+    state: directory
+    mode: '0755'

@@ -1,0 +1,9 @@
+{
+  "agent_name": "{{ agent_name | default(inventory_hostname) }}",
+  "role": "{{ agent_role | default('worker') }}",
+  "status": "active",
+  "skills": [],
+  "mcps": [],
+  "registered_at": "{{ ansible_date_time.iso8601 | default('') }}",
+  "source": "ansible"
+}

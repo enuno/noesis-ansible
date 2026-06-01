@@ -1,0 +1,6 @@
+---
+- name: Deploy Clawvisor Security Layer
+  hosts: local
+  gather_facts: false
+  roles:
+    - clawvisor

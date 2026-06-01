@@ -1,0 +1,3 @@
+---
+host_role: local-controller
+agent_runtime: docker

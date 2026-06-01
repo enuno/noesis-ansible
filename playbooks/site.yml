@@ -1,0 +1,38 @@
+---
+# site.yml — Operator entry point for the NoesisPraxis stack
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/site.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/site.yml --tags foundation,security
+#   ansible-playbook -i inventory/tailscale/hosts.ini playbooks/site.yml -e noesispraxis_stack_mode=tailscale
+
+- name: NoesisPraxis Stack — Preflight and Bootstrap
+  hosts: all
+  gather_facts: true
+  tags: [always, bootstrap]
+  vars:
+    noesispraxis_stack_mode: "{{ deployment_env | default('local') }}"
+  pre_tasks:
+    - name: Confirm inventory and environment
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname is defined
+          - noesispraxis_stack_mode in ['local', 'tailscale', 'production', 'macos']
+        fail_msg: "Invalid or missing inventory/environment configuration"
+
+    - name: Load secrets when vault file exists
+      ansible.builtin.include_vars:
+        file: "{{ inventory_dir }}/group_vars/secrets.yml"
+      when: secrets_loaded | default(false) | bool
+      ignore_errors: true
+
+    - name: Ensure base directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /opt/noesispraxis
+        - /var/log/noesispraxis
+
+- name: NoesisPraxis Stack — Master Orchestration
+  ansible.builtin.import_playbook: master-stack.yml

@@ -1,0 +1,5 @@
+acls:
+  - subject: {{ agent_name | default(inventory_hostname) }}
+    resource: {{ resource | default('*') }}
+    action: {{ action | default('deny') }}
+    effect: {{ effect | default('deny') }}

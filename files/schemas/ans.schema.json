@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ANS Agent",
+  "type": "object",
+  "properties": {
+    "agent_name": {
+      "type": "string"
+    },
+    "dns_name": {
+      "type": "string"
+    },
+    "certificate": {
+      "type": "object"
+    },
+    "protocols": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "endpoint": {
+      "type": "string",
+      "format": "uri"
+    },
+    "registered_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "agent_name",
+    "dns_name"
+  ]
+}

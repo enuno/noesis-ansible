@@ -1,0 +1,4 @@
+---
+- name: Backup MCPJungle data
+  ansible.builtin.debug:
+    msg: "Backup MCPJungle from {{ mcpjungle_data_dir }}"

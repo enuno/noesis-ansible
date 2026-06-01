@@ -1,0 +1,6 @@
+---
+hermesdev_name: NoesisHermesDev
+hermesdev_user: "{{ ansible_user_id }}"
+hermesdev_home: "{{ ansible_env.HOME }}"
+hermesdev_cpu_limit: 50
+hermesdev_ram_mb: 1024

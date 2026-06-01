@@ -1,0 +1,8 @@
+---
+- name: Rollback NoesisPraxis stack
+  hosts: local
+  gather_facts: false
+  tasks:
+    - name: Placeholder rollback task
+      ansible.builtin.debug:
+        msg: "Rollback initiated — implement per-service rollback logic"

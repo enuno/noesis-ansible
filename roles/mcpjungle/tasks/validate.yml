@@ -1,0 +1,10 @@
+---
+- name: Validate MCPJungle health
+  ansible.builtin.uri:
+    url: "http://localhost:{{ mcpjungle_port }}/health"
+    method: GET
+    status_code: 200
+  register: mcp_health
+  retries: 5
+  delay: 3
+  until: mcp_health.status == 200

@@ -1,0 +1,6 @@
+---
+- name: Deploy MCPJungle
+  hosts: local
+  gather_facts: false
+  roles:
+    - mcpjungle

@@ -1,0 +1,5 @@
+---
+- name: Restart MCPJungle
+  ansible.builtin.debug:
+    msg: "Restart MCPJungle container"
+  listen: restart_mcpjungle

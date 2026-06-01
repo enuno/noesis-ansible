@@ -1,0 +1,5 @@
+---
+hermes_name: noesis-hermes
+hermes_image: noesispraxis/hermes:latest
+hermes_port: 8091
+hermes_data_dir: /opt/noesispraxis/hermes

@@ -1,0 +1,7 @@
+---
+- name: Include Tailscale install
+  ansible.builtin.include_tasks: install.yml
+- name: Include Tailscale configure
+  ansible.builtin.include_tasks: configure.yml
+- name: Include Tailscale validate
+  ansible.builtin.include_tasks: validate.yml

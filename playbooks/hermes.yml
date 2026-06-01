@@ -1,0 +1,6 @@
+---
+- name: Deploy Hermes Agent
+  hosts: local
+  gather_facts: false
+  roles:
+    - hermes

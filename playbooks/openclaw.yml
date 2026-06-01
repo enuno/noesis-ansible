@@ -1,0 +1,6 @@
+---
+- name: Deploy OpenClaw Agent
+  hosts: local
+  gather_facts: false
+  roles:
+    - openclaw

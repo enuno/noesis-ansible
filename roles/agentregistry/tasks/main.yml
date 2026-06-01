@@ -1,0 +1,9 @@
+---
+- name: Include Agent Registry install
+  ansible.builtin.include_tasks: install.yml
+- name: Include Agent Registry configure
+  ansible.builtin.include_tasks: configure.yml
+- name: Include Agent Registry dashboard
+  ansible.builtin.include_tasks: dashboard.yml
+- name: Include Agent Registry validate
+  ansible.builtin.include_tasks: validate.yml
