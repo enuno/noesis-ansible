@@ -78,6 +78,77 @@ ansible-playbook -i inventory/tailscale/hosts.ini playbooks/macos-hermesdev.yml
 └── scripts/            # Operational helper scripts
 ```
 
+## Infrastructure Diagram
+
+```mermaid
+flowchart TD
+    subgraph Human["Human Layer"]
+        user["Operator / Admin"]
+        tg["Telegram Group"]
+    end
+
+    subgraph Network["Network Layer"]
+        ts["Tailscale Mesh VPN"]
+    end
+
+    subgraph Control["Control Plane"]
+        acp["ACP Registry :8081"]
+        ans["ANS :8082"]
+        ar["Agent Registry :8083"]
+        a2a["A2A Registry :8084"]
+    end
+
+    subgraph Security["Security Layer"]
+        mcp["MCPJungle :8085"]
+        cv["Clawvisor Policy Engine"]
+    end
+
+    subgraph Runtime["Generic Runtime"]
+        oc["OpenClaw :8090"]
+        hm["Hermes :8091"]
+    end
+
+    subgraph MacOS["macOS Runtime"]
+        cd["ClawDev 512MB"]
+        hd["HermesDev 1024MB"]
+    end
+
+    user --> ts
+    tg --> ts
+    ts --> acp
+    ts --> oc
+    ts --> hm
+    ts --> cd
+    ts --> hd
+
+    acp --> ans
+    ans --> ar
+    ar --> a2a
+    a2a --> mcp
+    mcp --> cv
+    cv --> oc
+    cv --> hm
+    cv --> cd
+    cv --> hd
+
+    oc --> a2a
+    hm --> acp
+    cd --> ts
+    hd --> ts
+
+    classDef network fill:#2a2a4a,stroke:#3050FF,color:#E8ECFF
+    classDef control fill:#1a3a2a,stroke:#10b981,color:#E8FFEE
+    classDef security fill:#3a1a1a,stroke:#ef4444,color:#FFE8E8
+    classDef runtime fill:#2a2a1a,stroke:#f59e0b,color:#FFF8E8
+    classDef macos fill:#1a2a3a,stroke:#60a5fa,color:#E8F4FF
+
+    class ts network
+    class acp,ans,ar,a2a control
+    class mcp,cv security
+    class oc,hm runtime
+    class cd,hd macos
+```
+
 ## Orchestration Flow
 
 ```
