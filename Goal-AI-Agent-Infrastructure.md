@@ -1,4 +1,6 @@
 Master Goal:
+Hermes must treat ~/projects/noesis-ansible/ as the repository root and must write all generated artifacts only within that tree. The repository is the source of truth for the Noesis Universe infrastructure. Any Ansible playbook, role, template, schema, inventory, custom module, or utility script must be created in-place under that repository and must remain idempotent, auditable, and safe to rerun.
+
 Design, deploy, secure, and operate a comprehensive multi-agent system for NoesisPraxis using Ansible as the single source of truth for infrastructure automation. This stack must include:
 - ACP registry for agent-client communication and lifecycle tracking.
 - Agent Name Service (ANS) for secure agent naming, discovery, certificates, and protocol translation.
@@ -261,3 +263,15 @@ Required outcomes:
 - NoesisPraxis must be able to use this repo to deploy and maintain the Noesis Universe infrastructure.
 - The repo must manage identity, discovery, registry, agent runtime, communications, Harbor artifacts, security policy, networking, secrets, backup, restore, validation, and rollback as composable Ansible workflows.
 - Every change should be auditable, repeatable, and represented in code.
+
+Execution order:
+1. Read this Goal file in full before doing any work.
+2. Then process the files in ./Tasks sequentially in numeric order, starting with task 1 and continuing through task 10 and beyond if present.
+3. For each task file:
+   - Read it completely.
+   - Implement only the work required by that task.
+   - Validate the result before moving on.
+   - Preserve all existing repository structure unless the task explicitly changes it.
+4. If a task depends on a file or artifact that does not yet exist, create the missing scaffold in the smallest safe way, then continue.
+5. Do not skip, reorder, or parallelize tasks unless a dependency or blocker is explicitly documented.
+6. If blocked, stop at the smallest safe boundary and report the exact task file and reason.
