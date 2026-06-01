@@ -1,13 +1,57 @@
 ---
-- name: Bootstrap hosts for NoesisPraxis
+# bootstrap.yml — Host preparation, secrets bootstrap, and preflight checks
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/bootstrap.yml
+#   ansible-playbook -i inventory/tailscale/hosts.ini playbooks/bootstrap.yml
+
+- name: NoesisPraxis Bootstrap — Preflight and Secrets
   hosts: all
   gather_facts: true
-  tasks:
-    - name: Ensure required directories exist
+  tags: [always, bootstrap]
+
+  pre_tasks:
+    - name: Ensure Python is available
+      ansible.builtin.raw: |
+        python3 --version || (apt-get update -qq && apt-get install -y -qq python3)
+      changed_when: false
+      failed_when: false
+
+    - name: Gather facts after Python check
+      ansible.builtin.setup:
+
+    - name: Validate inventory context
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname is defined
+          - deployment_env is defined
+        fail_msg: "Missing required inventory variables. Check inventory/group_vars/all.yml"
+
+    - name: Ensure base directories exist
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
         mode: '0755'
       loop:
-        - /opt/noesispraxis
-        - /var/log/noesispraxis
+        - "{{ base_data_dir | default('/opt/noesispraxis') }}"
+        - "{{ base_log_dir | default('/var/log/noesispraxis') }}"
+        - "{{ backup_dir | default('/opt/noesispraxis/backups') }}"
+
+  roles:
+    - role: bitwarden_secrets
+      when: noesispraxis_enable_secrets_bootstrap | default(true) | bool
+      tags: [secrets, bootstrap]
+
+  post_tasks:
+    - name: Bootstrap complete marker
+      ansible.builtin.copy:
+        content: |
+          ---
+          bootstrapped_at: "{{ ansible_date_time.iso8601 }}"
+          inventory: "{{ inventory_file }}"
+          hostname: "{{ inventory_hostname }}"
+        dest: "{{ base_data_dir | default('/opt/noesispraxis') }}/.bootstrap-meta.yml"
+        mode: '0644'
+
+    - name: Report bootstrap status
+      ansible.builtin.debug:
+        msg: "Bootstrap complete for {{ inventory_hostname }} in {{ deployment_env }} mode"

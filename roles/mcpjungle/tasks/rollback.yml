@@ -1,0 +1,4 @@
+---
+- name: Rollback placeholder for mcpjungle
+  ansible.builtin.debug:
+    msg: "Rollback not yet implemented for mcpjungle. Manual intervention may be required."

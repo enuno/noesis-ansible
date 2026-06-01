@@ -1,0 +1,12 @@
+---
+- name: Include Bitwarden secrets fetch
+  ansible.builtin.include_tasks: fetch.yml
+  tags: [secrets, bootstrap]
+
+- name: Include secrets validation
+  ansible.builtin.include_tasks: validate.yml
+  tags: [secrets, validate]
+
+- name: Include secrets rotation check
+  ansible.builtin.include_tasks: rotate.yml
+  tags: [secrets, maintenance]

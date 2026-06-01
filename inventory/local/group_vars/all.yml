@@ -37,3 +37,6 @@ local_ram_mb: 1024
 
 # Telegram placeholders (secrets in vault)
 telegram_group: NoesisWorld
+
+# Bitwarden secrets bootstrap toggle
+noesispraxis_enable_secrets_bootstrap: true

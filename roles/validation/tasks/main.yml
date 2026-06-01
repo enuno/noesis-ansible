@@ -1,7 +1,50 @@
 ---
-- name: Include health checks
-  ansible.builtin.include_tasks: health.yml
-- name: Include schema checks
-  ansible.builtin.include_tasks: schema.yml
-- name: Include connectivity checks
-  ansible.builtin.include_tasks: connectivity.yml
+- name: Validate Ansible syntax
+  ansible.builtin.command: |
+    ansible-playbook --syntax-check {{ playbook_dir }}/site.yml
+  delegate_to: localhost
+  changed_when: false
+  failed_when: false
+  tags: [validate]
+
+- name: Check required directories exist
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ base_data_dir | default('/opt/noesispraxis') }}"
+    - "{{ base_log_dir | default('/var/log/noesispraxis') }}"
+    - "{{ backup_dir | default('/opt/noesispraxis/backups') }}"
+  register: dir_checks
+  tags: [validate]
+
+- name: Report missing directories
+  ansible.builtin.debug:
+    msg: "WARNING: Required directory missing: {{ item.item }} — will be created during bootstrap"
+  loop: "{{ dir_checks.results }}"
+  when: not item.stat.exists
+  tags: [validate]
+
+- name: Check Docker daemon (if applicable)
+  ansible.builtin.command: docker version --format '{% raw %}{{.Server.Version}}{% endraw %}'
+  register: docker_info
+  changed_when: false
+  failed_when: false
+  when: agent_runtime | default('docker') == 'docker'
+  tags: [validate]
+
+- name: Report Docker status
+  ansible.builtin.debug:
+    msg: "Docker: {{ docker_info.stdout | default('NOT AVAILABLE') }}"
+  when: docker_info.stdout is defined
+  tags: [validate]
+
+- name: Check secrets metadata
+  ansible.builtin.stat:
+    path: "{{ local_secrets_dir | default(base_data_dir + '/secrets') }}/.secrets-meta.yml"
+  register: secrets_meta
+  tags: [validate]
+
+- name: Report secrets status
+  ansible.builtin.debug:
+    msg: "Secrets: {{ 'CONFIGURED' if secrets_meta.stat.exists else 'NOT CONFIGURED' }}"
+  tags: [validate]

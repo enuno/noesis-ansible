@@ -1,0 +1,85 @@
+---
+- name: Ensure bws CLI is available
+  ansible.builtin.command: "{{ bws_cli_path }} --version"
+  register: bws_version
+  changed_when: false
+  failed_when: bws_version.rc != 0
+  tags: [secrets, bootstrap]
+
+- name: Ensure vault password file exists
+  ansible.builtin.stat:
+    path: "{{ vault_password_file }}"
+  register: vault_pass_stat
+  tags: [secrets, bootstrap]
+
+- name: Fail if vault password file is missing
+  ansible.builtin.fail:
+    msg: "Vault password file not found at {{ vault_password_file }}. Create it with: echo 'your-password' > {{ vault_password_file }} && chmod 600 {{ vault_password_file }}"
+  when: not vault_pass_stat.stat.exists
+  tags: [secrets, bootstrap]
+
+- name: Ensure local secrets directory exists
+  ansible.builtin.file:
+    path: "{{ local_secrets_dir }}"
+    state: directory
+    mode: '0700'
+  tags: [secrets, bootstrap]
+
+- name: Fetch secrets from Bitwarden
+  ansible.builtin.shell: |
+    set -o pipefail
+    {{ bws_cli_path }} secret list --organization-id {{ bitwarden_org_id }} \
+      | jq -r '.[] | select(.key == "{{ item.value.bws_key }}") | .value'
+  args:
+    executable: /bin/bash
+  environment:
+    BWS_ACCESS_TOKEN: "{{ lookup('env', 'BWS_ACCESS_TOKEN') | default(omit) }}"
+  register: fetched_secret
+  changed_when: false
+  no_log: true
+  loop: "{{ bitwarden_secrets_map | dict2items }}"
+  when:
+    - bitwarden_org_id | length > 0
+    - bitwarden_secrets_map is defined
+    - bitwarden_secrets_map | length > 0
+  tags: [secrets, bootstrap]
+
+- name: Write fetched secrets to Vault-managed files
+  ansible.builtin.lineinfile:
+    path: "{{ item.item.value.vault_file }}"
+    regexp: "^{{ item.item.value.vault_key }}:"
+    line: "{{ item.item.value.vault_key }}: \"{{ item.stdout }}\""
+    create: true
+    mode: '0600'
+  loop: "{{ fetched_secret.results | default([]) }}"
+  when:
+    - fetched_secret.results is defined
+    - item.stdout is defined
+    - item.stdout | length > 0
+  no_log: true
+  tags: [secrets, bootstrap]
+
+- name: Encrypt secrets files with Ansible Vault
+  ansible.builtin.command: |
+    ansible-vault encrypt {{ item.value.vault_file }} \
+      --vault-password-file {{ vault_password_file }}
+  loop: "{{ bitwarden_secrets_map | dict2items }}"
+  register: vault_encrypt
+  changed_when: vault_encrypt.rc == 0
+  failed_when: vault_encrypt.rc != 0 and 'already encrypted' not in vault_encrypt.stderr
+  no_log: true
+  when:
+    - bitwarden_secrets_map is defined
+    - bitwarden_secrets_map | length > 0
+  tags: [secrets, bootstrap]
+
+- name: Write secrets metadata for rotation tracking
+  ansible.builtin.copy:
+    content: |
+      ---
+      secrets_fetched_at: "{{ ansible_date_time.iso8601 }}"
+      secrets_source: bitwarden
+      secrets_count: {{ bitwarden_secrets_map | default({}) | length }}
+    dest: "{{ local_secrets_dir }}/.secrets-meta.yml"
+    mode: '0600'
+  tags: [secrets, bootstrap]

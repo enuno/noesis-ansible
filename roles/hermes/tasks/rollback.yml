@@ -1,0 +1,4 @@
+---
+- name: Rollback placeholder for hermes
+  ansible.builtin.debug:
+    msg: "Rollback not yet implemented for hermes. Manual intervention may be required."

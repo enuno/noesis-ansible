@@ -1,0 +1,20 @@
+---
+- name: Check secrets age for rotation
+  ansible.builtin.stat:
+    path: "{{ local_secrets_dir }}/.secrets-meta.yml"
+  register: secrets_meta_stat
+  tags: [secrets, maintenance]
+
+- name: Load secrets metadata for rotation check
+  ansible.builtin.include_vars:
+    file: "{{ local_secrets_dir }}/.secrets-meta.yml"
+    name: secrets_meta
+  when: secrets_meta_stat.stat.exists
+  tags: [secrets, maintenance]
+
+- name: Trigger secrets refresh if stale
+  ansible.builtin.include_tasks: fetch.yml
+  when:
+    - secrets_meta_stat.stat.exists
+    - (ansible_date_time.epoch | int - (secrets_meta.secrets_fetched_at | default(ansible_date_time.iso8601) | to_datetime('%Y-%m-%dT%H:%M:%SZ').strftime('%s')) | int) > (secret_max_age_days | int * 86400)
+  tags: [secrets, maintenance]

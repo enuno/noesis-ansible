@@ -1,0 +1,14 @@
+---
+- name: Remove local secrets directory
+  ansible.builtin.file:
+    path: "{{ local_secrets_dir }}"
+    state: absent
+
+- name: Remove secrets metadata
+  ansible.builtin.file:
+    path: "{{ base_data_dir | default('/opt/noesispraxis') }}/.secrets-meta.yml"
+    state: absent
+
+- name: Report secrets rollback
+  ansible.builtin.debug:
+    msg: "Secrets removed. Re-run bootstrap to re-fetch from Bitwarden."

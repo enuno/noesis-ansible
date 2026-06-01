@@ -1,0 +1,4 @@
+---
+- name: Rollback placeholder for validation
+  ansible.builtin.debug:
+    msg: "Rollback not yet implemented for validation. Manual intervention may be required."

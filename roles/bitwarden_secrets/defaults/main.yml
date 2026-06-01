@@ -1,0 +1,32 @@
+---
+# Bitwarden Secrets Manager integration defaults
+# All secrets are fetched from Bitwarden via `bws` CLI and written to Vault-managed files
+
+# bws CLI path
+bws_cli_path: "{{ ansible_env.HOME }}/.local/bin/bws"
+
+# Bitwarden organization and project IDs (placeholders — override in host_vars)
+bitwarden_org_id: ""
+bitwarden_project_id: ""
+
+# Secret keys to fetch from Bitwarden and map to Ansible Vault files
+# Override in inventory group_vars or host_vars
+# Example:
+# bitwarden_secrets_map:
+#   telegram_bot_token:
+#     bws_key: "telegram-bot-token"
+#     vault_file: "{{ inventory_dir }}/group_vars/secrets.yml"
+#     vault_key: "vault_telegram_bot_token"
+bitwarden_secrets_map: {}
+
+# Vault password file path (must exist and be chmod 600)
+vault_password_file: "{{ playbook_dir }}/../.vault_pass"
+
+# Local secrets directory for runtime consumption (Vault-decrypted at runtime)
+local_secrets_dir: "{{ base_data_dir | default('/opt/noesispraxis') }}/secrets"
+
+# Rotation policy: max age in days before secrets should be refreshed
+secret_max_age_days: 90
+
+# Validate secrets after fetch
+validate_secrets: true

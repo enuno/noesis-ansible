@@ -1,13 +1,49 @@
 ---
-- name: Validate inter-service connectivity
-  ansible.builtin.wait_for:
-    host: localhost
-    port: "{{ item }}"
-    timeout: "{{ validation_timeout }}"
+- name: Test localhost registry endpoints
+  ansible.builtin.uri:
+    url: "{{ item }}"
+    method: GET
+    status_code: [200, 404]
+    timeout: 5
   loop:
-    - 8081
-    - 8082
-    - 8083
-    - 8084
-    - 8085
+    - "{{ acp_registry_url | default('http://localhost:8081') }}/health"
+    - "{{ ans_url | default('http://localhost:8082') }}/health"
+    - "{{ agentregistry_url | default('http://localhost:8083') }}/health"
+    - "{{ a2a_registry_url | default('http://localhost:8084') }}/health"
+    - "{{ mcpjungle_url | default('http://localhost:8085') }}/health"
+  register: registry_health
   ignore_errors: true
+  tags: [connectivity]
+
+- name: Report registry connectivity
+  ansible.builtin.debug:
+    msg: "{{ item.item }}: {{ 'OK' if item.status == 200 else 'NOT READY' }} (HTTP {{ item.status | default('FAILED') }})"
+  loop: "{{ registry_health.results }}"
+  tags: [connectivity]
+
+- name: Test Tailscale connectivity (if applicable)
+  ansible.builtin.command: |
+    tailscale status --json 2>/dev/null | jq -r '.Self.Online'
+  register: tailscale_status
+  changed_when: false
+  failed_when: false
+  when: noesispraxis_enable_tailscale | default(true) | bool
+  tags: [connectivity]
+
+- name: Report Tailscale status
+  ansible.builtin.debug:
+    msg: "Tailscale: {{ 'ONLINE' if tailscale_status.stdout == 'true' else 'OFFLINE or not installed' }}"
+  when: tailscale_status.stdout is defined
+  tags: [connectivity]
+
+- name: Test macOS agent ports (if macOS host)
+  ansible.builtin.wait_for:
+    host: "{{ macos_localhost_bind | default('127.0.0.1') }}"
+    port: "{{ item }}"
+    timeout: 3
+  loop:
+    - "{{ macos_clawdev_port | default(8090) }}"
+    - "{{ macos_hermesdev_port | default(8091) }}"
+  ignore_errors: true
+  when: ansible_system == 'Darwin'
+  tags: [connectivity]

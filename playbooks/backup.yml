@@ -1,6 +1,36 @@
 ---
-- name: Backup NoesisPraxis registries and configs
-  hosts: local
-  gather_facts: false
+# backup.yml — Registry and config backup
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/backup.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/backup.yml --tags backup,full
+
+- name: NoesisPraxis Backup
+  hosts: all
+  gather_facts: true
+  tags: [backup]
+
+  pre_tasks:
+    - name: Ensure backup directory exists
+      ansible.builtin.file:
+        path: "{{ backup_dir | default('/opt/noesispraxis/backups') }}/{{ ansible_date_time.date }}"
+        state: directory
+        mode: '0700'
+
   roles:
-    - backup
+    - role: backup
+      tags: [backup]
+
+  post_tasks:
+    - name: Backup complete marker
+      ansible.builtin.copy:
+        content: |
+          ---
+          backup_at: "{{ ansible_date_time.iso8601 }}"
+          hostname: "{{ inventory_hostname }}"
+          inventory: "{{ inventory_file }}"
+        dest: "{{ backup_dir | default('/opt/noesispraxis/backups') }}/{{ ansible_date_time.date }}/.backup-meta.yml"
+        mode: '0644'
+
+    - name: Report backup status
+      ansible.builtin.debug:
+        msg: "Backup complete: {{ backup_dir | default('/opt/noesispraxis/backups') }}/{{ ansible_date_time.date }}"

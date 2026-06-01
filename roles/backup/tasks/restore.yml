@@ -1,4 +1,40 @@
 ---
-- name: Restore registry data
-  ansible.builtin.debug:
-    msg: "Restore registries from {{ backup_dir }}"
+- name: Restore registry configurations
+  ansible.builtin.copy:
+    src: "{{ restore_source }}/{{ item }}"
+    dest: "{{ base_data_dir | default('/opt/noesispraxis') }}/{{ item }}"
+    mode: '0600'
+  loop:
+    - acp_registry
+    - ans
+    - agentregistry
+    - a2a_registry
+    - mcpjungle
+    - clawvisor
+  ignore_errors: true
+  tags: [restore]
+
+- name: Restore Docker compose files
+  ansible.builtin.copy:
+    src: "{{ restore_source }}/docker-compose.yml"
+    dest: "{{ base_data_dir | default('/opt/noesispraxis') }}/docker-compose.yml"
+    mode: '0644'
+  ignore_errors: true
+  tags: [restore]
+
+- name: Restore environment files
+  ansible.builtin.copy:
+    src: "{{ restore_source }}/.env"
+    dest: "{{ base_data_dir | default('/opt/noesispraxis') }}/.env"
+    mode: '0600'
+  ignore_errors: true
+  tags: [restore]
+
+- name: Restore full backup if available
+  ansible.builtin.unarchive:
+    src: "{{ restore_source }}/full-backup.tar.gz"
+    dest: "{{ base_data_dir | default('/opt/noesispraxis') }}"
+    remote_src: true
+  when: restore_source + "/full-backup.tar.gz" is file
+  ignore_errors: true
+  tags: [restore]

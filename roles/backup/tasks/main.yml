@@ -1,5 +1,41 @@
 ---
-- name: Include backup tasks
-  ansible.builtin.include_tasks: backup.yml
-- name: Include restore tasks
-  ansible.builtin.include_tasks: restore.yml
+- name: Backup registry configurations
+  ansible.builtin.copy:
+    src: "{{ base_data_dir | default('/opt/noesispraxis') }}/{{ item }}"
+    dest: "{{ backup_dir | default('/opt/noesispraxis/backups') }}/{{ ansible_date_time.date }}/{{ item }}"
+    mode: '0600'
+  loop:
+    - acp_registry
+    - ans
+    - agentregistry
+    - a2a_registry
+    - mcpjungle
+    - clawvisor
+  ignore_errors: true
+  tags: [backup]
+
+- name: Backup Docker compose files
+  ansible.builtin.copy:
+    src: "{{ base_data_dir | default('/opt/noesispraxis') }}/docker-compose.yml"
+    dest: "{{ backup_dir | default('/opt/noesispraxis/backups') }}/{{ ansible_date_time.date }}/docker-compose.yml"
+    mode: '0644'
+  ignore_errors: true
+  tags: [backup]
+
+- name: Backup environment files
+  ansible.builtin.copy:
+    src: "{{ base_data_dir | default('/opt/noesispraxis') }}/.env"
+    dest: "{{ backup_dir | default('/opt/noesispraxis/backups') }}/{{ ansible_date_time.date }}/.env"
+    mode: '0600'
+  ignore_errors: true
+  tags: [backup]
+
+- name: Full backup — include runtime data and logs
+  ansible.builtin.archive:
+    path:
+      - "{{ base_data_dir | default('/opt/noesispraxis') }}"
+      - "{{ base_log_dir | default('/var/log/noesispraxis') }}"
+    dest: "{{ backup_dir | default('/opt/noesispraxis/backups') }}/{{ ansible_date_time.date }}/full-backup.tar.gz"
+    format: gz
+  tags: [backup, full]
+  when: ansible_run_tags | intersect(['full']) | length > 0

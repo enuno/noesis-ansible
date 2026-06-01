@@ -1,0 +1,4 @@
+---
+- name: Rollback placeholder for clawvisor
+  ansible.builtin.debug:
+    msg: "Rollback not yet implemented for clawvisor. Manual intervention may be required."

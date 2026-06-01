@@ -1,8 +1,91 @@
 ---
-- name: Rollback NoesisPraxis stack
-  hosts: local
-  gather_facts: false
+# rollback.yml — Controlled rollback by phase
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/rollback.yml -e rollback_phase=foundation
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/rollback.yml -e rollback_phase=security
+
+- name: NoesisPraxis Rollback
+  hosts: all
+  gather_facts: true
+  tags: [rollback]
+
+  vars:
+    rollback_phase: ""
+
+  pre_tasks:
+    - name: Validate rollback phase
+      ansible.builtin.fail:
+        msg: "rollback_phase must be one of: bootstrap, foundation, security, runtime, macos, telegram, tailscale"
+      when: rollback_phase not in ['bootstrap', 'foundation', 'security', 'runtime', 'macos', 'telegram', 'tailscale']
+
   tasks:
-    - name: Placeholder rollback task
+    - name: Rollback foundation phase
+      ansible.builtin.include_role:
+        name: "{{ item }}"
+        tasks_from: rollback.yml
+      loop:
+        - acp_registry
+        - ans
+        - agentregistry
+        - a2a_registry
+      when: rollback_phase == 'foundation'
+      ignore_errors: true
+
+    - name: Rollback security phase
+      ansible.builtin.include_role:
+        name: "{{ item }}"
+        tasks_from: rollback.yml
+      loop:
+        - mcpjungle
+        - clawvisor
+      when: rollback_phase == 'security'
+      ignore_errors: true
+
+    - name: Rollback runtime phase
+      ansible.builtin.include_role:
+        name: "{{ item }}"
+        tasks_from: rollback.yml
+      loop:
+        - openclaw
+        - hermes
+      when: rollback_phase == 'runtime'
+      ignore_errors: true
+
+    - name: Rollback macOS phase
+      ansible.builtin.include_role:
+        name: "{{ item }}"
+        tasks_from: rollback.yml
+      loop:
+        - macos_clawdev
+        - macos_hermesdev
+      when: rollback_phase == 'macos'
+      ignore_errors: true
+
+    - name: Rollback telegram phase
+      ansible.builtin.include_role:
+        name: telegram
+        tasks_from: rollback.yml
+      when: rollback_phase == 'telegram'
+      ignore_errors: true
+
+    - name: Rollback tailscale phase
+      ansible.builtin.include_role:
+        name: tailscale
+        tasks_from: rollback.yml
+      when: rollback_phase == 'tailscale'
+      ignore_errors: true
+
+  post_tasks:
+    - name: Rollback marker
+      ansible.builtin.copy:
+        content: |
+          ---
+          rolled_back_at: "{{ ansible_date_time.iso8601 }}"
+          rollback_phase: "{{ rollback_phase }}"
+          hostname: "{{ inventory_hostname }}"
+        dest: "{{ base_data_dir | default('/opt/noesispraxis') }}/.rollback-meta.yml"
+        mode: '0644'
+
+    - name: Report rollback status
       ansible.builtin.debug:
-        msg: "Rollback initiated — implement per-service rollback logic"
+        msg: "Rollback complete for phase: {{ rollback_phase }}"

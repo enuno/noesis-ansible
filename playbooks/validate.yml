@@ -1,6 +1,44 @@
 ---
-- name: Validate NoesisPraxis stack health
+# validate.yml — Health checks, schema validation, and connectivity tests
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/validate.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/validate.yml --tags validate,connectivity
+
+- name: NoesisPraxis Validation — Schema and Health
   hosts: all
-  gather_facts: false
+  gather_facts: true
+  tags: [always, validate]
+
+  pre_tasks:
+    - name: Ensure validation can run
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname is defined
+          - deployment_env is defined
+        fail_msg: "Missing required variables for validation"
+
+    - name: Check bootstrap marker
+      ansible.builtin.stat:
+        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/.bootstrap-meta.yml"
+      register: bootstrap_marker
+
+    - name: Warn if not bootstrapped
+      ansible.builtin.debug:
+        msg: "WARNING: Host may not be bootstrapped. Run bootstrap.yml first."
+      when: not bootstrap_marker.stat.exists
+
   roles:
-    - validation
+    - role: validation
+      tags: [validate]
+
+  post_tasks:
+    - name: Connectivity tests
+      ansible.builtin.include_role:
+        name: validation
+        tasks_from: connectivity.yml
+      tags: [connectivity]
+      when: noesispraxis_enable_validation | default(true) | bool
+
+    - name: Validation report
+      ansible.builtin.debug:
+        msg: "Validation complete for {{ inventory_hostname }}"

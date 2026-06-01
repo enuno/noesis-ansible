@@ -1,0 +1,4 @@
+---
+- name: Rollback placeholder for agentregistry
+  ansible.builtin.debug:
+    msg: "Rollback not yet implemented for agentregistry. Manual intervention may be required."

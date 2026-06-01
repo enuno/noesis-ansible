@@ -1,0 +1,4 @@
+---
+- name: Rollback placeholder for telegram
+  ansible.builtin.debug:
+    msg: "Rollback not yet implemented for telegram. Manual intervention may be required."

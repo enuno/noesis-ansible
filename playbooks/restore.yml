@@ -1,6 +1,61 @@
 ---
-- name: Restore NoesisPraxis registries and configs
-  hosts: local
-  gather_facts: false
+# restore.yml — Restore registries, configs, and state from backup
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/restore.yml -e restore_timestamp=latest
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/restore.yml -e restore_timestamp=2026-06-01
+
+- name: NoesisPraxis Restore
+  hosts: all
+  gather_facts: true
+  tags: [restore]
+
+  vars:
+    restore_timestamp: "latest"
+
+  pre_tasks:
+    - name: Determine restore source
+      ansible.builtin.find:
+        paths: "{{ backup_dir | default('/opt/noesispraxis/backups') }}"
+        file_type: directory
+        recurse: false
+      register: backup_dirs
+
+    - name: Set restore source
+      ansible.builtin.set_fact:
+        restore_source: "{{ backup_dirs.files | sort(attribute='mtime', reverse=true) | map(attribute='path') | first }}"
+      when: restore_timestamp == "latest"
+
+    - name: Set restore source (specific)
+      ansible.builtin.set_fact:
+        restore_source: "{{ backup_dir | default('/opt/noesispraxis/backups') }}/{{ restore_timestamp }}"
+      when: restore_timestamp != "latest"
+
+    - name: Validate restore source exists
+      ansible.builtin.stat:
+        path: "{{ restore_source }}"
+      register: restore_stat
+
+    - name: Fail if restore source missing
+      ansible.builtin.fail:
+        msg: "Restore source not found: {{ restore_source }}"
+      when: not restore_stat.stat.exists
+
   roles:
-    - backup
+    - role: backup
+      tasks_from: restore.yml
+      tags: [restore]
+
+  post_tasks:
+    - name: Restore complete marker
+      ansible.builtin.copy:
+        content: |
+          ---
+          restored_at: "{{ ansible_date_time.iso8601 }}"
+          restore_source: "{{ restore_source }}"
+          hostname: "{{ inventory_hostname }}"
+        dest: "{{ base_data_dir | default('/opt/noesispraxis') }}/.restore-meta.yml"
+        mode: '0644'
+
+    - name: Report restore status
+      ansible.builtin.debug:
+        msg: "Restore complete from {{ restore_source }}"

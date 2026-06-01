@@ -1,0 +1,4 @@
+---
+- name: Rollback placeholder for tailscale
+  ansible.builtin.debug:
+    msg: "Rollback not yet implemented for tailscale. Manual intervention may be required."

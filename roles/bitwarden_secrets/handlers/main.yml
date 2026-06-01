@@ -1,0 +1,5 @@
+---
+- name: Reload secrets
+  ansible.builtin.debug:
+    msg: "Secrets refreshed — restart dependent services as needed"
+  listen: secrets_reloaded

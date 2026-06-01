@@ -1,0 +1,4 @@
+---
+- name: Rollback placeholder for ans
+  ansible.builtin.debug:
+    msg: "Rollback not yet implemented for ans. Manual intervention may be required."

@@ -1,0 +1,4 @@
+---
+- name: Rollback placeholder for backup
+  ansible.builtin.debug:
+    msg: "Rollback not yet implemented for backup. Manual intervention may be required."
