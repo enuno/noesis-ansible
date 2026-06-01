@@ -1,11 +1,16 @@
 ---
-- name: Include HermesDev install
+- name: Include macOS HermesDev install
   ansible.builtin.include_tasks: install.yml
-- name: Include HermesDev configure
+  tags: [macos, hermesdev, install]
+
+- name: Include macOS HermesDev configure
   ansible.builtin.include_tasks: configure.yml
-- name: Include HermesDev launchd
-  ansible.builtin.include_tasks: launchd.yml
-- name: Include HermesDev network
-  ansible.builtin.include_tasks: network.yml
-- name: Include HermesDev validate
+  tags: [macos, hermesdev, configure]
+
+- name: Include macOS HermesDev service (custom module)
+  ansible.builtin.include_tasks: service.yml
+  tags: [macos, hermesdev, service]
+
+- name: Include macOS HermesDev validate
   ansible.builtin.include_tasks: validate.yml
+  tags: [macos, hermesdev, validate]

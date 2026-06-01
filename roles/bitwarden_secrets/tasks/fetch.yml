@@ -25,52 +25,22 @@
     mode: '0700'
   tags: [secrets, bootstrap]
 
-- name: Fetch secrets from Bitwarden
-  ansible.builtin.shell: |
-    set -o pipefail
-    {{ bws_cli_path }} secret list --organization-id {{ bitwarden_org_id }} \
-      | jq -r '.[] | select(.key == "{{ item.value.bws_key }}") | .value'
-  args:
-    executable: /bin/bash
-  environment:
-    BWS_ACCESS_TOKEN: "{{ lookup('env', 'BWS_ACCESS_TOKEN') | default(omit) }}"
-  register: fetched_secret
-  changed_when: false
-  no_log: true
+- name: Fetch secrets using noesis_bws_secret custom module
+  noesis_bws_secret:
+    bws_cli_path: "{{ bws_cli_path }}"
+    org_id: "{{ bitwarden_org_id }}"
+    project_id: "{{ bitwarden_project_id | default('') }}"
+    secret_key: "{{ item.value.bws_key }}"
+    vault_file: "{{ item.value.vault_file }}"
+    vault_key: "{{ item.value.vault_key }}"
+    vault_password_file: "{{ vault_password_file }}"
+    state: present
   loop: "{{ bitwarden_secrets_map | dict2items }}"
   when:
     - bitwarden_org_id | length > 0
     - bitwarden_secrets_map is defined
     - bitwarden_secrets_map | length > 0
-  tags: [secrets, bootstrap]
-
-- name: Write fetched secrets to Vault-managed files
-  ansible.builtin.lineinfile:
-    path: "{{ item.item.value.vault_file }}"
-    regexp: "^{{ item.item.value.vault_key }}:"
-    line: "{{ item.item.value.vault_key }}: \"{{ item.stdout }}\""
-    create: true
-    mode: '0600'
-  loop: "{{ fetched_secret.results | default([]) }}"
-  when:
-    - fetched_secret.results is defined
-    - item.stdout is defined
-    - item.stdout | length > 0
   no_log: true
-  tags: [secrets, bootstrap]
-
-- name: Encrypt secrets files with Ansible Vault
-  ansible.builtin.command: |
-    ansible-vault encrypt {{ item.value.vault_file }} \
-      --vault-password-file {{ vault_password_file }}
-  loop: "{{ bitwarden_secrets_map | dict2items }}"
-  register: vault_encrypt
-  changed_when: vault_encrypt.rc == 0
-  failed_when: vault_encrypt.rc != 0 and 'already encrypted' not in vault_encrypt.stderr
-  no_log: true
-  when:
-    - bitwarden_secrets_map is defined
-    - bitwarden_secrets_map | length > 0
   tags: [secrets, bootstrap]
 
 - name: Write secrets metadata for rotation tracking

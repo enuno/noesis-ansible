@@ -1,0 +1,9 @@
+---
+- name: Remove registry sync state
+  ansible.builtin.file:
+    path: "{{ base_data_dir }}/registry_sync"
+    state: absent
+
+- name: Report registry sync rollback
+  ansible.builtin.debug:
+    msg: "Registry sync state removed"

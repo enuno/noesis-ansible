@@ -1,11 +1,16 @@
 ---
-- name: Include ClawDev install
+- name: Include macOS ClawDev install
   ansible.builtin.include_tasks: install.yml
-- name: Include ClawDev configure
+  tags: [macos, clawdev, install]
+
+- name: Include macOS ClawDev configure
   ansible.builtin.include_tasks: configure.yml
-- name: Include ClawDev launchd
-  ansible.builtin.include_tasks: launchd.yml
-- name: Include ClawDev network
-  ansible.builtin.include_tasks: network.yml
-- name: Include ClawDev validate
+  tags: [macos, clawdev, configure]
+
+- name: Include macOS ClawDev service (custom module)
+  ansible.builtin.include_tasks: service.yml
+  tags: [macos, clawdev, service]
+
+- name: Include macOS ClawDev validate
   ansible.builtin.include_tasks: validate.yml
+  tags: [macos, clawdev, validate]

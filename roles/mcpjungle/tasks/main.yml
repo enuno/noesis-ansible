@@ -1,11 +1,20 @@
 ---
 - name: Include MCPJungle install
   ansible.builtin.include_tasks: install.yml
+  tags: [mcpjungle, install]
+
 - name: Include MCPJungle configure
   ansible.builtin.include_tasks: configure.yml
-- name: Include MCPJungle onboard
+  tags: [mcpjungle, configure]
+
+- name: Include MCPJungle onboard (custom module)
   ansible.builtin.include_tasks: onboard.yml
+  tags: [mcpjungle, onboard]
+
 - name: Include MCPJungle validate
   ansible.builtin.include_tasks: validate.yml
+  tags: [mcpjungle, validate]
+
 - name: Include MCPJungle backup
   ansible.builtin.include_tasks: backup.yml
+  tags: [mcpjungle, backup]

@@ -1,0 +1,25 @@
+---
+- name: Install and start Noesis HermesDev launchd service
+  noesis_macos_service:
+    name: "com.noesispraxis.hermesdev"
+    plist_content:
+      Label: "com.noesispraxis.hermesdev"
+      ProgramArguments:
+        - "{{ macos_hermesdev_binary | default(ansible_env.HOME + '/.local/bin/hermesdev') }}"
+      EnvironmentVariables:
+        NODE_ENV: "production"
+        HERMESDEV_CONFIG: "{{ macos_config_dir }}/hermesdev.json"
+      StandardOutPath: "{{ macos_log_dir }}/hermesdev.log"
+      StandardErrorPath: "{{ macos_log_dir }}/hermesdev.error.log"
+      KeepAlive: true
+      RunAtLoad: true
+      Nice: 5
+    state: started
+    launchagents_dir: "{{ macos_launchagents_dir }}"
+    validate_port: "{{ macos_hermesdev_port | default(8091) }}"
+    validate_timeout: 15
+    resource_budget:
+      cpu_percent: "{{ macos_cpu_limit | default(50) }}"
+      ram_mb: "{{ macos_ram_mb | default(1024) }}"
+  when: ansible_system == 'Darwin'
+  tags: [macos, hermesdev, service]

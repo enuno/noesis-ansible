@@ -1,0 +1,8 @@
+---
+- name: Backup Clawvisor configuration
+  ansible.builtin.copy:
+    src: "{{ clawvisor_data_dir }}"
+    dest: "{{ backup_dir }}/{{ ansible_date_time.date }}/clawvisor"
+    mode: '0600'
+  ignore_errors: true
+  tags: [clawvisor, backup]

@@ -1,2 +1,57 @@
+# Ansible Vault password files
 .vault_pass
+*.vault_pass
+
+# Encrypted secrets
 secrets.yml
+**/secrets.yml
+**/group_vars/secrets.yml
+**/host_vars/secrets.yml
+
+# Local secrets directory
+secrets/
+**/secrets/
+
+# Environment files with credentials
+.env
+**/.env
+
+# macOS metadata
+.DS_Store
+**/.DS_Store
+
+# Ansible retry files
+*.retry
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Backup files
+*.bak
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Node modules (if any frontend work)
+node_modules/
+
+# OS files
+Thumbs.db
+desktop.ini

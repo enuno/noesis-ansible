@@ -12,9 +12,21 @@
   when: secrets_meta_stat.stat.exists
   tags: [secrets, maintenance]
 
-- name: Trigger secrets refresh if stale
-  ansible.builtin.include_tasks: fetch.yml
+- name: Rotate stale secrets using noesis_vault_rotate
+  noesis_vault_rotate:
+    vault_file: "{{ item.value.vault_file }}"
+    vault_password_file: "{{ vault_password_file }}"
+    secret_keys:
+      - "{{ item.value.vault_key }}"
+    rotation_strategy: bws_fetch
+    bws_config:
+      org_id: "{{ bitwarden_org_id }}"
+      project_id: "{{ bitwarden_project_id | default('') }}"
+      bws_cli_path: "{{ bws_cli_path }}"
+  loop: "{{ bitwarden_secrets_map | dict2items }}"
   when:
     - secrets_meta_stat.stat.exists
+    - bitwarden_secrets_map | length > 0
     - (ansible_date_time.epoch | int - (secrets_meta.secrets_fetched_at | default(ansible_date_time.iso8601) | to_datetime('%Y-%m-%dT%H:%M:%SZ').strftime('%s')) | int) > (secret_max_age_days | int * 86400)
+  no_log: true
   tags: [secrets, maintenance]

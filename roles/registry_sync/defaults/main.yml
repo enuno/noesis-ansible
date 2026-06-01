@@ -1,0 +1,16 @@
+---
+# Registry synchronization defaults
+registry_sync_interval: 300  # seconds between syncs
+registry_sync_dry_run: false
+
+# Sync mappings define which registries sync to which
+registry_sync_mappings:
+  - source: acp_registry
+    targets:
+      - ans
+      - a2a_registry
+    mode: push
+  - source: ans
+    targets:
+      - agentregistry
+    mode: bidirectional

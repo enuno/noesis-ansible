@@ -1,9 +1,20 @@
 ---
 - name: Include Clawvisor install
   ansible.builtin.include_tasks: install.yml
+  tags: [clawvisor, install]
+
 - name: Include Clawvisor configure
   ansible.builtin.include_tasks: configure.yml
-- name: Include Clawvisor policy
-  ansible.builtin.include_tasks: policy.yml
+  tags: [clawvisor, configure]
+
+- name: Include Clawvisor policies (custom module)
+  ansible.builtin.include_tasks: policies.yml
+  tags: [clawvisor, policies]
+
 - name: Include Clawvisor validate
   ansible.builtin.include_tasks: validate.yml
+  tags: [clawvisor, validate]
+
+- name: Include Clawvisor backup
+  ansible.builtin.include_tasks: backup.yml
+  tags: [clawvisor, backup]

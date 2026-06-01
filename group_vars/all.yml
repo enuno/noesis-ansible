@@ -1,3 +1,63 @@
 ---
+# Global group variables for NoesisPraxis stack
+# These apply to all hosts unless overridden by more specific group_vars or host_vars
+
+# Deployment environment identifier
+deployment_env: local
 stack_name: noesispraxis
-ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+# Bitwarden Secrets Manager configuration
+# Source of truth for all secrets — fetched via bws CLI and written to Vault-managed files
+bitwarden_org_id: "93331de5-fa6e-44ab-8aee-b3840034e681"
+bitwarden_project_id: "7173d0ef-7c7d-4356-b98f-b3d20010b2e7"
+bitwarden_project_name: "noesis_universe"
+bitwarden_identity_url: "https://vault.bitwarden.com/identity"
+bitwarden_api_url: "https://vault.bitwarden.com/api"
+
+# bws CLI configuration
+bws_cli_path: "{{ ansible_env.HOME }}/.local/bin/bws"
+
+# Vault configuration
+vault_password_file: "{{ playbook_dir }}/../.vault_pass"
+local_secrets_dir: "{{ base_data_dir | default('/opt/noesispraxis') }}/secrets"
+
+# Secret rotation policy
+secret_max_age_days: 90
+validate_secrets: true
+
+# Stack component toggles
+noesispraxis_enable_secrets_bootstrap: true
+noesispraxis_enable_acp: true
+noesispraxis_enable_ans: true
+noesispraxis_enable_agentregistry: true
+noesispraxis_enable_a2a: true
+noesispraxis_enable_mcpjungle: true
+noesispraxis_enable_clawvisor: true
+noesispraxis_enable_telegram: true
+noesispraxis_enable_generic_agents: true
+noesispraxis_enable_macos_agents: true
+noesispraxis_enable_tailscale: true
+noesispraxis_enable_backup: false
+noesispraxis_enable_validation: true
+noesispraxis_enable_registry_sync: false
+
+# Registry endpoints (localhost defaults)
+registry_base_url: http://localhost:8080
+acp_registry_url: http://localhost:8081
+ans_url: http://localhost:8082
+agentregistry_url: http://localhost:8083
+a2a_registry_url: http://localhost:8084
+mcpjungle_url: http://localhost:8085
+clawvisor_url: http://localhost:8086
+
+# Paths
+base_data_dir: /opt/noesispraxis
+base_log_dir: /var/log/noesispraxis
+backup_dir: /opt/noesispraxis/backups
+
+# Resource budgets (local Docker defaults)
+local_cpu_limit: 100
+local_ram_mb: 1024
+
+# Telegram placeholders (actual values in vault)
+telegram_group: NoesisWorld

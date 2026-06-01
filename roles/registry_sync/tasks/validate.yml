@@ -1,0 +1,5 @@
+---
+- name: Validate registry sync configuration
+  ansible.builtin.debug:
+    msg: "Registry sync configured: {{ registry_sync_mappings | length }} mappings"
+  tags: [sync, validate]

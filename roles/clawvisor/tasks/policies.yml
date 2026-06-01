@@ -1,0 +1,13 @@
+---
+- name: Apply Clawvisor security policies
+  noesis_clawvisor_policy:
+    clawvisor_url: "{{ clawvisor_url }}"
+    policy_name: "{{ item.name }}"
+    policy_type: "{{ item.type }}"
+    policy_rules: "{{ item.rules }}"
+    priority: "{{ item.priority | default(100) }}"
+    enabled: "{{ item.enabled | default(true) }}"
+    state: "{{ item.state | default('present') }}"
+  loop: "{{ clawvisor_policies | default([]) }}"
+  when: clawvisor_policies is defined and clawvisor_policies | length > 0
+  tags: [clawvisor, policies]

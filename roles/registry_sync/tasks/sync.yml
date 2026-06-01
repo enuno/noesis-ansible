@@ -1,0 +1,33 @@
+---
+- name: Sync agents from ACP to ANS
+  noesis_registry_sync:
+    source_registry: "{{ acp_registry_url }}"
+    target_registries:
+      - "{{ ans_url }}"
+    sync_mode: push
+    schema_path: "{{ playbook_dir }}/../files/schemas/acp-registry.schema.json"
+    state: synced
+  when: noesispraxis_enable_acp | bool and noesispraxis_enable_ans | bool
+  tags: [sync, execute]
+
+- name: Sync agents from ACP to A2A registry
+  noesis_registry_sync:
+    source_registry: "{{ acp_registry_url }}"
+    target_registries:
+      - "{{ a2a_registry_url }}"
+    sync_mode: push
+    schema_path: "{{ playbook_dir }}/../files/schemas/a2a-agent-card.schema.json"
+    state: synced
+  when: noesispraxis_enable_acp | bool and noesispraxis_enable_a2a | bool
+  tags: [sync, execute]
+
+- name: Bidirectional sync ANS and Agent Registry
+  noesis_registry_sync:
+    source_registry: "{{ ans_url }}"
+    target_registries:
+      - "{{ agentregistry_url }}"
+    sync_mode: bidirectional
+    schema_path: "{{ playbook_dir }}/../files/schemas/ans.schema.json"
+    state: synced
+  when: noesispraxis_enable_ans | bool and noesispraxis_enable_agentregistry | bool
+  tags: [sync, execute]

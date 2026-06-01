@@ -153,9 +153,10 @@
   gather_facts: false
   tags: [sync, backup]
   tasks:
-    - name: Cross-registry sync hook
-      ansible.builtin.debug:
-        msg: "Registry sync enabled: {{ noesispraxis_enable_registry_sync | default(false) }}"
+    - name: Include Registry Sync
+      ansible.builtin.include_role:
+        name: registry_sync
+      when: noesispraxis_enable_registry_sync | default(false) | bool
 
     - name: Include Backup
       ansible.builtin.include_role:

@@ -1,3 +1,22 @@
 ---
-clawvisor_name: noesis-clawvisor
-clawvisor_data_dir: /opt/noesispraxis/clawvisor
+# Clawvisor defaults
+clawvisor_version: "latest"
+clawvisor_port: 8086
+clawvisor_data_dir: "{{ base_data_dir }}/clawvisor"
+clawvisor_log_dir: "{{ base_log_dir }}/clawvisor"
+
+# Security policies
+# Each policy is a dict matching the Clawvisor policy schema
+clawvisor_policies: []
+# Example:
+# clawvisor_policies:
+#   - name: "agent-filesystem-restrict"
+#     type: "access_control"
+#     rules:
+#       - match:
+#           agent_role: "untrusted"
+#           resource: "filesystem"
+#         action: "deny"
+#         log: true
+#     priority: 10
+#     enabled: true

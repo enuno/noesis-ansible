@@ -1,0 +1,5 @@
+---
+- name: Restart registry sync
+  ansible.builtin.debug:
+    msg: "Registry sync configuration changed — restart services as needed"
+  listen: registry_sync_restarted

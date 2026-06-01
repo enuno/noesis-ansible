@@ -5,7 +5,7 @@
 # bws CLI path
 bws_cli_path: "{{ ansible_env.HOME }}/.local/bin/bws"
 
-# Bitwarden organization and project IDs (placeholders — override in host_vars)
+# Bitwarden organization and project IDs (overridden in group_vars/all.yml)
 bitwarden_org_id: ""
 bitwarden_project_id: ""
 

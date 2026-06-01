@@ -1,0 +1,12 @@
+---
+- name: Include registry sync configuration
+  ansible.builtin.include_tasks: configure.yml
+  tags: [sync, configure]
+
+- name: Include registry sync execution (custom module)
+  ansible.builtin.include_tasks: sync.yml
+  tags: [sync, execute]
+
+- name: Include registry sync validation
+  ansible.builtin.include_tasks: validate.yml
+  tags: [sync, validate]

@@ -1,5 +1,22 @@
 ---
-mcpjungle_name: noesis-mcpjungle
-mcpjungle_image: noesispraxis/mcpjungle:latest
+# MCPJungle defaults
+mcpjungle_version: "latest"
 mcpjungle_port: 8085
-mcpjungle_data_dir: /opt/noesispraxis/mcpjungle
+mcpjungle_data_dir: "{{ base_data_dir }}/mcpjungle"
+mcpjungle_log_dir: "{{ base_log_dir }}/mcpjungle"
+mcpjungle_image: "noesispraxis/mcpjungle:{{ mcpjungle_version }}"
+mcpjungle_name: "mcpjungle"
+
+# List of MCP servers to onboard
+# Each server is a dict matching the MCP server schema
+mcp_servers: []
+# Example:
+# mcp_servers:
+#   - name: "filesystem-mcp"
+#     endpoint: "http://localhost:3001/sse"
+#     version: "1.2.0"
+#     tools:
+#       - name: "read_file"
+#         description: "Read a file from the filesystem"
+#     capabilities:
+#       - "filesystem"

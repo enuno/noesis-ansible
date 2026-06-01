@@ -1,4 +1,11 @@
 ---
 - name: Onboard approved MCP servers
-  ansible.builtin.debug:
-    msg: "Onboard MCP servers into MCPJungle"
+  noesis_mcpjungle_onboard:
+    mcpjungle_url: "{{ mcpjungle_url }}"
+    server_definition: "{{ item }}"
+    schema_path: "{{ playbook_dir }}/../files/schemas/mcp-server.schema.json"
+    state: present
+    approval_required: true
+  loop: "{{ mcp_servers | default([]) }}"
+  when: mcp_servers is defined and mcp_servers | length > 0
+  tags: [mcpjungle, onboard]

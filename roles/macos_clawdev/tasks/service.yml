@@ -1,0 +1,25 @@
+---
+- name: Install and start Noesis ClawDev launchd service
+  noesis_macos_service:
+    name: "com.noesispraxis.clawdev"
+    plist_content:
+      Label: "com.noesispraxis.clawdev"
+      ProgramArguments:
+        - "{{ macos_clawdev_binary | default(ansible_env.HOME + '/.local/bin/clawdev') }}"
+      EnvironmentVariables:
+        NODE_ENV: "production"
+        CLAWDEV_CONFIG: "{{ macos_config_dir }}/clawdev.json"
+      StandardOutPath: "{{ macos_log_dir }}/clawdev.log"
+      StandardErrorPath: "{{ macos_log_dir }}/clawdev.error.log"
+      KeepAlive: true
+      RunAtLoad: true
+      Nice: 10
+    state: started
+    launchagents_dir: "{{ macos_launchagents_dir }}"
+    validate_port: "{{ macos_clawdev_port | default(8090) }}"
+    validate_timeout: 15
+    resource_budget:
+      cpu_percent: "{{ macos_cpu_limit | default(50) }}"
+      ram_mb: "{{ macos_ram_mb | default(512) }}"
+  when: ansible_system == 'Darwin'
+  tags: [macos, clawdev, service]
