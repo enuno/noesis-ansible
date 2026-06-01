@@ -218,4 +218,46 @@ Acceptance criteria:
 Implementation instruction:
 When producing the implementation, Hermes should break the work into phased deliverables and output the corresponding Ansible files in a clean, repository-ready structure. If any subsystem is not yet available, state the dependency clearly and proceed with the rest of the stack plan without inventing unsupported behavior.
 
-Now produce the files.
+## Noesis Universe infrastructure mandate
+
+NoesisPraxis is the supervisor hermes agent and the orchestration authority for the Noesis Universe infrastructure stack. Use Ansible as the primary tool for creating, composing, deploying, maintaining, updating, validating, backing up, and rolling back all back-end infrastructure that supports Noesis agents and the services they consume. The repository at ~/projects/noesis-ansible/ is the source of truth for this infrastructure, including agent runtimes, registries, MCP servers, security policy, communications layers, and lifecycle operations.
+
+Hermes must treat the following upstream projects and documentation as canonical references when designing playbooks, roles, inventories, templates, and custom modules:
+- AG-UI for agent-user interaction surfaces: https://github.com/ag-ui-protocol/ag-ui and https://docs.ag-ui.com/introduction [web:98][web:100]
+- Agent Registry for agent, skill, prompt, and service discovery and governance: https://github.com/agentregistry-dev/agentregistry
+- ARegistry quickstart and operational patterns: https://aregistry.ai/docs/quickstart/
+- ANS for secure agent naming and discovery: https://github.com/ruvnet/Agent-Name-Service, with supporting context from https://genai.owasp.org/resource/agent-name-service-ans-for-secure-al-agent-discovery-v1-0/ [web:111][web:114]
+- ACP registry and discovery source material: https://agentclientprotocol.com/rfds/acp-agent-registry and https://github.com/agentclientprotocol/registry [web:119]
+- A2A protocol and discovery guidance: https://github.com/a2aproject/A2A, https://github.com/a2aproject/A2A/blob/main/docs/topics/agent-discovery.md, and https://github.com/prassanna-ravishankar/a2a-registry [web:52][web:55][web:117]
+- OpenClaw runtime behavior, tools, and deployment patterns: https://github.com/openclaw/openclaw, https://github.com/openclaw/openclaw/blob/main/docs/cli/agents.md, https://github.com/openclaw/openclaw/blob/main/docs/tools/index.md, https://github.com/openclaw/openclaw/blob/main/docs/gateway/secrets.md, and https://github.com/openclaw/openclaw-ansible [web:21][web:106][web:109][web:121][web:124]
+- Harbor as the OCI artifact registry and project administration layer: https://goharbor.io/, https://github.com/goharbor/harbor, https://goharbor.io/docs/2.14.0/install-config/, https://goharbor.io/docs/2.14.0/administration/, and https://goharbor.io/docs/2.14.0/working-with-projects/ [web:52]
+- Bitwarden Secrets Manager and the `bws` CLI for secret sourcing: https://bitwarden.com/help/secrets-manager-cli/, https://bitwarden.com/help/secrets-manager-quick-start/, and https://bitwarden.com/products/secrets-manager/ [web:131][web:137][web:132]
+- Tailscale for secure remote management and private agent connectivity: https://tailscale.com/docs and https://tailscale.com/docs/how-to/quickstart [web:136][web:140]
+
+Operating principles:
+- Use Ansible as the composable infrastructure control plane for Noesis back-end services, agent deployments, maintenance tasks, updates, backups, and registry synchronization.
+- Treat the repo as the source of truth: every deployable service, registry object, policy, or runtime artifact must be represented as code in ~/projects/noesis-ansible/.
+- Keep the repo local-first, idempotent, and phase-driven.
+- Use inventories, group_vars, and host_vars to separate local, Tailscale, and production contexts.
+- Use roles for reusable deployment logic, templates for generated config and registry objects, and custom modules only when a reusable Noesis-specific operation is best expressed as code.
+- Use tags and phase boundaries so each subsystem can be run independently or as part of the full stack.
+- Use Ansible Vault for runtime consumption of secrets after they are fetched locally from Bitwarden Secrets Manager using `bws`, so routine Ansible runs do not need to query Bitwarden live.
+- Keep secrets out of templates, inventories, and default vars.
+- Use Harbor for OCI image distribution and project management when the stack includes containerized artifacts or agent runtimes.
+- Use AG-UI for user-facing agent interaction surfaces and Agent Registry / ACP / ANS / A2A for discovery, governance, and identity.
+- Use Tailscale for secure remote management and private-agent communication, especially for the MacBook Pro M1 Pro host and any other tailnet-managed machines.
+- Use Harbor administration and project controls as the model for lifecycle management of OCI-backed assets, including authentication, project quotas, replication, scanning, auditability, and upgrade planning.
+
+Execution model:
+- Prefer declarative tasks over shell commands.
+- If a shell command is necessary, keep it short, safe, and idempotent.
+- Validate each phase before moving to the next.
+- Make rollback, backup, and maintenance paths explicit.
+- Maintain launchd-based services for macOS agents and conservative CPU/RAM budgets for the Apple Silicon host.
+- Ensure the macOS agents are reachable both locally and over Tailscale when intended.
+- Keep MCP servers and directly consumed services managed as first-class infrastructure, not ad hoc runtime dependencies.
+
+Required outcomes:
+- NoesisPraxis must be able to use this repo to deploy and maintain the Noesis Universe infrastructure.
+- The repo must manage identity, discovery, registry, agent runtime, communications, Harbor artifacts, security policy, networking, secrets, backup, restore, validation, and rollback as composable Ansible workflows.
+- Every change should be auditable, repeatable, and represented in code.
