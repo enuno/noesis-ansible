@@ -1,0 +1,30 @@
+{
+  "brand": "NoesisLab",
+  "source_logo": "NoesisLab-logo-source.png",
+  "vector_files": [
+    "NoesisLab-logo-vector.svg",
+    "NoesisLab-mark-vector.svg",
+    "NoesisLab-wordmark-vector.svg"
+  ],
+  "social_files": [
+    "NoesisLab-instagram-linkedin-square-1080x1080.png",
+    "NoesisLab-linkedin-background-1584x396.png",
+    "NoesisLab-linkedin-company-cover-1128x191.png",
+    "NoesisLab-open-graph-1200x630.png",
+    "NoesisLab-profile-1024x1024.png",
+    "NoesisLab-profile-320x320.png",
+    "NoesisLab-profile-400x400.png",
+    "NoesisLab-profile-800x800.png",
+    "NoesisLab-story-reel-1080x1920.png",
+    "NoesisLab-wordmark-transparent-1400x300.png",
+    "NoesisLab-x-header-1500x500.png",
+    "NoesisLab-youtube-banner-2560x1440.png"
+  ],
+  "colors": {
+    "deep_navy": "#071B35",
+    "midnight_navy": "#041326",
+    "metallic_gold": "#D7A35A",
+    "copper_shadow": "#B8793B",
+    "pale_gold_highlight": "#F3D49E"
+  }
+}

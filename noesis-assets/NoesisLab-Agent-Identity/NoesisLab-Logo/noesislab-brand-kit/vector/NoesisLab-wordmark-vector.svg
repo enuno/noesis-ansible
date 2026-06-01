@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 170" role="img" aria-labelledby="title desc">
+  <title id="title">NoesisLab wordmark</title>
+  <desc id="desc">Metallic gold NoesisLab wordmark on transparent background.</desc>
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="900" y2="170" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F7DAA4"/><stop offset="0.45" stop-color="#D7A35A"/><stop offset="0.75" stop-color="#B8793B"/><stop offset="1" stop-color="#FFE5B6"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-30%" width="140%" height="160%"><feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#020813" flood-opacity="0.45"/></filter>
+    <style>.word { font-family: Avenir Next, Montserrat, Inter, Helvetica, Arial, sans-serif; font-size: 132px; font-weight: 500; letter-spacing: -4px; fill: url(#gold); filter: url(#shadow); }</style>
+  </defs>
+  <text x="450" y="128" text-anchor="middle" class="word">NoesisLab</text>
+</svg>
