@@ -1,5 +1,5 @@
 <div align="center">
-  <img src=".github/noesislab-logo.svg" width="180" alt="NoesisLab Logo">
+  <img src="noesis-assets/NoesisLab-Agent-Identity/NoesisLab-Logo/NoesisLab-logo-v2.png" width="180" alt="NoesisLab Logo">
   <h1>NoesisPraxis Ansible Stack</h1>
   <p><strong>Infrastructure-as-code for autonomous multi-agent systems</strong></p>
 
