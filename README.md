@@ -29,20 +29,26 @@ This repository is the **single source of truth** for deploying, maintaining, an
 
 ## Stack Components
 
-| Component | Purpose | Status |
-|-----------|---------|--------|
-| **ACP Registry** | Agent-client protocol registry and lifecycle tracking | Scaffold |
-| **ANS** | Agent Name Service — secure naming, discovery, certificates | Scaffold |
-| **Agent Registry** | Centralized governance dashboard for agents, skills, MCPs | Scaffold |
-| **A2A Registry** | Live A2A agent discovery and Agent Card management | Scaffold |
-| **MCPJungle** | MCP server registry and approved tool gateway | Scaffold |
-| **Clawvisor** | Security layer — policy, identity, sandboxing, access control | Scaffold |
-| **Telegram** | Human-in-the-loop group chat communications | Scaffold |
-| **OpenClaw** | Generic Dockerized agent runtime | Scaffold |
-| **Hermes** | Generic Dockerized supervisor/assistant runtime | Scaffold |
-| **macOS ClawDev** | Lightweight OpenClaw for Apple Silicon | Scaffold |
-| **macOS HermesDev** | Local Hermes supervisor for Apple Silicon | Scaffold |
-| **Tailscale** | Secure mesh networking for remote management | Scaffold |
+| Component | Purpose | Port | Status |
+|-----------|---------|------|--------|
+| **ACP Registry** | Agent-client protocol registry and lifecycle tracking | 8081 | Complete |
+| **ANS** | Agent Name Service — secure naming, discovery, certificates | 8082 | Complete |
+| **Agent Registry** | Centralized governance dashboard for agents, skills, MCPs | 8083 | Complete |
+| **A2A Registry** | Live A2A agent discovery and Agent Card management | 8084 | Complete |
+| **MCPJungle** | MCP server registry and approved tool gateway | 8085 | Complete |
+| **Clawvisor** | Security layer — policy, identity, sandboxing, access control | 8086 | Complete |
+| **ClawSec** | Security scanning integration for OpenClaw and Hermes | — | Complete |
+| **AG-UI** | User-facing protocol layer and event routing | 8087 | Complete |
+| **Harbor** | OCI artifact registry for agent images | 8088 | Complete |
+| **SkillNet** | Dynamic skill discovery, search, evaluation, installation | 8089 | Complete |
+| **OpenClaw** | Generic Dockerized agent runtime | 8090 | Complete |
+| **Hermes** | Generic Dockerized supervisor/assistant runtime | 8091 | Complete |
+| **MemPalace** | Per-agent memory substrate (OpenClaw:8093, Hermes:8094) | 8093-8094 | Complete |
+| **Honcho** | Shared secondary memory substrate | 8095 | Complete |
+| **Telegram** | Human-in-the-loop group chat communications | — | Complete |
+| **Tailscale** | Secure mesh networking for remote management | — | Complete |
+| **macOS ClawDev** | Lightweight OpenClaw for Apple Silicon | localhost | Complete |
+| **macOS HermesDev** | Local Hermes supervisor for Apple Silicon | localhost | Complete |
 
 ## Quick Start
 
@@ -56,12 +62,26 @@ ansible-playbook -i inventory/local/hosts.ini playbooks/site.yml
 # Run specific phases
 ansible-playbook -i inventory/local/hosts.ini playbooks/master-stack.yml --tags foundation,security
 
+# Deploy individual services
+ansible-playbook -i inventory/local/hosts.ini playbooks/ag-ui.yml
+ansible-playbook -i inventory/local/hosts.ini playbooks/harbor.yml
+ansible-playbook -i inventory/local/hosts.ini playbooks/clawsec.yml
+ansible-playbook -i inventory/local/hosts.ini playbooks/skillnet.yml
+ansible-playbook -i inventory/local/hosts.ini playbooks/mempalace.yml
+ansible-playbook -i inventory/local/hosts.ini playbooks/honcho.yml
+ansible-playbook -i inventory/local/hosts.ini playbooks/openclaw-acp.yml
+ansible-playbook -i inventory/local/hosts.ini playbooks/hermes-acp.yml
+
 # Validate health
 ansible-playbook -i inventory/local/hosts.ini playbooks/validate.yml
 
 # macOS agents over Tailscale
 ansible-playbook -i inventory/tailscale/hosts.ini playbooks/macos-clawdev.yml
 ansible-playbook -i inventory/tailscale/hosts.ini playbooks/macos-hermesdev.yml
+
+# Kubernetes deployments
+helm install openclaw charts/openclaw -f charts/values/values-dev.yaml
+helm install hermes charts/hermes -f charts/values/values-dev.yaml
 ```
 
 ## Repository Layout
@@ -69,11 +89,12 @@ ansible-playbook -i inventory/tailscale/hosts.ini playbooks/macos-hermesdev.yml
 ```
 .
 ├── inventory/          # local, tailscale, production inventories
-├── playbooks/          # Layer-specific and orchestration playbooks
-├── roles/              # 14 reusable roles per stack component
-├── group_vars/         # Shared group variables
+├── playbooks/          # 29 layer-specific and orchestration playbooks
+├── roles/              # 20 reusable roles per stack component
+├── charts/             # 16 Helm charts for Kubernetes/K3s deployment
+├── group_vars/         # Shared group variables (46 vars, 7 feature toggles)
 ├── host_vars/          # Per-host variables
-├── templates/          # Global templates (common, registries, macos, security)
+├── templates/          # Global templates (common, registries, macos, security, memory)
 ├── files/              # Static files (JSON schemas, helper scripts)
 └── scripts/            # Operational helper scripts
 ```
@@ -92,6 +113,7 @@ flowchart TD
     end
 
     subgraph Control["Control Plane"]
+        direction LR
         acp["ACP Registry :8081"]
         ans["ANS :8082"]
         ar["Agent Registry :8083"]
@@ -99,16 +121,37 @@ flowchart TD
     end
 
     subgraph Security["Security Layer"]
+        direction LR
         mcp["MCPJungle :8085"]
-        cv["Clawvisor Policy Engine"]
+        cv["Clawvisor :8086"]
+        cs["ClawSec"]
     end
 
-    subgraph Runtime["Generic Runtime"]
+    subgraph Distribution["Distribution Layer"]
+        direction LR
+        agui["AG-UI :8087"]
+        harbor["Harbor :8088"]
+    end
+
+    subgraph Skills["Skills Layer"]
+        sk["SkillNet :8089"]
+    end
+
+    subgraph Runtime["Agent Runtime"]
+        direction LR
         oc["OpenClaw :8090"]
         hm["Hermes :8091"]
     end
 
+    subgraph Memory["Memory Substrate"]
+        direction LR
+        mp_oc["MemPalace :8093"]
+        mp_hm["MemPalace :8094"]
+        honcho["Honcho :8095"]
+    end
+
     subgraph MacOS["macOS Runtime"]
+        direction LR
         cd["ClawDev 512MB"]
         hd["HermesDev 1024MB"]
     end
@@ -126,27 +169,46 @@ flowchart TD
     ar --> a2a
     a2a --> mcp
     mcp --> cv
+    cv --> cs
     cv --> oc
     cv --> hm
     cv --> cd
     cv --> hd
 
+    oc --> mp_oc
+    hm --> mp_hm
+    mp_oc --> honcho
+    mp_hm --> honcho
+
     oc --> a2a
     hm --> acp
+    oc --> sk
+    hm --> sk
+    sk --> harbor
+
     cd --> ts
     hd --> ts
+    agui --> ar
+    harbor --> oc
+    harbor --> hm
 
     classDef network fill:#2a2a4a,stroke:#3050FF,color:#E8ECFF
     classDef control fill:#1a3a2a,stroke:#10b981,color:#E8FFEE
     classDef security fill:#3a1a1a,stroke:#ef4444,color:#FFE8E8
     classDef runtime fill:#2a2a1a,stroke:#f59e0b,color:#FFF8E8
+    classDef memory fill:#1a1a3a,stroke:#a855f7,color:#F3E8FF
     classDef macos fill:#1a2a3a,stroke:#60a5fa,color:#E8F4FF
+    classDef dist fill:#2a1a3a,stroke:#ec4899,color:#FFE8F8
+    classDef skills fill:#1a3a3a,stroke:#06b6d4,color:#E8FFFF
 
     class ts network
     class acp,ans,ar,a2a control
-    class mcp,cv security
+    class mcp,cv,cs security
     class oc,hm runtime
+    class mp_oc,mp_hm,honcho memory
     class cd,hd macos
+    class agui,harbor dist
+    class sk skills
 ```
 
 ## Orchestration Flow
@@ -154,13 +216,17 @@ flowchart TD
 ```
 PHASE 0  Bootstrap        → Host prep, secrets, preflight
 PHASE 1  Foundation       → ACP, ANS, Agent Registry, A2A registries
-PHASE 2  Security         → MCPJungle, Clawvisor policies and ACLs
-PHASE 3  Runtime          → Dockerized OpenClaw and Hermes deployments
-PHASE 4  macOS            → launchd services, resource budgets, Tailscale exposure
-PHASE 5  Communications   → Telegram bot provisioning and group integration
-PHASE 6  Networking       → Tailscale mesh, remote management wiring
-PHASE 7  Sync & Backup    → Cross-registry sync, backup, restore hooks
-PHASE 8  Validation       → Health checks, schema validation, connectivity tests
+PHASE 2  Security         → MCPJungle, Clawvisor policies, ClawSec scanning
+PHASE 3  Distribution     → AG-UI, Harbor OCI registry
+PHASE 4  Skills           → SkillNet dynamic discovery and MCP server
+PHASE 5  Runtime          → Dockerized OpenClaw and Hermes deployments
+PHASE 6  Memory           → MemPalace per-agent, Honcho shared substrate
+PHASE 7  macOS            → launchd services, resource budgets, Tailscale exposure
+PHASE 8  Communications   → Telegram bot provisioning and group integration
+PHASE 9  Networking       → Tailscale mesh, remote management wiring
+PHASE 10 ACP Registration → OpenClaw and Hermes ACP agent registration
+PHASE 11 Sync & Backup    → Cross-registry sync, backup, restore hooks
+PHASE 12 Validation       → Health checks, schema validation, connectivity tests
 ```
 
 ## Inventory and Environments
