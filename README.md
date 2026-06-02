@@ -211,6 +211,68 @@ flowchart TD
     class sk skills
 ```
 
+## Memory Promotion Flow
+
+```mermaid
+flowchart TD
+    subgraph AgentLayer["Agent Layer"]
+        direction LR
+        oc["OpenClaw Agent"]
+        hm["Hermes Agent"]
+    end
+
+    subgraph LocalMemory["Local Memory (Per-Agent)"]
+        direction LR
+        mp_oc["MemPalace :8093"]
+        mp_hm["MemPalace :8094"]
+    end
+
+    subgraph SharedMemory["Shared Memory (Cross-Agent)"]
+        honcho["Honcho :8095"]
+    end
+
+    subgraph ValidationGate["Validation Gate"]
+        check{"Stable fact?"}
+        block{"Sensitive data?"}
+    end
+
+    oc --"write / read"--> mp_oc
+    hm --"write / read"--> mp_hm
+
+    mp_oc --"promote candidate"--> check
+    mp_hm --"promote candidate"--> check
+
+    check --"Yes"--> block
+    check --"No"--> mp_oc
+    check --"No"--> mp_hm
+
+    block --"No"--> honcho
+    block --"Yes"--> mp_oc
+    block --"Yes"--> mp_hm
+
+    honcho --"peer cards"--> oc
+    honcho --"peer cards"--> hm
+
+    classDef agent fill:#2a2a1a,stroke:#f59e0b,color:#FFF8E8
+    classDef local fill:#1a1a3a,stroke:#a855f7,color:#F3E8FF
+    classDef shared fill:#1a3a2a,stroke:#10b981,color:#E8FFEE
+    classDef gate fill:#3a1a1a,stroke:#ef4444,color:#FFE8E8
+
+    class oc,hm agent
+    class mp_oc,mp_hm local
+    class honcho shared
+    class check,block gate
+```
+
+**Memory Routing Policy:**
+- **MemPalace first** — All local, private, session-scoped memory writes go to per-agent MemPalace
+- **Honcho second** — Shared durable memory and cross-agent continuity via Honcho
+- **Promotion queue** — Stable, non-sensitive facts promote from MemPalace to Honcho
+- **Validation gate** — Explicit check before Honcho peer card updates; secrets and ephemeral tokens blocked
+- **Peer cards** — Stable, atomic, deduplicated facts shared back to all agents
+
+---
+
 ## Orchestration Flow
 
 ```
