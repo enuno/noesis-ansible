@@ -1,0 +1,8 @@
+---
+- name: Restart Noesis OpenClaw agent
+  ansible.builtin.systemd:
+    name: "{{ noesis_openclaw_service_name }}"
+    state: restarted
+    daemon_reload: true
+  when: noesis_openclaw_enabled | bool
+  listen: restart noesis openclaw

@@ -1,0 +1,42 @@
+# Production environment overrides for NoesisPraxis Helm charts
+# Usage: helm install <release> charts/<chart> -f charts/values-prod.yaml
+
+global:
+  environment: production
+  imagePullPolicy: Always
+
+replicaCount: 3
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 60
+
+persistence:
+  enabled: true
+  storageClass: longhorn
+  size: 20Gi
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+  tls:
+    - secretName: noesispraxis-tls-prod
+      hosts:
+        - "*.noesis.local"
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2

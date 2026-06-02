@@ -1,0 +1,20 @@
+---
+- name: Render OpenClaw gateway configuration
+  ansible.builtin.template:
+    src: openclaw-gateway.yml.j2
+    dest: "{{ openclaw_config_dir }}/gateway.yml"
+    mode: '0644'
+  notify: reload openclaw acp
+
+- name: Render OpenClaw ACP bridge configuration
+  ansible.builtin.template:
+    src: openclaw-acp-bridge.yml.j2
+    dest: "{{ openclaw_config_dir }}/acp-bridge.yml"
+    mode: '0644'
+  notify: reload openclaw acp
+
+- name: Render agent identity metadata
+  ansible.builtin.template:
+    src: openclaw-agent-metadata.json.j2
+    dest: "{{ openclaw_config_dir }}/agent-metadata.json"
+    mode: '0644'

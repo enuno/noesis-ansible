@@ -1,0 +1,21 @@
+---
+- name: Include base OpenClaw ACP role
+  ansible.builtin.include_role:
+    name: openclaw_acp
+  vars:
+    openclaw_agent_name: "{{ noesis_openclaw_agent_name }}"
+    openclaw_agent_role: "{{ noesis_openclaw_agent_role }}"
+    openclaw_agent_capabilities: "{{ noesis_openclaw_agent_capabilities }}"
+    openclaw_agent_owner: "{{ noesis_openclaw_agent_owner }}"
+    openclaw_acp_enabled: "{{ noesis_openclaw_enabled }}"
+  when: noesis_openclaw_enabled | bool
+  tags: [noesis, openclaw, acp]
+
+- name: Configure Noesis-specific capabilities
+  ansible.builtin.template:
+    src: noesis-capabilities.yml.j2
+    dest: "{{ openclaw_config_dir }}/noesis-capabilities.yml"
+    mode: '0644'
+  when: noesis_openclaw_enabled | bool
+  notify: restart noesis openclaw
+  tags: [noesis, openclaw, configure]

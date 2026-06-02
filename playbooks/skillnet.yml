@@ -1,0 +1,57 @@
+---
+# skillnet.yml — Standalone SkillNet and SkillNet MCP deployment
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/skillnet.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/skillnet.yml --tags install,configure
+
+- name: Deploy SkillNet Dynamic Skill Discovery
+  hosts: local
+  gather_facts: false
+  tags: [skillnet, skills]
+
+  pre_tasks:
+    - name: Validate SkillNet configuration
+      ansible.builtin.assert:
+        that:
+          - noesispraxis_enable_skillnet | default(false) | bool
+        fail_msg: "SkillNet is disabled. Set noesispraxis_enable_skillnet=true in group_vars"
+
+    - name: Ensure SkillNet data directory exists
+      ansible.builtin.file:
+        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/skillnet"
+        state: directory
+        mode: '0755'
+
+  roles:
+    - role: skillnet
+      tags: [skillnet]
+
+    - role: skillnet_mcp
+      tags: [skillnet_mcp]
+
+  post_tasks:
+    - name: Validate SkillNet health
+      ansible.builtin.uri:
+        url: "http://localhost:8089/health"
+        method: GET
+        status_code: 200
+      register: skillnet_health
+      retries: 5
+      delay: 3
+      until: skillnet_health.status == 200
+      ignore_errors: true
+
+    - name: Validate SkillNet MCP health
+      ansible.builtin.uri:
+        url: "http://localhost:8092/health"
+        method: GET
+        status_code: 200
+      register: skillnet_mcp_health
+      retries: 5
+      delay: 3
+      until: skillnet_mcp_health.status == 200
+      ignore_errors: true
+
+    - name: Report SkillNet status
+      ansible.builtin.debug:
+        msg: "SkillNet: {{ skillnet_health.status | default('unknown') }} | SkillNet MCP: {{ skillnet_mcp_health.status | default('unknown') }}"

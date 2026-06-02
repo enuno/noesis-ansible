@@ -1,0 +1,31 @@
+---
+# Harbor OCI registry defaults
+# Artifact distribution layer for agent images and support services
+
+harbor_enabled: "{{ noesispraxis_enable_harbor | default(false) | bool }}"
+harbor_version: "2.14.0"
+harbor_hostname: "harbor.local"
+harbor_http_port: 8088
+harbor_https_port: 8443
+
+# Admin credentials (override in vault)
+harbor_admin_password: "{{ vault_harbor_admin_password | default('Harbor12345') }}"
+
+# Projects to create
+harbor_projects:
+  - name: noesis-agents
+    public: false
+  - name: noesis-services
+    public: false
+  - name: noesis-mcp
+    public: false
+  - name: noesis-registry
+    public: false
+
+# Docker compose path
+harbor_data_dir: "{{ base_data_dir | default('/opt/noesispraxis') }}/harbor"
+harbor_installer_url: "https://github.com/goharbor/harbor/releases/download/v{{ harbor_version }}/harbor-offline-installer-v{{ harbor_version }}.tgz"
+
+# Resource limits
+harbor_cpu_limit: "2.0"
+harbor_memory_limit: "4096m"

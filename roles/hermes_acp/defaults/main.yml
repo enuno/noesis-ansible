@@ -1,0 +1,56 @@
+---
+# Hermes ACP agent registration defaults
+# https://github.com/Rainhoole/hermes-agent-acp-skill
+
+hermes_acp_enabled: "{{ noesispraxis_enable_hermes_acp | default(false) | bool }}"
+hermes_version: "latest"
+
+# Agent identity
+hermes_agent_name: "hermes-default"
+hermes_agent_role: "supervisor"
+hermes_agent_capabilities:
+  - tool_calling
+  - streaming
+  - approval_gates
+  - session_management
+hermes_agent_owner: "noesispraxis"
+hermes_agent_protocols:
+  - acp
+  - a2a
+  - ag-ui
+
+# ACP adapter configuration
+hermes_acp_command: "hermes acp"
+hermes_acp_mode: "stdio"
+hermes_acp_transport: "jsonrpc"
+hermes_acp_session_prefix: "noesis"
+
+# Environment
+hermes_env_file: "{{ base_data_dir | default('/opt/noesispraxis') }}/hermes/.env"
+hermes_config_dir: "{{ base_data_dir | default('/opt/noesispraxis') }}/hermes/config"
+hermes_data_dir: "{{ base_data_dir | default('/opt/noesispraxis') }}/hermes/data"
+
+# Supervisor binding
+hermes_supervisor_name: "noesispraxis"
+hermes_supervisor_endpoint: "http://localhost:8080"
+
+# Registry endpoints
+acp_registry_url: "http://localhost:8081"
+a2a_registry_url: "http://localhost:8084"
+agent_registry_url: "http://localhost:8083"
+
+# Authentication
+hermes_acp_auth_token: "{{ vault_hermes_acp_token | default('') }}"
+hermes_registry_api_key: "{{ vault_hermes_registry_key | default('') }}"
+
+# Service
+hermes_service_name: "hermes-acp"
+hermes_systemd_unit: "/etc/systemd/system/{{ hermes_service_name }}.service"
+
+# Resource limits
+hermes_cpu_limit: "1.0"
+hermes_memory_limit: "1g"
+
+# Validation
+hermes_health_retries: 10
+hermes_health_delay: 5

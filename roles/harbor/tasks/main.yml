@@ -1,0 +1,15 @@
+---
+- name: Include Harbor install
+  ansible.builtin.include_tasks: install.yml
+  when: harbor_enabled | bool
+  tags: [harbor, install]
+
+- name: Include Harbor configure
+  ansible.builtin.include_tasks: configure.yml
+  when: harbor_enabled | bool
+  tags: [harbor, configure]
+
+- name: Include Harbor validate
+  ansible.builtin.include_tasks: validate.yml
+  when: harbor_enabled | bool
+  tags: [harbor, validate]

@@ -1,0 +1,37 @@
+---
+- name: Ensure SkillNet MCP directory exists
+  ansible.builtin.file:
+    path: "{{ skillnet_mcp_install_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Clone SkillNet MCP repository
+  ansible.builtin.git:
+    repo: "{{ skillnet_mcp_repo }}"
+    dest: "{{ skillnet_mcp_install_dir }}/src"
+    version: "{{ skillnet_mcp_version }}"
+  ignore_errors: true
+
+- name: Pull SkillNet MCP image
+  ansible.builtin.docker_image:
+    name: "{{ skillnet_mcp_image }}"
+    source: pull
+  ignore_errors: true
+
+- name: Deploy SkillNet MCP container
+  ansible.builtin.docker_container:
+    name: "{{ skillnet_mcp_container_name }}"
+    image: "{{ skillnet_mcp_image }}"
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "{{ skillnet_mcp_port }}:{{ skillnet_mcp_port }}"
+    env:
+      SKILLNET_MCP_PORT: "{{ skillnet_mcp_port | string }}"
+      SKILLNET_MCP_TRANSPORT: "{{ skillnet_mcp_transport }}"
+      SKILLNET_MCP_SKILLNET_URL: "{{ skillnet_mcp_skillnet_url }}"
+    volumes:
+      - "{{ skillnet_mcp_install_dir }}:/data"
+    memory: "{{ skillnet_mcp_memory_limit }}"
+    cpu_shares: "{{ (skillnet_mcp_cpu_limit | float * 1024) | int }}"
+  ignore_errors: true

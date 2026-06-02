@@ -1,0 +1,32 @@
+---
+- name: Validate Hermes ACP health endpoint
+  ansible.builtin.uri:
+    url: "http://localhost:{{ hermes_acp_port | default(8080) }}/health"
+    method: GET
+    status_code: 200
+  register: hermes_health
+  retries: "{{ hermes_health_retries }}"
+  delay: "{{ hermes_health_delay }}"
+  until: hermes_health.status == 200
+  ignore_errors: true
+
+- name: Validate ACP stdio adapter
+  ansible.builtin.command: |
+    hermes acp --check --config {{ hermes_config_dir }}/acp-config.yml
+  register: acp_check
+  changed_when: false
+  ignore_errors: true
+
+- name: Validate registry entry
+  ansible.builtin.uri:
+    url: "{{ acp_registry_url }}/agents/{{ hermes_agent_name }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ hermes_registry_api_key }}"
+    status_code: 200
+  register: acp_lookup
+  ignore_errors: true
+
+- name: Report validation results
+  ansible.builtin.debug:
+    msg: "Health: {{ hermes_health.status | default('unreachable') }} | ACP adapter: {{ acp_check.rc | default('n/a') }} | Registry: {{ acp_lookup.status | default('not found') }}"

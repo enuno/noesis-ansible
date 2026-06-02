@@ -1,0 +1,8 @@
+---
+- name: Restart SkillNet MCP
+  ansible.builtin.docker_container:
+    name: "{{ skillnet_mcp_container_name }}"
+    state: started
+    restart: true
+  when: skillnet_mcp_enabled | bool
+  listen: restart skillnet_mcp

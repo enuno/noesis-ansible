@@ -1,0 +1,7 @@
+---
+- name: Regenerate ClawSec report index
+  ansible.builtin.template:
+    src: clawsec-report-index.html.j2
+    dest: "{{ clawsec_report_dir }}/index.html"
+    mode: '0644'
+  listen: update clawsec reports

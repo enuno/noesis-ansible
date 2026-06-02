@@ -1,0 +1,15 @@
+---
+- name: Include MemPalace install
+  ansible.builtin.include_tasks: install.yml
+  when: mempalace_enabled | bool
+  tags: [mempalace, install]
+
+- name: Include MemPalace configure
+  ansible.builtin.include_tasks: configure.yml
+  when: mempalace_enabled | bool
+  tags: [mempalace, configure]
+
+- name: Include MemPalace validate
+  ansible.builtin.include_tasks: validate.yml
+  when: mempalace_enabled | bool
+  tags: [mempalace, validate]

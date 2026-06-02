@@ -1,6 +1,40 @@
 ---
+# macos-clawdev.yml — Standalone macOS ClawDev deployment
+# Usage:
+#   ansible-playbook -i inventory/tailscale/hosts.ini playbooks/macos-clawdev.yml
+#   ansible-playbook -i inventory/tailscale/hosts.ini playbooks/macos-clawdev.yml --tags install,launchd
+
 - name: Deploy Noesis ClawDev on macOS
   hosts: macos
   gather_facts: true
+  tags: [macos, clawdev]
+
+  pre_tasks:
+    - name: Validate macOS ClawDev configuration
+      ansible.builtin.assert:
+        that:
+          - noesispraxis_enable_macos_agents | default(true) | bool
+          - ansible_os_family == "Darwin"
+        fail_msg: "macOS agents are disabled or target is not macOS. Check inventory and group_vars"
+
+    - name: Ensure ClawDev data directory exists
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.noesispraxis/clawdev"
+        state: directory
+        mode: '0755'
+
   roles:
-    - macos_clawdev
+    - role: macos_clawdev
+      tags: [macos, clawdev]
+
+  post_tasks:
+    - name: Validate ClawDev launchd service
+      ansible.builtin.command:
+        cmd: "launchctl list com.noesis.clawdev"
+      register: clawdev_launchd
+      changed_when: false
+      ignore_errors: true
+
+    - name: Report ClawDev status
+      ansible.builtin.debug:
+        msg: "ClawDev launchd status: {{ clawdev_launchd.rc | default('unknown') }}"

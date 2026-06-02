@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ClawSec Security Reports</title>
+  <style>
+    body { font-family: monospace; background: #1a1a1a; color: #eee; padding: 2rem; }
+    h1 { color: #ff6b6b; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { border: 1px solid #444; padding: 0.5rem; text-align: left; }
+    th { background: #333; }
+    .critical { color: #ff6b6b; }
+    .high { color: #ffa502; }
+    .medium { color: #ffd32a; }
+    .low { color: #2ed573; }
+  </style>
+</head>
+<body>
+  <h1>ClawSec Security Reports</h1>
+  <p>Generated: {{ ansible_date_time.iso8601 }}</p>
+  <table>
+    <tr><th>Report</th><th>Date</th></tr>
+    <tr><td colspan="2">Reports available in {{ clawsec_report_dir }}</td></tr>
+  </table>
+</body>
+</html>

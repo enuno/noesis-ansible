@@ -1,0 +1,14 @@
+---
+- name: Render SkillNet configuration
+  ansible.builtin.template:
+    src: skillnet-config.yml.j2
+    dest: "{{ skillnet_install_dir }}/config.yml"
+    mode: '0644'
+  notify: restart skillnet
+
+- name: Render SkillNet agent bindings
+  ansible.builtin.template:
+    src: skillnet-bindings.yml.j2
+    dest: "{{ skillnet_install_dir }}/bindings.yml"
+    mode: '0644'
+  notify: restart skillnet

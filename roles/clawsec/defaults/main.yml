@@ -1,0 +1,31 @@
+---
+# ClawSec security scanning defaults
+# Integrates prompt.security/clawsec for agent workflow scanning
+
+clawsec_enabled: "{{ noesispraxis_enable_clawsec | default(false) | bool }}"
+clawsec_version: "latest"
+clawsec_cli_path: "{{ ansible_env.HOME }}/.local/bin/clawsec"
+
+# Scan targets
+clawsec_scan_openclaw: true
+clawsec_scan_hermes: true
+clawsec_scan_skills: true
+clawsec_scan_mcp_tools: true
+
+# Scan policies
+clawsec_policy_severity: "medium"  # low, medium, high, critical
+clawsec_policy_categories:
+  - prompt_injection
+  - data_exfiltration
+  - privilege_escalation
+  - unsafe_code_execution
+
+# Reporting
+clawsec_report_dir: "{{ base_data_dir | default('/opt/noesispraxis') }}/clawsec-reports"
+clawsec_fail_on_critical: true
+clawsec_fail_on_high: false
+
+# Integration hooks
+clawsec_pre_deploy_scan: true
+clawsec_post_deploy_scan: true
+clawsec_scheduled_scan: false

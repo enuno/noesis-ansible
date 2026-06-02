@@ -1,0 +1,43 @@
+---
+# harbor.yml — Standalone Harbor OCI registry deployment
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/harbor.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/harbor.yml --tags install,configure
+
+- name: Deploy Harbor OCI Registry
+  hosts: local
+  gather_facts: true
+  tags: [harbor, distribution]
+
+  pre_tasks:
+    - name: Validate Harbor configuration
+      ansible.builtin.assert:
+        that:
+          - noesispraxis_enable_harbor | default(false) | bool
+        fail_msg: "Harbor is disabled. Set noesispraxis_enable_harbor=true in group_vars"
+
+    - name: Ensure Harbor data directory exists
+      ansible.builtin.file:
+        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/harbor"
+        state: directory
+        mode: '0755'
+
+  roles:
+    - role: harbor
+      tags: [harbor]
+
+  post_tasks:
+    - name: Validate Harbor health
+      ansible.builtin.uri:
+        url: "http://harbor.local:8088/api/v2.0/health"
+        method: GET
+        status_code: 200
+      register: harbor_health
+      retries: 10
+      delay: 5
+      until: harbor_health.status == 200
+      ignore_errors: true
+
+    - name: Report Harbor status
+      ansible.builtin.debug:
+        msg: "Harbor deployed at http://harbor.local:8088 — health: {{ harbor_health.status | default('unknown') }}"

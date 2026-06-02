@@ -1,0 +1,26 @@
+---
+# noesis-openclaw.yml — Specialized Noesis* OpenClaw agent deployment
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/noesis-openclaw.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/noesis-openclaw.yml -e noesis_openclaw_variant=noesis-reasoner
+
+- name: Deploy Noesis OpenClaw Specialized Agent
+  hosts: local
+  gather_facts: false
+  tags: [noesis, openclaw, specialized]
+
+  pre_tasks:
+    - name: Validate Noesis OpenClaw configuration
+      ansible.builtin.assert:
+        that:
+          - noesispraxis_enable_noesis_openclaw | default(false) | bool
+        fail_msg: "Noesis OpenClaw is disabled. Set noesispraxis_enable_noesis_openclaw=true in group_vars"
+
+  roles:
+    - role: noesis_openclaw
+      tags: [noesis, openclaw]
+
+  post_tasks:
+    - name: Report Noesis OpenClaw status
+      ansible.builtin.debug:
+        msg: "Noesis OpenClaw agent deployed: {{ noesis_openclaw_agent_name }} | Variant: {{ noesis_openclaw_variant }}"

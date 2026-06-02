@@ -1,0 +1,7 @@
+---
+- name: Restart Harbor
+  ansible.builtin.command:
+    cmd: "docker compose -f {{ harbor_data_dir }}/docker-compose.yml restart"
+    chdir: "{{ harbor_data_dir }}"
+  changed_when: true
+  listen: restart harbor

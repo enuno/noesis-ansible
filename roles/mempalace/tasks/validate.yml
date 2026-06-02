@@ -1,0 +1,17 @@
+---
+- name: Validate each MemPalace instance
+  ansible.builtin.uri:
+    url: "http://localhost:{{ item.port }}/health"
+    method: GET
+    status_code: 200
+  loop: "{{ mempalace_agents }}"
+  register: mempalace_health
+  retries: 5
+  delay: 3
+  until: mempalace_health.status == 200
+  ignore_errors: true
+
+- name: Report MemPalace validation
+  ansible.builtin.debug:
+    msg: "MemPalace {{ item.item.name }}: {{ item.status | default('unreachable') }}"
+  loop: "{{ mempalace_health.results | default([]) }}"

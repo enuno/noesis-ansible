@@ -1,0 +1,51 @@
+---
+- name: Scan OpenClaw configuration
+  ansible.builtin.command:
+    cmd: >
+      {{ clawsec_cli_path }} scan
+      --config {{ base_data_dir | default('/opt/noesispraxis') }}/clawsec-policy.yml
+      --target {{ base_data_dir | default('/opt/noesispraxis') }}/openclaw
+      --format json
+      --output {{ clawsec_report_dir }}/openclaw-{{ ansible_date_time.date }}.json
+  when: clawsec_scan_openclaw | bool
+  changed_when: true
+  ignore_errors: true
+
+- name: Scan Hermes configuration
+  ansible.builtin.command:
+    cmd: >
+      {{ clawsec_cli_path }} scan
+      --config {{ base_data_dir | default('/opt/noesispraxis') }}/clawsec-policy.yml
+      --target {{ base_data_dir | default('/opt/noesispraxis') }}/hermes
+      --format json
+      --output {{ clawsec_report_dir }}/hermes-{{ ansible_date_time.date }}.json
+  when: clawsec_scan_hermes | bool
+  changed_when: true
+  ignore_errors: true
+
+- name: Scan skill definitions
+  ansible.builtin.command:
+    cmd: >
+      {{ clawsec_cli_path }} scan
+      --config {{ base_data_dir | default('/opt/noesispraxis') }}/clawsec-policy.yml
+      --target {{ base_data_dir | default('/opt/noesispraxis') }}/skills
+      --format json
+      --output {{ clawsec_report_dir }}/skills-{{ ansible_date_time.date }}.json
+  when: clawsec_scan_skills | bool
+  changed_when: true
+  ignore_errors: true
+
+- name: Scan MCP tool configurations
+  ansible.builtin.command:
+    cmd: >
+      {{ clawsec_cli_path }} scan
+      --config {{ base_data_dir | default('/opt/noesispraxis') }}/clawsec-policy.yml
+      --target {{ base_data_dir | default('/opt/noesispraxis') }}/mcpjungle
+      --format json
+      --output {{ clawsec_report_dir }}/mcp-tools-{{ ansible_date_time.date }}.json
+  when: clawsec_scan_mcp_tools | bool
+  changed_when: true
+  ignore_errors: true
+
+- name: Notify report update
+  ansible.builtin.meta: flush_handlers

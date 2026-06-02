@@ -1,0 +1,15 @@
+---
+- name: Include Honcho install
+  ansible.builtin.include_tasks: install.yml
+  when: honcho_enabled | bool
+  tags: [honcho, install]
+
+- name: Include Honcho configure
+  ansible.builtin.include_tasks: configure.yml
+  when: honcho_enabled | bool
+  tags: [honcho, configure]
+
+- name: Include Honcho validate
+  ansible.builtin.include_tasks: validate.yml
+  when: honcho_enabled | bool
+  tags: [honcho, validate]

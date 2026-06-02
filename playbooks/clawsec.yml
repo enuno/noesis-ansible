@@ -1,0 +1,32 @@
+---
+# clawsec.yml — Standalone ClawSec security scanning
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/clawsec.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/clawsec.yml --tags scan,validate
+
+- name: Deploy and Run ClawSec Security Scanning
+  hosts: local
+  gather_facts: true
+  tags: [security, clawsec]
+
+  pre_tasks:
+    - name: Validate ClawSec configuration
+      ansible.builtin.assert:
+        that:
+          - noesispraxis_enable_clawsec | default(false) | bool
+        fail_msg: "ClawSec is disabled. Set noesispraxis_enable_clawsec=true in group_vars"
+
+    - name: Ensure ClawSec report directory exists
+      ansible.builtin.file:
+        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/clawsec-reports"
+        state: directory
+        mode: '0755'
+
+  roles:
+    - role: clawsec
+      tags: [clawsec]
+
+  post_tasks:
+    - name: Report ClawSec scan summary
+      ansible.builtin.debug:
+        msg: "ClawSec scanning complete. Reports in {{ base_data_dir | default('/opt/noesispraxis') }}/clawsec-reports"

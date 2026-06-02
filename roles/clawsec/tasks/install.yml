@@ -1,0 +1,30 @@
+---
+- name: Ensure ClawSec report directory exists
+  ansible.builtin.file:
+    path: "{{ clawsec_report_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Check if ClawSec CLI exists
+  ansible.builtin.stat:
+    path: "{{ clawsec_cli_path }}"
+  register: clawsec_cli_stat
+
+- name: Download ClawSec CLI
+  ansible.builtin.get_url:
+    url: "https://github.com/prompt-security/clawsec/releases/download/{{ clawsec_version }}/clawsec-linux-amd64"
+    dest: "{{ clawsec_cli_path }}"
+    mode: '0755'
+  when: not clawsec_cli_stat.stat.exists
+  ignore_errors: true
+
+- name: Verify ClawSec CLI
+  ansible.builtin.command:
+    cmd: "{{ clawsec_cli_path }} --version"
+  register: clawsec_version_check
+  changed_when: false
+  ignore_errors: true
+
+- name: Report ClawSec version
+  ansible.builtin.debug:
+    msg: "ClawSec version: {{ clawsec_version_check.stdout | default('not installed') }}"

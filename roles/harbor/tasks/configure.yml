@@ -1,0 +1,31 @@
+---
+- name: Ensure Harbor projects exist
+  ansible.builtin.uri:
+    url: "http://{{ harbor_hostname }}:{{ harbor_http_port }}/api/v2.0/projects"
+    method: POST
+    user: admin
+    password: "{{ harbor_admin_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      project_name: "{{ item.name }}"
+      metadata:
+        public: "{{ item.public | string | lower }}"
+    status_code: [201, 409]
+  loop: "{{ harbor_projects }}"
+  ignore_errors: true
+
+- name: Configure Harbor retention policies
+  ansible.builtin.uri:
+    url: "http://{{ harbor_hostname }}:{{ harbor_http_port }}/api/v2.0/projects/{{ item.name }}/immutabletagrules"
+    method: POST
+    user: admin
+    password: "{{ harbor_admin_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      tag_selector: "{\"decorator\":\"excludes\",\"pattern\":\"latest\"}"
+      repository_selector: "{\"kind\":\"doublestar\",\"pattern\":\"**\"}"
+    status_code: [201, 409]
+  loop: "{{ harbor_projects }}"
+  ignore_errors: true

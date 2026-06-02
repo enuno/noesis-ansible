@@ -1,0 +1,13 @@
+---
+- name: Render Honcho configuration
+  ansible.builtin.template:
+    src: honcho-config.yml.j2
+    dest: "{{ honcho_install_dir }}/config.yml"
+    mode: '0644'
+  notify: restart honcho
+
+- name: Render Honcho peer card policy
+  ansible.builtin.template:
+    src: honcho-peer-policy.yml.j2
+    dest: "{{ honcho_install_dir }}/peer-policy.yml"
+    mode: '0644'

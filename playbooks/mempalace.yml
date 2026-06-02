@@ -1,0 +1,32 @@
+---
+# mempalace.yml — Standalone MemPalace per-agent memory deployment
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/mempalace.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/mempalace.yml --tags install,configure
+
+- name: Deploy MemPalace Per-Agent Memory
+  hosts: local
+  gather_facts: false
+  tags: [memory, mempalace]
+
+  pre_tasks:
+    - name: Validate MemPalace configuration
+      ansible.builtin.assert:
+        that:
+          - noesispraxis_enable_mempalace | default(false) | bool
+        fail_msg: "MemPalace is disabled. Set noesispraxis_enable_mempalace=true in group_vars"
+
+    - name: Ensure MemPalace base directory exists
+      ansible.builtin.file:
+        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/mempalace"
+        state: directory
+        mode: '0755'
+
+  roles:
+    - role: mempalace
+      tags: [mempalace]
+
+  post_tasks:
+    - name: Report MemPalace topology
+      ansible.builtin.debug:
+        msg: "MemPalace deployed for agents: {{ mempalace_agents | map(attribute='name') | list }}"

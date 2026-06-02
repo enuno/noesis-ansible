@@ -1,0 +1,25 @@
+# Dev environment overrides for NoesisPraxis Helm charts
+# Usage: helm install <release> charts/<chart> -f charts/values-dev.yaml
+
+global:
+  environment: dev
+  imagePullPolicy: IfNotPresent
+
+replicaCount: 1
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+autoscaling:
+  enabled: false
+
+persistence:
+  enabled: false
+
+ingress:
+  enabled: false

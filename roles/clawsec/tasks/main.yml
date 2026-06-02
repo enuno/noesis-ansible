@@ -1,0 +1,20 @@
+---
+- name: Include ClawSec install
+  ansible.builtin.include_tasks: install.yml
+  when: clawsec_enabled | bool
+  tags: [clawsec, install]
+
+- name: Include ClawSec configure
+  ansible.builtin.include_tasks: configure.yml
+  when: clawsec_enabled | bool
+  tags: [clawsec, configure]
+
+- name: Include ClawSec scan
+  ansible.builtin.include_tasks: scan.yml
+  when: clawsec_enabled | bool
+  tags: [clawsec, scan]
+
+- name: Include ClawSec validate
+  ansible.builtin.include_tasks: validate.yml
+  when: clawsec_enabled | bool
+  tags: [clawsec, validate]

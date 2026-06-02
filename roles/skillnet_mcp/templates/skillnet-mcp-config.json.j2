@@ -1,0 +1,27 @@
+{
+  "server": {
+    "port": {{ skillnet_mcp_port }},
+    "transport": "{{ skillnet_mcp_transport }}"
+  },
+  "endpoints": {
+    "sse": "{{ skillnet_mcp_sse_endpoint }}",
+    "message": "{{ skillnet_mcp_message_endpoint }}"
+  },
+  "skillnet": {
+    "url": "{{ skillnet_mcp_skillnet_url }}"
+  },
+  "tools": [
+    {
+      "name": "skill_search",
+      "description": "Search for available skills in SkillNet"
+    },
+    {
+      "name": "skill_evaluate",
+      "description": "Evaluate a skill for compatibility"
+    },
+    {
+      "name": "skill_install",
+      "description": "Install a skill into the agent"
+    }
+  ]
+}

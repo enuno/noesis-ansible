@@ -1,0 +1,23 @@
+---
+# Noesis* specialized OpenClaw agent defaults
+# Inherits from openclaw_acp role
+
+noesis_openclaw_enabled: "{{ noesispraxis_enable_noesis_openclaw | default(false) | bool }}"
+noesis_openclaw_variant: "noesis-generic"
+
+# Identity overrides
+noesis_openclaw_agent_name: "{{ noesis_openclaw_variant }}"
+noesis_openclaw_agent_role: "specialized"
+noesis_openclaw_agent_capabilities:
+  - reasoning
+  - planning
+  - delegation
+noesis_openclaw_agent_owner: "noesispraxis"
+
+# Registry endpoints (inherited from openclaw_acp)
+noesis_openclaw_acp_registry_url: "{{ acp_registry_url }}"
+noesis_openclaw_a2a_registry_url: "{{ a2a_registry_url }}"
+noesis_openclaw_agent_registry_url: "{{ agent_registry_url }}"
+
+# Gateway (inherited)
+noesis_openclaw_gateway_url: "{{ openclaw_gateway_url }}"

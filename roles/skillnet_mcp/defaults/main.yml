@@ -1,0 +1,28 @@
+---
+# SkillNet MCP server defaults
+# https://github.com/CycleChain/skillnet-mcp
+
+skillnet_mcp_enabled: "{{ noesispraxis_enable_skillnet_mcp | default(false) | bool }}"
+skillnet_mcp_version: "main"
+skillnet_mcp_port: 8092
+skillnet_mcp_base_url: "http://localhost:{{ skillnet_mcp_port }}"
+
+# Repository
+skillnet_mcp_repo: "https://github.com/CycleChain/skillnet-mcp.git"
+skillnet_mcp_install_dir: "{{ base_data_dir | default('/opt/noesispraxis') }}/skillnet-mcp"
+
+# MCP transport
+skillnet_mcp_transport: "stdio"
+skillnet_mcp_sse_endpoint: "/sse"
+skillnet_mcp_message_endpoint: "/message"
+
+# SkillNet backend binding
+skillnet_mcp_skillnet_url: "http://localhost:8089"
+
+# Docker image (placeholder)
+skillnet_mcp_image: "noesislab/skillnet-mcp:{{ skillnet_mcp_version }}"
+skillnet_mcp_container_name: noesis-skillnet-mcp
+
+# Resource limits
+skillnet_mcp_cpu_limit: "0.25"
+skillnet_mcp_memory_limit: "256m"

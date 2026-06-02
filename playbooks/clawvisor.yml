@@ -1,6 +1,44 @@
 ---
+# clawvisor.yml — Standalone Clawvisor security layer deployment
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/clawvisor.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/clawvisor.yml --tags install,configure,policy
+
 - name: Deploy Clawvisor Security Layer
   hosts: local
   gather_facts: false
+  tags: [security, clawvisor]
+
+  pre_tasks:
+    - name: Validate Clawvisor configuration
+      ansible.builtin.assert:
+        that:
+          - clawvisor_url is defined
+          - noesispraxis_enable_clawvisor | default(true) | bool
+        fail_msg: "Clawvisor is disabled or misconfigured. Check group_vars/all.yml"
+
+    - name: Ensure Clawvisor data directory exists
+      ansible.builtin.file:
+        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/clawvisor"
+        state: directory
+        mode: '0755'
+
   roles:
-    - clawvisor
+    - role: clawvisor
+      tags: [clawvisor]
+
+  post_tasks:
+    - name: Validate Clawvisor health
+      ansible.builtin.uri:
+        url: "{{ clawvisor_url }}/health"
+        method: GET
+        status_code: 200
+      register: clawvisor_health
+      retries: 5
+      delay: 3
+      until: clawvisor_health.status == 200
+      ignore_errors: true
+
+    - name: Report Clawvisor status
+      ansible.builtin.debug:
+        msg: "Clawvisor deployed at {{ clawvisor_url }} — health: {{ clawvisor_health.status | default('unknown') }}"

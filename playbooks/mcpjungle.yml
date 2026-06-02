@@ -1,6 +1,44 @@
 ---
-- name: Deploy MCPJungle
+# mcpjungle.yml — Standalone MCPJungle gateway deployment
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/mcpjungle.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/mcpjungle.yml --tags install,configure
+
+- name: Deploy MCPJungle MCP Gateway
   hosts: local
   gather_facts: false
+  tags: [security, mcpjungle, mcp]
+
+  pre_tasks:
+    - name: Validate MCPJungle configuration
+      ansible.builtin.assert:
+        that:
+          - mcpjungle_url is defined
+          - noesispraxis_enable_mcpjungle | default(true) | bool
+        fail_msg: "MCPJungle is disabled or misconfigured. Check group_vars/all.yml"
+
+    - name: Ensure MCPJungle data directory exists
+      ansible.builtin.file:
+        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/mcpjungle"
+        state: directory
+        mode: '0755'
+
   roles:
-    - mcpjungle
+    - role: mcpjungle
+      tags: [mcpjungle, mcp]
+
+  post_tasks:
+    - name: Validate MCPJungle health
+      ansible.builtin.uri:
+        url: "{{ mcpjungle_url }}/health"
+        method: GET
+        status_code: 200
+      register: mcpjungle_health
+      retries: 5
+      delay: 3
+      until: mcpjungle_health.status == 200
+      ignore_errors: true
+
+    - name: Report MCPJungle status
+      ansible.builtin.debug:
+        msg: "MCPJungle deployed at {{ mcpjungle_url }} — health: {{ mcpjungle_health.status | default('unknown') }}"

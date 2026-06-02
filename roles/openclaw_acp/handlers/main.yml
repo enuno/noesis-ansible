@@ -1,0 +1,15 @@
+---
+- name: Restart OpenClaw ACP gateway
+  ansible.builtin.systemd:
+    name: "{{ openclaw_service_name }}"
+    state: restarted
+    daemon_reload: true
+  when: openclaw_acp_enabled | bool
+  listen: restart openclaw acp
+
+- name: Reload OpenClaw ACP gateway
+  ansible.builtin.systemd:
+    name: "{{ openclaw_service_name }}"
+    state: reloaded
+  when: openclaw_acp_enabled | bool
+  listen: reload openclaw acp

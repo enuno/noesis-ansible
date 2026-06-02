@@ -1,0 +1,15 @@
+---
+- name: Restart Hermes ACP agent
+  ansible.builtin.systemd:
+    name: "{{ hermes_service_name }}"
+    state: restarted
+    daemon_reload: true
+  when: hermes_acp_enabled | bool
+  listen: restart hermes acp
+
+- name: Reload Hermes ACP agent
+  ansible.builtin.systemd:
+    name: "{{ hermes_service_name }}"
+    state: reloaded
+  when: hermes_acp_enabled | bool
+  listen: reload hermes acp

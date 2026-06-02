@@ -1,0 +1,9 @@
+{
+  "name": "{{ openclaw_agent_name }}",
+  "role": "{{ openclaw_agent_role }}",
+  "capabilities": {{ openclaw_agent_capabilities | to_json }},
+  "protocols": {{ openclaw_agent_protocols | to_json }},
+  "endpoint": "{{ openclaw_gateway_url }}",
+  "owner": "{{ openclaw_agent_owner }}",
+  "supervisor": "noesispraxis"
+}

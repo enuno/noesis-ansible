@@ -105,9 +105,12 @@ PHASE 8  Validation       → Health, schema, connectivity
 | 7 | No SkillNet role or playbook exists | Medium | Runtime |
 | 8 | No ClawSec integration beyond task 11 doc | Medium | Security |
 | 9 | MemPalace and Honcho memory substrate not implemented | Medium | Memory |
-| 10 | Registry sync disabled by default, no sync logic wired | Low | 7 |
-| 11 | Backup/restore disabled by default, minimal implementation | Low | 7 |
-| 12 | No CI/CD or automated validation pipeline | Low | All |
+| 10 | MemPalace MCP tooling integration not wired | Medium | Memory |
+| 11 | Honcho self-hosting deployment (Docker/compose) not scaffolded | Medium | Memory |
+| 12 | Honcho reasoning, peer cards, dreaming, streaming, file-upload config not defined | Low | Memory |
+| 13 | Registry sync disabled by default, no sync logic wired | Low | 7 |
+| 14 | Backup/restore disabled by default, minimal implementation | Low | 7 |
+| 15 | No CI/CD or automated validation pipeline | Low | All |
 
 ---
 
@@ -242,23 +245,47 @@ PHASE 8  Validation       → Health, schema, connectivity
 
 ### Phase 6: Memory Substrate (Week 7)
 
-**Goal:** Deploy per-agent MemPalace and shared Honcho.
+**Goal:** Deploy per-agent MemPalace and shared Honcho with full memory routing policy.
 
 **Deliverables:**
-- [ ] `roles/mempalace/` — Per-agent MemPalace instance deployment
-- [ ] `roles/honcho/` — Shared Honcho server deployment
+- [ ] `roles/mempalace/` — Per-agent MemPalace instance deployment (local-first, privacy-preserving)
+- [ ] `roles/honcho/` — Self-hosted shared Honcho server deployment (isolated from public exposure)
 - [ ] `playbooks/mempalace.yml` — Standalone MemPalace deployment
 - [ ] `playbooks/honcho.yml` — Standalone Honcho deployment
-- [ ] OpenClaw MemPalace config (isolated)
-- [ ] Hermes MemPalace config (isolated)
-- [ ] Honcho shared config (cross-agent)
+- [ ] OpenClaw MemPalace config (isolated primary memory)
+- [ ] Hermes MemPalace config (isolated primary memory)
+- [ ] Honcho shared config (cross-agent secondary substrate)
+- [ ] Memory routing policy implementation:
+  - MemPalace first for local/private/session-scoped memory
+  - Honcho second for shared durable memory and cross-agent continuity
+  - Promotion queue from MemPalace to Honcho for stable, non-sensitive facts
+  - Explicit validation gate before Honcho peer card updates
+- [ ] Honcho capability configuration:
+  - Reasoning enabled by default (disable per-task only when explicit)
+  - Peer cards for stable biographical facts, preferences, standing instructions
+  - Dreaming cycle scheduled after meaningful accumulation or idle timeout
+  - Streaming for long-form reasoning and latency-sensitive responses
+  - File upload support for research papers, technical docs, logs
+- [ ] Security controls:
+  - Least privilege for all memory and tool access
+  - Authenticated access to Honcho
+  - Narrowly scoped tokens
+  - Memory action logging (promotions, retrievals, dream cycles)
+  - Rollback and manual override paths for bad promotions
 - [ ] Memory topology validation
+- [ ] `templates/memory/mempalace-config.yml.j2` — MemPalace hooks, CLI, MCP tooling config
+- [ ] `templates/memory/honcho-config.yml.j2` — Honcho app/user/session/collection config
 
 **Acceptance criteria:**
-- Each agent has isolated MemPalace instance
-- Honcho accessible to all agents
-- Memory write/read round-trip validates
+- Each agent has isolated MemPalace instance accessible via MCP
+- Honcho self-hosted and reachable on controlled internal endpoint
+- Memory write/read round-trip validates for both substrates
 - No cross-agent memory leakage
+- Promotion from MemPalace to Honcho requires explicit validation
+- Secrets, credentials, private keys, ephemeral tokens blocked from Honcho
+- Dreaming cycle triggers automatically after accumulation thresholds
+- Peer cards contain only stable, atomic, deduplicated facts
+- Memory action logs are auditable
 
 ---
 
@@ -412,7 +439,11 @@ The `Tasks/` directory contains 13 sequential task files. Execute in numeric ord
 | 4 | Tailscale auth keys expire during automation | Low | High | Implement key rotation, use ephemeral keys |
 | 5 | Bitwarden API rate limits during bulk secret fetch | Low | Medium | Cache secrets, implement backoff |
 | 6 | Registry sync creates circular dependencies | Medium | High | Implement sync ordering, validate DAG |
-| 7 | Memory substrate (MemPalace/Honcho) performance on constrained hardware | Medium | Medium | Benchmark early, adjust budgets |
+| 7 | Memory substrate (MemPalace/Honcho) performance on constrained hardware | Medium | Medium | Benchmark early, adjust budgets; isolate MemPalace locally; keep Honcho lean |
+| 8 | Honcho self-hosting complexity (Postgres, migrations, API surface) | Medium | Medium | Containerize Honcho; automate DB migrations; restrict to internal network |
+| 9 | MemPalace MCP tooling availability/stability | Medium | Medium | Pin MCP adapter versions; maintain fallback to CLI/hooks |
+| 10 | Cross-agent memory leakage via Honcho misconfiguration | Low | High | Strict app/user scoping; validate isolation before production |
+| 11 | Bad promotion of unstable facts into Honcho peer cards | Low | Medium | Require explicit validation gate; audit all promotions; provide rollback |
 
 ---
 
@@ -453,8 +484,8 @@ The `Tasks/` directory contains 13 sequential task files. Execute in numeric ord
 | Clawvisor | github.com/clawvisor/clawvisor | Security gatekeeper |
 | ClawSec | prompt.security/clawsec | Security scanning |
 | SkillNet | github.com/zjunlp/SkillNet | Dynamic skill discovery |
-| MemPalace | github.com/mempalace/mempalace | Per-agent memory |
-| Honcho | github.com/plastic-labs/honcho | Shared memory substrate |
+|| MemPalace | github.com/mempalace/mempalace | Per-agent memory (primary local) |
+|| Honcho | github.com/plastic-labs/honcho | Shared memory substrate (secondary cross-agent) |
 | Harbor | goharbor.io | OCI artifact registry |
 | Bitwarden SM | bitwarden.com/secrets-manager | Secret management |
 | Tailscale | tailscale.com | Secure mesh networking |
@@ -465,4 +496,5 @@ The `Tasks/` directory contains 13 sequential task files. Execute in numeric ord
 
 | Date | Version | Change |
 |------|---------|--------|
+| 2026-06-02 | v0.1.1 | Updated Phase 6 (Memory Substrate) and gaps/risk register per Task 13 (Agent-Memory-Substrate.md) |
 | 2026-06-02 | v0.1.0 | Initial development plan from scaffold assessment |

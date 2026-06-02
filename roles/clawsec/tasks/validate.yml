@@ -1,0 +1,38 @@
+---
+- name: Check ClawSec CLI availability
+  ansible.builtin.stat:
+    path: "{{ clawsec_cli_path }}"
+  register: clawsec_cli_check
+
+- name: Fail if ClawSec CLI missing
+  ansible.builtin.fail:
+    msg: "ClawSec CLI not found at {{ clawsec_cli_path }}. Run install.yml first."
+  when: not clawsec_cli_check.stat.exists
+
+- name: Validate scan reports exist
+  ansible.builtin.find:
+    paths: "{{ clawsec_report_dir }}"
+    patterns: "*.json"
+  register: clawsec_reports
+
+- name: Report ClawSec coverage
+  ansible.builtin.debug:
+    msg: "ClawSec reports: {{ clawsec_reports.files | default([]) | length }} scan results in {{ clawsec_report_dir }}"
+
+- name: Check for critical findings
+  ansible.builtin.shell: |
+    set -o pipefail
+    find {{ clawsec_report_dir }} -name '*.json' -exec cat {} \; | \
+    jq -r '.findings[]? | select(.severity == "critical") | .id' | wc -l
+  args:
+    executable: /bin/bash
+  register: critical_count
+  changed_when: false
+  ignore_errors: true
+
+- name: Fail on critical findings
+  ansible.builtin.fail:
+    msg: "ClawSec found {{ critical_count.stdout | default('0') }} critical security issues. Review reports in {{ clawsec_report_dir }}"
+  when:
+    - clawsec_fail_on_critical | bool
+    - (critical_count.stdout | default('0') | int) > 0

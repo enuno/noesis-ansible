@@ -1,6 +1,44 @@
 ---
+# acp-registry.yml — Standalone ACP Registry deployment
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/acp-registry.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/acp-registry.yml --tags install,configure
+
 - name: Deploy ACP Registry
   hosts: local
   gather_facts: false
+  tags: [foundation, acp, registry]
+
+  pre_tasks:
+    - name: Validate ACP registry configuration
+      ansible.builtin.assert:
+        that:
+          - acp_registry_url is defined
+          - noesispraxis_enable_acp | default(true) | bool
+        fail_msg: "ACP registry is disabled or misconfigured. Check group_vars/all.yml"
+
+    - name: Ensure registry data directory exists
+      ansible.builtin.file:
+        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/acp-registry"
+        state: directory
+        mode: '0755'
+
   roles:
-    - acp_registry
+    - role: acp_registry
+      tags: [acp, registry]
+
+  post_tasks:
+    - name: Validate ACP registry health
+      ansible.builtin.uri:
+        url: "{{ acp_registry_url }}/health"
+        method: GET
+        status_code: 200
+      register: acp_health
+      retries: 5
+      delay: 3
+      until: acp_health.status == 200
+      ignore_errors: true
+
+    - name: Report ACP registry status
+      ansible.builtin.debug:
+        msg: "ACP Registry deployed at {{ acp_registry_url }} — health: {{ acp_health.status | default('unknown') }}"

@@ -1,0 +1,20 @@
+---
+- name: Include Hermes ACP install
+  ansible.builtin.include_tasks: install.yml
+  when: hermes_acp_enabled | bool
+  tags: [hermes, acp, install]
+
+- name: Include Hermes ACP configure
+  ansible.builtin.include_tasks: configure.yml
+  when: hermes_acp_enabled | bool
+  tags: [hermes, acp, configure]
+
+- name: Include Hermes ACP registry registration
+  ansible.builtin.include_tasks: register.yml
+  when: hermes_acp_enabled | bool
+  tags: [hermes, acp, register]
+
+- name: Include Hermes ACP validate
+  ansible.builtin.include_tasks: validate.yml
+  when: hermes_acp_enabled | bool
+  tags: [hermes, acp, validate]

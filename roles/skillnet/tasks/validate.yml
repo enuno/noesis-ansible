@@ -1,0 +1,27 @@
+---
+- name: Check SkillNet health
+  ansible.builtin.uri:
+    url: "{{ skillnet_base_url }}/health"
+    method: GET
+    status_code: 200
+  register: skillnet_health
+  retries: 5
+  delay: 3
+  until: skillnet_health.status == 200
+  ignore_errors: true
+
+- name: Test skill search API
+  ansible.builtin.uri:
+    url: "{{ skillnet_base_url }}{{ skillnet_search_endpoint }}"
+    method: POST
+    body_format: json
+    body:
+      query: "ansible"
+      limit: 5
+    status_code: 200
+  register: skillnet_search
+  ignore_errors: true
+
+- name: Report SkillNet validation
+  ansible.builtin.debug:
+    msg: "SkillNet health: {{ skillnet_health.status | default('unreachable') }} | Search results: {{ skillnet_search.json | default({}) | length }}"

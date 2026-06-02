@@ -1,0 +1,8 @@
+---
+- name: Restart MemPalace instances
+  ansible.builtin.docker_container:
+    name: "noesis-mempalace-{{ item.name }}"
+    state: started
+    restart: true
+  loop: "{{ mempalace_agents }}"
+  listen: restart mempalace

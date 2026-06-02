@@ -1,0 +1,25 @@
+---
+- name: Check Honcho health
+  ansible.builtin.uri:
+    url: "{{ honcho_base_url }}/health"
+    method: GET
+    status_code: 200
+  register: honcho_health
+  retries: 10
+  delay: 5
+  until: honcho_health.status == 200
+  ignore_errors: true
+
+- name: Test Honcho API with auth
+  ansible.builtin.uri:
+    url: "{{ honcho_base_url }}/api/v1/apps"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ honcho_api_key }}"
+    status_code: 200
+  register: honcho_apps
+  ignore_errors: true
+
+- name: Report Honcho validation
+  ansible.builtin.debug:
+    msg: "Honcho health: {{ honcho_health.status | default('unreachable') }} | Apps: {{ honcho_apps.json | default({}) | length }}"

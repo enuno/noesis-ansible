@@ -1,0 +1,32 @@
+---
+# AG-UI role defaults
+# User-facing agent interaction protocol scaffolding
+
+ag_ui_enabled: "{{ noesispraxis_enable_ag_ui | default(false) | bool }}"
+ag_ui_version: "0.1.0"
+ag_ui_port: 8087
+ag_ui_base_url: "http://localhost:{{ ag_ui_port }}"
+
+# Event endpoint configuration
+ag_ui_event_endpoint: "/events"
+ag_ui_action_endpoint: "/actions"
+ag_ui_health_endpoint: "/health"
+
+# Human-in-the-loop settings
+ag_ui_hitl_enabled: true
+ag_ui_hitl_timeout_seconds: 300
+
+# Backend agent bindings
+ag_ui_openclaw_backend: "http://localhost:8090"
+ag_ui_hermes_backend: "http://localhost:8091"
+
+# Docker image (placeholder until official image exists)
+ag_ui_image: "noesislab/ag-ui:{{ ag_ui_version }}"
+ag_ui_container_name: noesis-ag-ui
+
+# Resource limits
+ag_ui_cpu_limit: "0.5"
+ag_ui_memory_limit: "512m"
+
+# Logging
+ag_ui_log_level: info

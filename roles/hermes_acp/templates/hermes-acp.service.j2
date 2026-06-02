@@ -1,0 +1,15 @@
+[Unit]
+Description=Hermes ACP Agent
+After=network.target
+
+[Service]
+Type=simple
+ExecStart={{ hermes_data_dir }}/hermes acp --config {{ hermes_config_dir }}/acp-config.yml
+Restart=on-failure
+RestartSec=5
+EnvironmentFile={{ hermes_env_file }}
+User=hermes
+Group=hermes
+
+[Install]
+WantedBy=multi-user.target

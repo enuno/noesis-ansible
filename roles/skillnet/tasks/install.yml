@@ -1,0 +1,38 @@
+---
+- name: Ensure SkillNet directory exists
+  ansible.builtin.file:
+    path: "{{ skillnet_install_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Clone SkillNet repository
+  ansible.builtin.git:
+    repo: "{{ skillnet_repo }}"
+    dest: "{{ skillnet_install_dir }}/src"
+    version: "{{ skillnet_version }}"
+  ignore_errors: true
+
+- name: Pull SkillNet image
+  ansible.builtin.docker_image:
+    name: "{{ skillnet_image }}"
+    source: pull
+  ignore_errors: true
+
+- name: Deploy SkillNet container
+  ansible.builtin.docker_container:
+    name: "{{ skillnet_container_name }}"
+    image: "{{ skillnet_image }}"
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "{{ skillnet_port }}:{{ skillnet_port }}"
+    env:
+      SKILLNET_PORT: "{{ skillnet_port | string }}"
+      SKILLNET_LOG_LEVEL: "{{ skillnet_log_level }}"
+      SKILLNET_OPENCLAW_BINDING: "{{ skillnet_openclaw_binding }}"
+      SKILLNET_HERMES_BINDING: "{{ skillnet_hermes_binding }}"
+    volumes:
+      - "{{ skillnet_install_dir }}:/data"
+    memory: "{{ skillnet_memory_limit }}"
+    cpu_shares: "{{ (skillnet_cpu_limit | float * 1024) | int }}"
+  ignore_errors: true

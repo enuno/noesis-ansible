@@ -1,0 +1,49 @@
+---
+- name: Ensure Honcho directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ honcho_install_dir }}"
+    - "{{ honcho_data_dir }}"
+    - "{{ honcho_db_volume }}"
+
+- name: Clone Honcho repository
+  ansible.builtin.git:
+    repo: "{{ honcho_repo }}"
+    dest: "{{ honcho_install_dir }}/src"
+    version: "{{ honcho_version }}"
+  ignore_errors: true
+
+- name: Pull Honcho image
+  ansible.builtin.docker_image:
+    name: "{{ honcho_image }}"
+    source: pull
+  ignore_errors: true
+
+- name: Deploy Honcho container
+  ansible.builtin.docker_container:
+    name: "{{ honcho_container_name }}"
+    image: "{{ honcho_image }}"
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "{{ honcho_port }}:{{ honcho_port }}"
+    env:
+      HONCHO_PORT: "{{ honcho_port | string }}"
+      HONCHO_LOG_LEVEL: "{{ honcho_log_level }}"
+      HONCHO_REASONING_ENABLED: "{{ honcho_reasoning_enabled | string }}"
+      HONCHO_PEER_CARDS_ENABLED: "{{ honcho_peer_cards_enabled | string }}"
+      HONCHO_DREAMING_ENABLED: "{{ honcho_dreaming_enabled | string }}"
+      HONCHO_STREAMING_ENABLED: "{{ honcho_streaming_enabled | string }}"
+      HONCHO_FILE_UPLOADS_ENABLED: "{{ honcho_file_uploads_enabled | string }}"
+      HONCHO_AUTH_ENABLED: "{{ honcho_auth_enabled | string }}"
+      HONCHO_API_KEY: "{{ honcho_api_key }}"
+      DATABASE_URL: "postgresql://honcho:{{ honcho_db_password }}@localhost:5432/honcho"
+    volumes:
+      - "{{ honcho_data_dir }}:/data"
+      - "{{ honcho_db_volume }}:/var/lib/postgresql/data"
+    memory: "{{ honcho_memory_limit }}"
+    cpu_shares: "{{ (honcho_cpu_limit | float * 1024) | int }}"
+  ignore_errors: true

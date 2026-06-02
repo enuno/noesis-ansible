@@ -1,0 +1,38 @@
+---
+- name: Ensure Hermes directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ hermes_data_dir }}"
+    - "{{ hermes_config_dir }}"
+
+- name: Install Hermes CLI
+  ansible.builtin.get_url:
+    url: "https://github.com/nousresearch/hermes/releases/download/{{ hermes_version }}/hermes-linux-amd64"
+    dest: "{{ hermes_data_dir }}/hermes"
+    mode: '0755'
+  ignore_errors: true
+
+- name: Symlink Hermes to system PATH
+  ansible.builtin.file:
+    src: "{{ hermes_data_dir }}/hermes"
+    dest: /usr/local/bin/hermes
+    state: link
+    force: true
+  ignore_errors: true
+
+- name: Render Hermes ACP systemd service
+  ansible.builtin.template:
+    src: hermes-acp.service.j2
+    dest: "{{ hermes_systemd_unit }}"
+    mode: '0644'
+  notify: restart hermes acp
+
+- name: Enable Hermes ACP service
+  ansible.builtin.systemd:
+    name: "{{ hermes_service_name }}"
+    enabled: true
+    daemon_reload: true
+  ignore_errors: true

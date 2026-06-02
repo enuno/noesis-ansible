@@ -1,9 +1,68 @@
 ---
+# maintenance.yml — Rolling maintenance for NoesisPraxis stack
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/maintenance.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/maintenance.yml --tags validate,restart
+
 - name: Rolling maintenance for NoesisPraxis stack
   hosts: all
   gather_facts: true
   serial: 1
+  tags: [maintenance]
+
+  pre_tasks:
+    - name: Validate maintenance prerequisites
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname is defined
+          - deployment_env is defined
+        fail_msg: "Missing required variables for maintenance"
+
+    - name: Record maintenance start
+      ansible.builtin.copy:
+        content: |
+          ---
+          maintenance_started_at: "{{ ansible_date_time.iso8601 }}"
+          hostname: "{{ inventory_hostname }}"
+          env: "{{ deployment_env }}"
+        dest: "{{ base_data_dir | default('/opt/noesispraxis') }}/.maintenance-meta.yml"
+        mode: '0644'
+
   tasks:
-    - name: Placeholder maintenance task
+    - name: Run validation checks
+      ansible.builtin.include_role:
+        name: validation
+        tasks_from: health.yml
+      tags: [validate]
+
+    - name: Rotate secrets if needed
+      ansible.builtin.include_role:
+        name: bitwarden_secrets
+        tasks_from: rotate.yml
+      tags: [secrets, rotate]
+      when: noesispraxis_enable_secrets_bootstrap | default(true) | bool
+
+    - name: Restart services with pending changes
+      ansible.builtin.meta: flush_handlers
+      tags: [restart]
+
+  post_tasks:
+    - name: Run post-maintenance validation
+      ansible.builtin.include_role:
+        name: validation
+        tasks_from: health.yml
+      tags: [validate]
+
+    - name: Record maintenance completion
+      ansible.builtin.copy:
+        content: |
+          ---
+          maintenance_completed_at: "{{ ansible_date_time.iso8601 }}"
+          hostname: "{{ inventory_hostname }}"
+          env: "{{ deployment_env }}"
+        dest: "{{ base_data_dir | default('/opt/noesispraxis') }}/.maintenance-meta.yml"
+        mode: '0644'
+
+    - name: Report maintenance status
       ansible.builtin.debug:
-        msg: "Maintenance window for {{ inventory_hostname }}"
+        msg: "Maintenance complete for {{ inventory_hostname }} in {{ deployment_env }}"

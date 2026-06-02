@@ -1,0 +1,41 @@
+---
+- name: Ensure MemPalace base directory exists
+  ansible.builtin.file:
+    path: "{{ mempalace_install_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Clone MemPalace repository
+  ansible.builtin.git:
+    repo: "{{ mempalace_repo }}"
+    dest: "{{ mempalace_install_dir }}/src"
+    version: "{{ mempalace_version }}"
+  ignore_errors: true
+
+- name: Ensure per-agent data directories exist
+  ansible.builtin.file:
+    path: "{{ item.data_dir }}"
+    state: directory
+    mode: '0750'
+  loop: "{{ mempalace_agents }}"
+
+- name: Deploy MemPalace containers per agent
+  ansible.builtin.docker_container:
+    name: "noesis-mempalace-{{ item.name }}"
+    image: "mempalace/mempalace:{{ mempalace_version }}"
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "{{ item.port }}:{{ item.port }}"
+    env:
+      MEMPALACE_AGENT: "{{ item.name }}"
+      MEMPALACE_PORT: "{{ item.port | string }}"
+      MEMPALACE_LOG_LEVEL: "{{ mempalace_log_level }}"
+      MEMPALACE_MCP_ENABLED: "{{ mempalace_mcp_enabled | string }}"
+      MEMPALACE_HOOKS_ENABLED: "{{ mempalace_hooks_enabled | string }}"
+    volumes:
+      - "{{ item.data_dir }}:/data"
+    memory: "{{ mempalace_memory_limit }}"
+    cpu_shares: "{{ (mempalace_cpu_limit | float * 1024) | int }}"
+  loop: "{{ mempalace_agents }}"
+  ignore_errors: true

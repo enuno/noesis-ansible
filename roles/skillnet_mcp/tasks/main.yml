@@ -1,0 +1,15 @@
+---
+- name: Include SkillNet MCP install
+  ansible.builtin.include_tasks: install.yml
+  when: skillnet_mcp_enabled | bool
+  tags: [skillnet_mcp, install]
+
+- name: Include SkillNet MCP configure
+  ansible.builtin.include_tasks: configure.yml
+  when: skillnet_mcp_enabled | bool
+  tags: [skillnet_mcp, configure]
+
+- name: Include SkillNet MCP validate
+  ansible.builtin.include_tasks: validate.yml
+  when: skillnet_mcp_enabled | bool
+  tags: [skillnet_mcp, validate]

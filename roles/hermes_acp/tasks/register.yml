@@ -1,0 +1,71 @@
+---
+- name: Wait for Hermes ACP health
+  ansible.builtin.uri:
+    url: "http://localhost:{{ hermes_acp_port | default(8080) }}/health"
+    method: GET
+    status_code: 200
+  register: hermes_health
+  retries: "{{ hermes_health_retries }}"
+  delay: "{{ hermes_health_delay }}"
+  until: hermes_health.status == 200
+  ignore_errors: true
+
+- name: Register Hermes agent with ACP registry
+  ansible.builtin.uri:
+    url: "{{ acp_registry_url }}/agents"
+    method: POST
+    headers:
+      Content-Type: application/json
+      Authorization: "Bearer {{ hermes_registry_api_key }}"
+    body:
+      name: "{{ hermes_agent_name }}"
+      role: "{{ hermes_agent_role }}"
+      endpoint: "http://localhost:{{ hermes_acp_port | default(8080) }}"
+      protocols: "{{ hermes_agent_protocols }}"
+      owner: "{{ hermes_agent_owner }}"
+      capabilities: "{{ hermes_agent_capabilities }}"
+    body_format: json
+    status_code: [200, 201, 409]
+  register: acp_registration
+  ignore_errors: true
+
+- name: Register Hermes agent with A2A registry
+  ansible.builtin.uri:
+    url: "{{ a2a_registry_url }}/agents"
+    method: POST
+    headers:
+      Content-Type: application/json
+      Authorization: "Bearer {{ hermes_registry_api_key }}"
+    body:
+      name: "{{ hermes_agent_name }}"
+      endpoint: "http://localhost:{{ hermes_acp_port | default(8080) }}"
+      capabilities: "{{ hermes_agent_capabilities }}"
+      protocols: "{{ hermes_agent_protocols }}"
+    body_format: json
+    status_code: [200, 201, 409]
+  register: a2a_registration
+  ignore_errors: true
+
+- name: Register Hermes agent with Agent Registry
+  ansible.builtin.uri:
+    url: "{{ agent_registry_url }}/agents"
+    method: POST
+    headers:
+      Content-Type: application/json
+      Authorization: "Bearer {{ hermes_registry_api_key }}"
+    body:
+      name: "{{ hermes_agent_name }}"
+      role: "{{ hermes_agent_role }}"
+      capabilities: "{{ hermes_agent_capabilities }}"
+      endpoint: "http://localhost:{{ hermes_acp_port | default(8080) }}"
+      owner: "{{ hermes_agent_owner }}"
+      protocols: "{{ hermes_agent_protocols }}"
+      supervisor: "{{ hermes_supervisor_name }}"
+    body_format: json
+    status_code: [200, 201, 409]
+  register: agent_registry_registration
+  ignore_errors: true
+
+- name: Report registration status
+  ansible.builtin.debug:
+    msg: "ACP: {{ acp_registration.status | default('failed') }} | A2A: {{ a2a_registration.status | default('failed') }} | AgentReg: {{ agent_registry_registration.status | default('failed') }}"

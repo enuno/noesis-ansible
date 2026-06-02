@@ -1,0 +1,33 @@
+---
+- name: Ensure AG-UI config directory exists
+  ansible.builtin.file:
+    path: "{{ base_data_dir | default('/opt/noesispraxis') }}/ag-ui"
+    state: directory
+    mode: '0755'
+
+- name: Pull AG-UI image
+  ansible.builtin.docker_image:
+    name: "{{ ag_ui_image }}"
+    source: pull
+  ignore_errors: true
+
+- name: Deploy AG-UI container
+  ansible.builtin.docker_container:
+    name: "{{ ag_ui_container_name }}"
+    image: "{{ ag_ui_image }}"
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "{{ ag_ui_port }}:{{ ag_ui_port }}"
+    env:
+      AG_UI_PORT: "{{ ag_ui_port | string }}"
+      AG_UI_LOG_LEVEL: "{{ ag_ui_log_level }}"
+      AG_UI_HITL_ENABLED: "{{ ag_ui_hitl_enabled | string }}"
+      AG_UI_HITL_TIMEOUT: "{{ ag_ui_hitl_timeout_seconds | string }}"
+      AG_UI_OPENCLAW_BACKEND: "{{ ag_ui_openclaw_backend }}"
+      AG_UI_HERMES_BACKEND: "{{ ag_ui_hermes_backend }}"
+    volumes:
+      - "{{ base_data_dir | default('/opt/noesispraxis') }}/ag-ui:/data"
+    memory: "{{ ag_ui_memory_limit }}"
+    cpu_shares: "{{ (ag_ui_cpu_limit | float * 1024) | int }}"
+  ignore_errors: true

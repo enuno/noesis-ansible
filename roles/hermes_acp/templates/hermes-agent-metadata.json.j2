@@ -1,0 +1,11 @@
+{
+  "name": "{{ hermes_agent_name }}",
+  "role": "{{ hermes_agent_role }}",
+  "capabilities": {{ hermes_agent_capabilities | to_json }},
+  "protocols": {{ hermes_agent_protocols | to_json }},
+  "endpoint": "http://localhost:{{ hermes_acp_port | default(8080) }}",
+  "owner": "{{ hermes_agent_owner }}",
+  "supervisor": "{{ hermes_supervisor_name }}",
+  "transport": "{{ hermes_acp_transport }}",
+  "acp_support": true
+}

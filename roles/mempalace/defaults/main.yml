@@ -1,0 +1,31 @@
+---
+# MemPalace per-agent memory substrate defaults
+# https://github.com/mempalace/mempalace
+
+mempalace_enabled: "{{ noesispraxis_enable_mempalace | default(false) | bool }}"
+mempalace_version: "main"
+
+# Agent-specific instances
+mempalace_agents:
+  - name: openclaw
+    port: 8093
+    data_dir: "{{ base_data_dir | default('/opt/noesispraxis') }}/mempalace/openclaw"
+  - name: hermes
+    port: 8094
+    data_dir: "{{ base_data_dir | default('/opt/noesispraxis') }}/mempalace/hermes"
+
+# Common settings
+mempalace_base_url: "http://localhost"
+mempalace_repo: "https://github.com/mempalace/mempalace.git"
+mempalace_install_dir: "{{ base_data_dir | default('/opt/noesispraxis') }}/mempalace"
+
+# MCP integration
+mempalace_mcp_enabled: true
+mempalace_hooks_enabled: true
+
+# Resource limits per instance
+mempalace_cpu_limit: "0.25"
+mempalace_memory_limit: "256m"
+
+# Logging
+mempalace_log_level: info

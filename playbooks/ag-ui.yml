@@ -1,0 +1,43 @@
+---
+# ag-ui.yml — Standalone AG-UI protocol deployment
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/ag-ui.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/ag-ui.yml --tags install,configure
+
+- name: Deploy AG-UI Protocol Layer
+  hosts: local
+  gather_facts: false
+  tags: [ag_ui, interaction]
+
+  pre_tasks:
+    - name: Validate AG-UI configuration
+      ansible.builtin.assert:
+        that:
+          - noesispraxis_enable_ag_ui | default(false) | bool
+        fail_msg: "AG-UI is disabled. Set noesispraxis_enable_ag_ui=true in group_vars"
+
+    - name: Ensure AG-UI data directory exists
+      ansible.builtin.file:
+        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/ag-ui"
+        state: directory
+        mode: '0755'
+
+  roles:
+    - role: ag_ui
+      tags: [ag_ui]
+
+  post_tasks:
+    - name: Validate AG-UI health
+      ansible.builtin.uri:
+        url: "http://localhost:8087/health"
+        method: GET
+        status_code: 200
+      register: ag_ui_health
+      retries: 5
+      delay: 3
+      until: ag_ui_health.status == 200
+      ignore_errors: true
+
+    - name: Report AG-UI status
+      ansible.builtin.debug:
+        msg: "AG-UI deployed at http://localhost:8087 — health: {{ ag_ui_health.status | default('unknown') }}"

@@ -1,6 +1,43 @@
 ---
-- name: Deploy OpenClaw Agent
+# openclaw.yml — Standalone OpenClaw agent runtime deployment
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/openclaw.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/openclaw.yml --tags install,configure
+
+- name: Deploy OpenClaw Agent Runtime
   hosts: local
   gather_facts: false
+  tags: [runtime, openclaw]
+
+  pre_tasks:
+    - name: Validate OpenClaw configuration
+      ansible.builtin.assert:
+        that:
+          - noesispraxis_enable_generic_agents | default(true) | bool
+        fail_msg: "Generic agents are disabled. Check group_vars/all.yml"
+
+    - name: Ensure OpenClaw data directory exists
+      ansible.builtin.file:
+        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/openclaw"
+        state: directory
+        mode: '0755'
+
   roles:
-    - openclaw
+    - role: openclaw
+      tags: [openclaw]
+
+  post_tasks:
+    - name: Validate OpenClaw health
+      ansible.builtin.uri:
+        url: "http://localhost:8090/health"
+        method: GET
+        status_code: 200
+      register: openclaw_health
+      retries: 5
+      delay: 3
+      until: openclaw_health.status == 200
+      ignore_errors: true
+
+    - name: Report OpenClaw status
+      ansible.builtin.debug:
+        msg: "OpenClaw deployed — health: {{ openclaw_health.status | default('unknown') }}"

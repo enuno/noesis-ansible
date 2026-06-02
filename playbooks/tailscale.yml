@@ -1,6 +1,33 @@
 ---
+# tailscale.yml — Standalone Tailscale mesh VPN deployment
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/tailscale.yml
+#   ansible-playbook -i inventory/tailscale/hosts.ini playbooks/tailscale.yml --tags install,configure
+
 - name: Configure Tailscale Networking
   hosts: all
   gather_facts: true
+  tags: [networking, tailscale]
+
+  pre_tasks:
+    - name: Validate Tailscale configuration
+      ansible.builtin.assert:
+        that:
+          - noesispraxis_enable_tailscale | default(true) | bool
+        fail_msg: "Tailscale is disabled. Check group_vars/all.yml"
+
   roles:
-    - tailscale
+    - role: tailscale
+      tags: [tailscale]
+
+  post_tasks:
+    - name: Validate Tailscale status
+      ansible.builtin.command:
+        cmd: "tailscale status --json"
+      register: tailscale_status
+      changed_when: false
+      ignore_errors: true
+
+    - name: Report Tailscale status
+      ansible.builtin.debug:
+        msg: "Tailscale mesh status: {{ tailscale_status.rc | default('unknown') }}"

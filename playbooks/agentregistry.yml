@@ -1,6 +1,44 @@
 ---
+# agentregistry.yml — Standalone Agent Registry dashboard deployment
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/agentregistry.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/agentregistry.yml --tags install,configure
+
 - name: Deploy Agent Registry Dashboard
   hosts: local
   gather_facts: false
+  tags: [foundation, agentregistry, registry]
+
+  pre_tasks:
+    - name: Validate Agent Registry configuration
+      ansible.builtin.assert:
+        that:
+          - agentregistry_url is defined
+          - noesispraxis_enable_agentregistry | default(true) | bool
+        fail_msg: "Agent Registry is disabled or misconfigured. Check group_vars/all.yml"
+
+    - name: Ensure Agent Registry data directory exists
+      ansible.builtin.file:
+        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/agentregistry"
+        state: directory
+        mode: '0755'
+
   roles:
-    - agentregistry
+    - role: agentregistry
+      tags: [agentregistry, registry]
+
+  post_tasks:
+    - name: Validate Agent Registry health
+      ansible.builtin.uri:
+        url: "{{ agentregistry_url }}/health"
+        method: GET
+        status_code: 200
+      register: agentregistry_health
+      retries: 5
+      delay: 3
+      until: agentregistry_health.status == 200
+      ignore_errors: true
+
+    - name: Report Agent Registry status
+      ansible.builtin.debug:
+        msg: "Agent Registry deployed at {{ agentregistry_url }} — health: {{ agentregistry_health.status | default('unknown') }}"

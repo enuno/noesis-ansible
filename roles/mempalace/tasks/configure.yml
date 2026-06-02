@@ -1,0 +1,14 @@
+---
+- name: Render per-agent MemPalace configuration
+  ansible.builtin.template:
+    src: mempalace-config.yml.j2
+    dest: "{{ item.data_dir }}/config.yml"
+    mode: '0644'
+  loop: "{{ mempalace_agents }}"
+  notify: restart mempalace
+
+- name: Render MemPalace hooks configuration
+  ansible.builtin.template:
+    src: mempalace-hooks.yml.j2
+    dest: "{{ mempalace_install_dir }}/hooks.yml"
+    mode: '0644'

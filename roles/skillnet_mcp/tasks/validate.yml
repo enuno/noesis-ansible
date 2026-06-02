@@ -1,0 +1,23 @@
+---
+- name: Check SkillNet MCP health
+  ansible.builtin.uri:
+    url: "{{ skillnet_mcp_base_url }}/health"
+    method: GET
+    status_code: 200
+  register: skillnet_mcp_health
+  retries: 5
+  delay: 3
+  until: skillnet_mcp_health.status == 200
+  ignore_errors: true
+
+- name: Test SkillNet MCP tools/list
+  ansible.builtin.uri:
+    url: "{{ skillnet_mcp_base_url }}/tools/list"
+    method: GET
+    status_code: 200
+  register: skillnet_mcp_tools
+  ignore_errors: true
+
+- name: Report SkillNet MCP validation
+  ansible.builtin.debug:
+    msg: "SkillNet MCP health: {{ skillnet_mcp_health.status | default('unreachable') }} | Tools: {{ skillnet_mcp_tools.json | default({}) | length }}"

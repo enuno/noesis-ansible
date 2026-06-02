@@ -1,0 +1,8 @@
+---
+- name: Restart AG-UI container
+  ansible.builtin.docker_container:
+    name: "{{ ag_ui_container_name }}"
+    state: started
+    restart: true
+  when: ag_ui_enabled | bool
+  listen: restart ag_ui

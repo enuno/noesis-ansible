@@ -1,0 +1,5 @@
+apiVersion: v2
+name: ans
+description: OpenClaw ACP agent orchestrator
+version: 0.1.0
+appVersion: "latest"

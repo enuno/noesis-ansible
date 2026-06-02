@@ -1,0 +1,15 @@
+---
+- name: Include SkillNet install
+  ansible.builtin.include_tasks: install.yml
+  when: skillnet_enabled | bool
+  tags: [skillnet, install]
+
+- name: Include SkillNet configure
+  ansible.builtin.include_tasks: configure.yml
+  when: skillnet_enabled | bool
+  tags: [skillnet, configure]
+
+- name: Include SkillNet validate
+  ansible.builtin.include_tasks: validate.yml
+  when: skillnet_enabled | bool
+  tags: [skillnet, validate]

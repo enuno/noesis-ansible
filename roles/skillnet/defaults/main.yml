@@ -1,0 +1,32 @@
+---
+# SkillNet dynamic skill discovery defaults
+# https://github.com/zjunlp/SkillNet
+
+skillnet_enabled: "{{ noesispraxis_enable_skillnet | default(false) | bool }}"
+skillnet_version: "main"
+skillnet_port: 8089
+skillnet_base_url: "http://localhost:{{ skillnet_port }}"
+
+# Repository
+skillnet_repo: "https://github.com/zjunlp/SkillNet.git"
+skillnet_install_dir: "{{ base_data_dir | default('/opt/noesispraxis') }}/skillnet"
+
+# Search API configuration
+skillnet_search_endpoint: "/api/search"
+skillnet_evaluate_endpoint: "/api/evaluate"
+skillnet_install_endpoint: "/api/install"
+
+# Agent bindings
+skillnet_openclaw_binding: "http://localhost:8090"
+skillnet_hermes_binding: "http://localhost:8091"
+
+# Docker image (placeholder)
+skillnet_image: "noesislab/skillnet:{{ skillnet_version }}"
+skillnet_container_name: noesis-skillnet
+
+# Resource limits
+skillnet_cpu_limit: "0.5"
+skillnet_memory_limit: "512m"
+
+# Logging
+skillnet_log_level: info

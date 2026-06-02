@@ -1,0 +1,26 @@
+---
+- name: Check Harbor health
+  ansible.builtin.uri:
+    url: "http://{{ harbor_hostname }}:{{ harbor_http_port }}/api/v2.0/health"
+    method: GET
+    status_code: 200
+  register: harbor_health
+  retries: 10
+  delay: 5
+  until: harbor_health.status == 200
+  ignore_errors: true
+
+- name: List Harbor projects
+  ansible.builtin.uri:
+    url: "http://{{ harbor_hostname }}:{{ harbor_http_port }}/api/v2.0/projects"
+    method: GET
+    user: admin
+    password: "{{ harbor_admin_password }}"
+    force_basic_auth: true
+    status_code: 200
+  register: harbor_project_list
+  ignore_errors: true
+
+- name: Report Harbor validation
+  ansible.builtin.debug:
+    msg: "Harbor health: {{ harbor_health.status | default('unreachable') }} | Projects: {{ harbor_project_list.json | default([]) | map(attribute='name') | list }}"

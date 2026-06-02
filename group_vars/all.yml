@@ -40,6 +40,16 @@ noesispraxis_enable_tailscale: true
 noesispraxis_enable_backup: false
 noesispraxis_enable_validation: true
 noesispraxis_enable_registry_sync: false
+noesispraxis_enable_ag_ui: false
+noesispraxis_enable_harbor: false
+noesispraxis_enable_clawsec: false
+noesispraxis_enable_skillnet: false
+noesispraxis_enable_skillnet_mcp: false
+noesispraxis_enable_mempalace: false
+noesispraxis_enable_honcho: false
+noesispraxis_enable_openclaw_acp: false
+noesispraxis_enable_noesis_openclaw: false
+noesispraxis_enable_hermes_acp: false
 
 # Registry endpoints (localhost defaults)
 registry_base_url: http://localhost:8080

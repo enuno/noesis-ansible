@@ -1,0 +1,32 @@
+---
+- name: Validate OpenClaw gateway health
+  ansible.builtin.uri:
+    url: "{{ openclaw_gateway_url }}{{ openclaw_gateway_health_path }}"
+    method: GET
+    status_code: 200
+  register: gateway_health
+  retries: "{{ openclaw_health_retries }}"
+  delay: "{{ openclaw_health_delay }}"
+  until: gateway_health.status == 200
+  ignore_errors: true
+
+- name: Validate ACP bridge connectivity
+  ansible.builtin.command: |
+    openclaw acp --gateway {{ openclaw_gateway_url }} --check
+  register: acp_check
+  changed_when: false
+  ignore_errors: true
+
+- name: Validate registry entries
+  ansible.builtin.uri:
+    url: "{{ acp_registry_url }}/agents/{{ openclaw_agent_name }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ openclaw_registry_api_key }}"
+    status_code: 200
+  register: acp_lookup
+  ignore_errors: true
+
+- name: Report validation results
+  ansible.builtin.debug:
+    msg: "Gateway: {{ gateway_health.status | default('unreachable') }} | ACP bridge: {{ acp_check.rc | default('n/a') }} | Registry lookup: {{ acp_lookup.status | default('not found') }}"

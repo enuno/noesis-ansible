@@ -1,0 +1,14 @@
+---
+- name: Render AG-UI configuration
+  ansible.builtin.template:
+    src: ag-ui-config.yml.j2
+    dest: "{{ base_data_dir | default('/opt/noesispraxis') }}/ag-ui/config.yml"
+    mode: '0644'
+  notify: restart ag_ui
+
+- name: Render AG-UI event routing rules
+  ansible.builtin.template:
+    src: ag-ui-events.yml.j2
+    dest: "{{ base_data_dir | default('/opt/noesispraxis') }}/ag-ui/events.yml"
+    mode: '0644'
+  notify: restart ag_ui

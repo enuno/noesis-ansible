@@ -1,0 +1,15 @@
+---
+- name: Include AG-UI install
+  ansible.builtin.include_tasks: install.yml
+  when: ag_ui_enabled | bool
+  tags: [ag_ui, install]
+
+- name: Include AG-UI configure
+  ansible.builtin.include_tasks: configure.yml
+  when: ag_ui_enabled | bool
+  tags: [ag_ui, configure]
+
+- name: Include AG-UI validate
+  ansible.builtin.include_tasks: validate.yml
+  when: ag_ui_enabled | bool
+  tags: [ag_ui, validate]

@@ -1,0 +1,32 @@
+---
+# hermes-acp.yml — Hermes ACP agent registration
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/hermes-acp.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/hermes-acp.yml --tags register
+
+- name: Deploy Hermes ACP Agent and Register
+  hosts: local
+  gather_facts: false
+  tags: [hermes, acp, agent]
+
+  pre_tasks:
+    - name: Validate Hermes ACP configuration
+      ansible.builtin.assert:
+        that:
+          - noesispraxis_enable_hermes_acp | default(false) | bool
+        fail_msg: "Hermes ACP is disabled. Set noesispraxis_enable_hermes_acp=true in group_vars"
+
+    - name: Ensure Hermes base directory exists
+      ansible.builtin.file:
+        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/hermes"
+        state: directory
+        mode: '0755'
+
+  roles:
+    - role: hermes_acp
+      tags: [hermes, acp]
+
+  post_tasks:
+    - name: Report Hermes ACP status
+      ansible.builtin.debug:
+        msg: "Hermes ACP agent deployed: {{ hermes_agent_name }} | Role: {{ hermes_agent_role }} | Supervisor: {{ hermes_supervisor_name }}"

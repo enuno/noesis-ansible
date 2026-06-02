@@ -1,0 +1,8 @@
+---
+- name: Restart Honcho
+  ansible.builtin.docker_container:
+    name: "{{ honcho_container_name }}"
+    state: started
+    restart: true
+  when: honcho_enabled | bool
+  listen: restart honcho
