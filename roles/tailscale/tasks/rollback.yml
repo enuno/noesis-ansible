@@ -1,4 +1,24 @@
 ---
-- name: Rollback placeholder for tailscale
+# Tailscale rollback — NoesisPraxis conventions
+
+- name: Rollback | De-register Tailscale node
+  become: true
+  ansible.builtin.command: tailscale logout
+  changed_when: true
+  ignore_errors: true
+
+- name: Rollback | Stop Tailscale service
+  become: true
+  ansible.builtin.service:
+    name: "{{ tailscale_service }}"
+    state: stopped
+    enabled: false
+
+- name: Rollback | Remove Tailscale state
+  ansible.builtin.file:
+    path: "{{ tailscale_state_folder }}/artis3n-tailscale"
+    state: absent
+
+- name: Rollback | Notify completion
   ansible.builtin.debug:
-    msg: "Rollback not yet implemented for tailscale. Manual intervention may be required."
+    msg: "Tailscale rolled back. Node de-registered and service stopped."

@@ -1,0 +1,9 @@
+---
+# Arch Linux Tailscale install — integrated from artis3n/ansible-role-tailscale
+
+- name: Arch | Install Tailscale
+  become: true
+  community.general.pacman:
+    name: '{{ tailscale_package }}'
+    update_cache: true
+    state: '{{ state }}'

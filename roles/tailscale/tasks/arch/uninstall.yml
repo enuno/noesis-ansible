@@ -1,0 +1,8 @@
+---
+# Arch Linux Tailscale uninstall — integrated from artis3n/ansible-role-tailscale
+
+- name: Arch | Remove Tailscale
+  become: true
+  community.general.pacman:
+    name: '{{ tailscale_package }}'
+    state: absent

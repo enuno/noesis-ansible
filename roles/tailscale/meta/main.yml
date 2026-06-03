@@ -1,0 +1,48 @@
+---
+galaxy_info:
+  role_name: tailscale
+  author: artis3n (integrated by NoesisPraxis)
+  description: Install and enable a Tailscale node. Cross-distro, idempotent, authkey-safe.
+  license: MIT
+
+  min_ansible_version: "2.18"
+
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+        - noble
+    - name: EL
+      versions:
+        - "8"
+    - name: Amazon Linux
+      versions:
+        - "2"
+        - "2023"
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+    - name: Fedora
+      versions:
+        - "31"
+    - name: ArchLinux
+      versions:
+        - all
+    - name: opensuse
+      versions:
+        - "15.4"
+        - "15.5"
+
+  galaxy_tags:
+    - tailscale
+    - vpn
+    - networking
+    - mesh
+    - zero-trust
+
+collections:
+  - community.general
+
+dependencies: []

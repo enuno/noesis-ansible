@@ -1,5 +1,23 @@
 ---
-- name: Validate Tailscale connectivity
-  ansible.builtin.command: tailscale status
-  register: ts_status
+# Tailscale validation — NoesisPraxis conventions
+
+- name: Validate | Tailscale binary exists
+  ansible.builtin.command: which tailscale
   changed_when: false
+
+- name: Validate | Tailscale service is running
+  ansible.builtin.service:
+    name: "{{ tailscale_service }}"
+    state: started
+  become: true
+  check_mode: true
+  register: tailscale_service_check
+
+- name: Validate | Tailscale connectivity
+  ansible.builtin.command: tailscale status
+  changed_when: false
+  register: ts_status
+
+- name: Validate | Report Tailscale status
+  ansible.builtin.debug:
+    msg: "Tailscale status: {{ ts_status.stdout_lines | default(['unknown']) }}"

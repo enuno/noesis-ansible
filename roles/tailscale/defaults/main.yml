@@ -1,3 +1,50 @@
 ---
-tailscale_auth_key: ""
+# Tailscale role defaults — integrated from artis3n/ansible-role-tailscale
+# NoesisPraxis conventions: prefix with noesispraxis_ where applicable,
+# keep auth secrets in vault, use FQCN modules.
+
+# Whether to install or uninstall Tailscale. Either 'latest', 'present', or 'absent'
+state: latest
+
+# Required Node auth key to authenticate to Tailscale
+# Store this in vault — never commit plaintext auth keys
+tailscale_authkey: ""
+
+# Optional command-line arguments for 'tailscale up'
+tailscale_args: ""
+
+# Apply provided tags to node (entries should NOT include 'tag:' prefix)
+tailscale_tags: []
+
+# Set timeout for 'tailscale up' command in seconds
+tailscale_up_timeout: "120"
+
+# Used for OAuth authentication
+# Register as an ephemeral node (recommended)
+tailscale_oauth_ephemeral: true
+# Skip manual device approval
+tailscale_oauth_preauthorized: false
+
+# Whether to output debug information during role execution
+verbose: false
+
+# Whether to skip 'tailscale up' — useful for AMI creation
+tailscale_up_skip: false
+
+# Whether to use the stable or unstable upstream Tailscale build
+release_stability: stable
+
+# Whether to log authkey in error output (security risk — default false)
+insecurely_log_authkey: false
+
+# Whether to store hashed authkey in state for idempotency
+auth_key_in_state: true
+
+# NoesisPraxis-specific defaults
 tailscale_hostname: "{{ inventory_hostname }}"
+tailscale_advertise_routes: []
+tailscale_accept_dns: true
+tailscale_ssh: false
+
+# State folder follows XDG Base Directory spec
+tailscale_state_folder: "{{ ansible_env.XDG_STATE_HOME | default(ansible_env.HOME + '/.local/state') }}"
