@@ -1,0 +1,35 @@
+---
+- name: Ensure OpenViking service is started and enabled
+  ansible.builtin.systemd_service:
+    name: "{{ _openviking_service_name }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  when:
+    - openviking_manage_service | bool
+    - ansible_service_mgr == 'systemd'
+  register: _openviking_service_start
+
+- name: Wait for OpenViking to accept connections
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ openviking_port }}"
+    timeout: "{{ openviking_health_timeout }}"
+    state: started
+  when:
+    - openviking_manage_service | bool
+    - _openviking_service_start is succeeded
+
+- name: Verify OpenViking health endpoint responds
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ openviking_port }}{{ openviking_health_path }}"
+    method: GET
+    status_code: 200
+    timeout: "{{ openviking_health_timeout }}"
+  register: _openviking_health
+  retries: 5
+  delay: 2
+  until: _openviking_health.status == 200
+  when:
+    - openviking_manage_service | bool
+    - _openviking_service_start is succeeded

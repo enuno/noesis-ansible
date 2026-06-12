@@ -28,6 +28,21 @@
       tags: [macos, clawdev]
 
   post_tasks:
+    - name: Validate ClawDev SOUL.md deployed
+      ansible.builtin.stat:
+        path: "{{ ansible_env.HOME }}/.config/noesis/clawdev/SOUL.md"
+      register: soul_file
+
+    - name: Validate ClawDev USER.md deployed
+      ansible.builtin.stat:
+        path: "{{ ansible_env.HOME }}/.config/noesis/clawdev/USER.md"
+      register: user_file
+
+    - name: Report identity files status
+      ansible.builtin.debug:
+        msg: |
+          ClawDev identity: SOUL={{ 'present' if soul_file.stat.exists else 'MISSING' }} USER={{ 'present' if user_file.stat.exists else 'MISSING' }}
+
     - name: Validate ClawDev launchd service
       ansible.builtin.command:
         cmd: "launchctl list com.noesis.clawdev"
@@ -37,4 +52,4 @@
 
     - name: Report ClawDev status
       ansible.builtin.debug:
-        msg: "ClawDev launchd status: {{ clawdev_launchd.rc | default('unknown') }}"
+        msg: "ClawDev launchd status: {{ clawdev_launchd.rc | default('unknown') }} | SOUL={{ 'ready' if soul_file.stat.exists else 'missing' }} USER={{ 'ready' if user_file.stat.exists else 'missing' }}"

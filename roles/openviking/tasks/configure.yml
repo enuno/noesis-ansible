@@ -1,0 +1,23 @@
+---
+- name: Deploy OpenViking configuration
+  ansible.builtin.template:
+    src: openviking.yml.j2
+    dest: "{{ _openviking_config_file }}"
+    owner: "{{ openviking_user }}"
+    group: "{{ openviking_group }}"
+    mode: '0644'
+  notify:
+    - restart_openviking
+
+- name: Deploy OpenViking systemd unit
+  ansible.builtin.template:
+    src: openviking.service.j2
+    dest: "{{ _openviking_systemd_unit }}"
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+    - openviking_manage_service | bool
+    - ansible_service_mgr == 'systemd'
+  notify:
+    - restart_openviking

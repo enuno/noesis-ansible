@@ -1,5 +1,5 @@
 ---
-- name: Validate OpenClaw gateway health
+- name: Validate AlphaClaw gateway health
   ansible.builtin.uri:
     url: "{{ openclaw_gateway_url }}{{ openclaw_gateway_health_path }}"
     method: GET
@@ -10,9 +10,9 @@
   until: gateway_health.status == 200
   ignore_errors: true
 
-- name: Validate ACP bridge connectivity
-  ansible.builtin.command: |
-    openclaw acp --gateway {{ openclaw_gateway_url }} --check
+- name: Validate AlphaClaw CLI availability
+  ansible.builtin.command:
+    cmd: "alphaclaw version"
   register: acp_check
   changed_when: false
   ignore_errors: true

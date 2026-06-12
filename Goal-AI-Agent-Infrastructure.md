@@ -65,3 +65,23 @@ Required outcomes:
 - NoesisPraxis must be able to use this repo to deploy and maintain the Noesis Universe infrastructure.
 - The repo must manage identity, discovery, registry, agent runtime, communications, Harbor artifacts, security policy, networking, secrets, backup, restore, validation, and rollback as composable Ansible workflows.
 - Every change should be auditable, repeatable, and represented in code.
+
+## Task Inventory
+
+- **Task 1: NoesisPraxis Ansible Monorepo** (`Tasks/1.Task-NoesisPraxis-Ansible-Monorepo.md`) — 289 lines
+- **Task 2: NoesisPraxis Ansible Scaffolding** (`Tasks/2.Task-NoesisPraxis-Ansible-Scaffolding.md`) — 185 lines
+- **Task 3: NoesisPraxis Ansible Repo Scaffolding** (`Tasks/3.Task-NoesisPraxis-Ansible-Repo-Scaffolding.md`) — 139 lines
+- **Task 4: NoesisPraxis Ansible Inventory Scaffolding** (`Tasks/4.Task-NoesisPraxis-Ansible-Inventory-Scaffolding.md`) — 159 lines
+- **Task 5: NoesisPraxis Ansible Role Scaffolding** (`Tasks/5.Task-NoesisPraxis-Ansible-Role-Scaffolding.md`) — 279 lines
+- **Task 6: NoesisPraxis Ansible Template Scaffolding** (`Tasks/6.Task-NoesisPraxis-Ansible-Template-Scaffolding.md`) — 178 lines
+- **Task 7: NoesisPraxis Ansible Final Task** (`Tasks/7.Task-NoesisPraxis-Ansible-Final-Task.md`) — 325 lines
+- **Task 8: Guidance** (`Tasks/8.Guidance.md`) — 2 lines
+- **Task 9: Orchestration and Lifecycle** (`Tasks/9.Orchestration_and_Lifecycle.md`) — 120 lines
+- **Task 10: Support and Management Infrastructure** (`Tasks/10.Support_and_Management_Infrastructure.md`) — 129 lines
+- **Task 11: security scanning integration** (`Tasks/11.Agent-Security.md`) — 20 lines
+- **Task 12: dynamic skill discovery and integration** (`Tasks/12.Agent-Skills.md`) — 22 lines
+- **Task 13: memory substrate deployment** (`Tasks/13.Agent-Memory-Substrate.md`) — 104 lines
+- **Task 14: Kubernetes Deployments** (`Tasks/14.Kubernetes-Deployments.md`) — 69 lines
+- **Task 15: Openclaw ACP Agent Registration** (`Tasks/15.Openclaw-ACP-Agent-Registration.md`) — 105 lines
+- **Task 16: Hermes ACP Agent Registration** (`Tasks/16.Hermes-ACP-Agent-Registration.md`) — 103 lines
+- **Task 17: Codex and OpenViking Servers** (`Tasks/17.Codex-and-OpenViking-Servers.md`) — 138 lines

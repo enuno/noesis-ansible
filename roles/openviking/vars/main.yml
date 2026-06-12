@@ -1,0 +1,8 @@
+---
+# Internal vars — not intended for user override
+# Use defaults/main.yml for tunables
+
+_openviking_service_name: openviking
+_openviking_binary: "{{ openviking_install_path }}/bin/openviking"
+_openviking_config_file: "{{ openviking_install_path }}/etc/openviking.yml"
+_openviking_systemd_unit: "/etc/systemd/system/{{ _openviking_service_name }}.service"

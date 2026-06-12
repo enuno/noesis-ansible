@@ -4,8 +4,23 @@
     src: openclaw-config.json.j2
     dest: "{{ clawdev_home }}/.config/noesis/clawdev/config.json"
     mode: '0644'
+
 - name: Deploy resource budget
   ansible.builtin.template:
     src: resource-budget.yml.j2
     dest: "{{ clawdev_home }}/.config/noesis/clawdev/resource-budget.yml"
     mode: '0644'
+
+- name: Deploy ClawDev SOUL.md identity file
+  ansible.builtin.copy:
+    src: "{{ noesis_assets_dir }}/NoesisLab-Agent-Identity/SOUL-ClawDev.md"
+    dest: "{{ clawdev_home }}/.config/noesis/clawdev/SOUL.md"
+    mode: '0644'
+  tags: [macos, clawdev, identity, soul]
+
+- name: Deploy NoesisPraxis USER.md operator profile
+  ansible.builtin.copy:
+    src: "{{ noesis_assets_dir }}/NoesisLab-Agent-Identity/USER.md"
+    dest: "{{ clawdev_home }}/.config/noesis/clawdev/USER.md"
+    mode: '0644'
+  tags: [macos, clawdev, identity, user]

@@ -1,0 +1,43 @@
+---
+# OpenViking role defaults
+# All variables documented here; override in group_vars/host_vars or --extra-vars
+
+# Port OpenViking listens on (HTTP API and health endpoint)
+openviking_port: 8080
+
+# Installation path for OpenViking binary and data
+openviking_install_path: /opt/openviking
+
+# Version to install (git tag, release version, or 'latest')
+openviking_version: latest
+
+# Number of worker processes (0 = auto-detect CPU cores)
+openviking_worker_count: 0
+
+# Log level: debug, info, warn, error
+openviking_log_level: info
+
+# Cluster mode: standalone or cluster
+openviking_cluster_mode: standalone
+
+# Cluster join addresses (comma-separated host:port pairs); only used when cluster_mode=cluster
+openviking_cluster_join: ""
+
+# Service user to run OpenViking
+openviking_user: openviking
+
+# Service group
+openviking_group: openviking
+
+# Binary URL template (override for custom mirrors)
+# Variables available: {{ openviking_version }}
+openviking_download_url: "https://github.com/openviking/openviking/releases/download/v{{ openviking_version }}/openviking-linux-amd64.tar.gz"
+
+# Whether to manage the systemd service
+openviking_manage_service: true
+
+# Health check endpoint path
+openviking_health_path: /health
+
+# Health check timeout seconds
+openviking_health_timeout: 10

@@ -1,5 +1,5 @@
 ---
-- name: Restart OpenClaw
+- name: Restart AlphaClaw
   ansible.builtin.debug:
-    msg: "Restart OpenClaw"
+    msg: "Restart AlphaClaw"
   listen: restart_openclaw

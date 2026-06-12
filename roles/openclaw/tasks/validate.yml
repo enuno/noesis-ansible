@@ -1,5 +1,5 @@
 ---
-- name: Validate OpenClaw health
+- name: Validate AlphaClaw health
   ansible.builtin.uri:
     url: "http://localhost:{{ openclaw_port }}/health"
     method: GET

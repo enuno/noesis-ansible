@@ -1,0 +1,24 @@
+[Unit]
+Description=OpenViking Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ openviking_user }}
+Group={{ openviking_group }}
+ExecStart={{ _openviking_binary }} --config {{ _openviking_config_file }}
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=openviking
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ openviking_install_path }}/var
+
+[Install]
+WantedBy=multi-user.target

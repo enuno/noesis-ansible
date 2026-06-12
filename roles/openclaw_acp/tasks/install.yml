@@ -1,5 +1,5 @@
 ---
-- name: Ensure OpenClaw directories exist
+- name: Ensure AlphaClaw directories exist
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
@@ -8,31 +8,27 @@
     - "{{ openclaw_install_dir }}"
     - "{{ openclaw_config_dir }}"
 
-- name: Install OpenClaw CLI
-  ansible.builtin.get_url:
-    url: "https://github.com/openclaw/openclaw/releases/download/{{ openclaw_version }}/openclaw-linux-amd64"
-    dest: "{{ openclaw_install_dir }}/openclaw"
-    mode: '0755'
-  ignore_errors: true
+- name: Install AlphaClaw CLI
+  ansible.builtin.command:
+    cmd: "npm install --prefix {{ openclaw_install_dir }} {{ alphaclaw_package }}"
+    creates: "{{ openclaw_install_dir }}/node_modules/.bin/alphaclaw"
 
-- name: Symlink OpenClaw to system PATH
+- name: Symlink AlphaClaw to system PATH
   ansible.builtin.file:
-    src: "{{ openclaw_install_dir }}/openclaw"
-    dest: /usr/local/bin/openclaw
+    src: "{{ openclaw_install_dir }}/node_modules/.bin/alphaclaw"
+    dest: /usr/local/bin/alphaclaw
     state: link
     force: true
-  ignore_errors: true
 
-- name: Render OpenClaw ACP systemd service
+- name: Render AlphaClaw ACP systemd service
   ansible.builtin.template:
     src: openclaw-acp.service.j2
     dest: "{{ openclaw_systemd_unit }}"
     mode: '0644'
   notify: restart openclaw acp
 
-- name: Enable OpenClaw ACP service
+- name: Enable AlphaClaw ACP service
   ansible.builtin.systemd:
     name: "{{ openclaw_service_name }}"
     enabled: true
     daemon_reload: true
-  ignore_errors: true

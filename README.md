@@ -37,17 +37,17 @@ This repository is the **single source of truth** for deploying, maintaining, an
 | **A2A Registry** | Live A2A agent discovery and Agent Card management | 8084 | Complete |
 | **MCPJungle** | MCP server registry and approved tool gateway | 8085 | Complete |
 | **Clawvisor** | Security layer — policy, identity, sandboxing, access control | 8086 | Complete |
-| **ClawSec** | Security scanning integration for OpenClaw and Hermes | — | Complete |
+| **ClawSec** | Security scanning integration for AlphaClaw and Hermes | — | Complete |
 | **AG-UI** | User-facing protocol layer and event routing | 8087 | Complete |
 | **Harbor** | OCI artifact registry for agent images | 8088 | Complete |
 | **SkillNet** | Dynamic skill discovery, search, evaluation, installation | 8089 | Complete |
-| **OpenClaw** | Generic Dockerized agent runtime | 8090 | Complete |
+| **AlphaClaw** | Generic Dockerized agent runtime | 8090 | Complete |
 | **Hermes** | Generic Dockerized supervisor/assistant runtime | 8091 | Complete |
-| **MemPalace** | Per-agent memory substrate (OpenClaw:8093, Hermes:8094) | 8093-8094 | Complete |
+| **MemPalace** | Per-agent memory substrate (AlphaClaw:8093, Hermes:8094) | 8093-8094 | Complete |
 | **Honcho** | Shared secondary memory substrate | 8095 | Complete |
 | **Telegram** | Human-in-the-loop group chat communications | — | Complete |
 | **Tailscale** | Secure mesh networking for remote management | — | Complete |
-| **macOS ClawDev** | Lightweight OpenClaw for Apple Silicon | localhost | Complete |
+| **macOS ClawDev** | Lightweight AlphaClaw for Apple Silicon | localhost | Complete |
 | **macOS HermesDev** | Local Hermes supervisor for Apple Silicon | localhost | Complete |
 
 ## Quick Start
@@ -139,7 +139,7 @@ flowchart TD
 
     subgraph Runtime["Agent Runtime"]
         direction LR
-        oc["OpenClaw :8090"]
+        oc["AlphaClaw :8090"]
         hm["Hermes :8091"]
     end
 
@@ -217,7 +217,7 @@ flowchart TD
 flowchart TD
     subgraph AgentLayer["Agent Layer"]
         direction LR
-        oc["OpenClaw Agent"]
+        oc["AlphaClaw Agent"]
         hm["Hermes Agent"]
     end
 
@@ -281,12 +281,12 @@ PHASE 1  Foundation       → ACP, ANS, Agent Registry, A2A registries
 PHASE 2  Security         → MCPJungle, Clawvisor policies, ClawSec scanning
 PHASE 3  Distribution     → AG-UI, Harbor OCI registry
 PHASE 4  Skills           → SkillNet dynamic discovery and MCP server
-PHASE 5  Runtime          → Dockerized OpenClaw and Hermes deployments
+PHASE 5  Runtime          → Dockerized AlphaClaw and Hermes deployments
 PHASE 6  Memory           → MemPalace per-agent, Honcho shared substrate
 PHASE 7  macOS            → launchd services, resource budgets, Tailscale exposure
 PHASE 8  Communications   → Telegram bot provisioning and group integration
 PHASE 9  Networking       → Tailscale mesh, remote management wiring
-PHASE 10 ACP Registration → OpenClaw and Hermes ACP agent registration
+PHASE 10 ACP Registration → AlphaClaw and Hermes ACP agent registration
 PHASE 11 Sync & Backup    → Cross-registry sync, backup, restore hooks
 PHASE 12 Validation       → Health checks, schema validation, connectivity tests
 ```

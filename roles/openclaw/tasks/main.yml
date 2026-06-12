@@ -1,11 +1,11 @@
 ---
-- name: Include OpenClaw install
+- name: Include AlphaClaw install
   ansible.builtin.include_tasks: install.yml
-- name: Include OpenClaw configure
+- name: Include AlphaClaw configure
   ansible.builtin.include_tasks: configure.yml
-- name: Include OpenClaw launchd
+- name: Include AlphaClaw launchd
   ansible.builtin.include_tasks: launchd.yml
-- name: Include OpenClaw docker
+- name: Include AlphaClaw docker
   ansible.builtin.include_tasks: docker.yml
-- name: Include OpenClaw validate
+- name: Include AlphaClaw validate
   ansible.builtin.include_tasks: validate.yml

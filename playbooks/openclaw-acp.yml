@@ -1,24 +1,24 @@
 ---
-# openclaw-acp.yml — OpenClaw ACP gateway and agent registration
+# openclaw-acp.yml — AlphaClaw ACP gateway and agent registration
 # Usage:
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/openclaw-acp.yml
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/openclaw-acp.yml --tags register
 
-- name: Deploy OpenClaw ACP Gateway and Register Agent
+- name: Deploy AlphaClaw ACP Gateway and Register Agent
   hosts: local
   gather_facts: false
   tags: [openclaw, acp, gateway]
 
   pre_tasks:
-    - name: Validate OpenClaw ACP configuration
+    - name: Validate AlphaClaw ACP configuration
       ansible.builtin.assert:
         that:
           - noesispraxis_enable_openclaw_acp | default(false) | bool
-        fail_msg: "OpenClaw ACP is disabled. Set noesispraxis_enable_openclaw_acp=true in group_vars"
+        fail_msg: "AlphaClaw ACP is disabled. Set noesispraxis_enable_openclaw_acp=true in group_vars"
 
-    - name: Ensure OpenClaw base directory exists
+    - name: Ensure AlphaClaw base directory exists
       ansible.builtin.file:
-        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/openclaw"
+        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/alphaclaw"
         state: directory
         mode: '0755'
 
@@ -27,6 +27,6 @@
       tags: [openclaw, acp]
 
   post_tasks:
-    - name: Report OpenClaw ACP status
+    - name: Report AlphaClaw ACP status
       ansible.builtin.debug:
-        msg: "OpenClaw ACP gateway deployed for agent: {{ openclaw_agent_name }} | Gateway: {{ openclaw_gateway_url }}"
+        msg: "AlphaClaw ACP gateway deployed for agent: {{ openclaw_agent_name }} | Gateway: {{ openclaw_gateway_url }}"

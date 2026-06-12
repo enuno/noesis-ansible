@@ -4,3 +4,6 @@ clawdev_user: "{{ ansible_user_id }}"
 clawdev_home: "{{ ansible_env.HOME }}"
 clawdev_cpu_limit: 50
 clawdev_ram_mb: 512
+
+# Path to noesis-assets for identity files (SOUL.md, etc.)
+noesis_assets_dir: "{{ playbook_dir }}/../noesis-assets"

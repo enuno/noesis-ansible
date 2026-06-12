@@ -1,24 +1,24 @@
 ---
-# openclaw.yml — Standalone OpenClaw agent runtime deployment
+# openclaw.yml — Standalone AlphaClaw agent runtime deployment
 # Usage:
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/openclaw.yml
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/openclaw.yml --tags install,configure
 
-- name: Deploy OpenClaw Agent Runtime
+- name: Deploy AlphaClaw Agent Runtime
   hosts: local
   gather_facts: false
   tags: [runtime, openclaw]
 
   pre_tasks:
-    - name: Validate OpenClaw configuration
+    - name: Validate AlphaClaw configuration
       ansible.builtin.assert:
         that:
           - noesispraxis_enable_generic_agents | default(true) | bool
         fail_msg: "Generic agents are disabled. Check group_vars/all.yml"
 
-    - name: Ensure OpenClaw data directory exists
+    - name: Ensure AlphaClaw data directory exists
       ansible.builtin.file:
-        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/openclaw"
+        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/alphaclaw"
         state: directory
         mode: '0755'
 
@@ -27,7 +27,7 @@
       tags: [openclaw]
 
   post_tasks:
-    - name: Validate OpenClaw health
+    - name: Validate AlphaClaw health
       ansible.builtin.uri:
         url: "http://localhost:8090/health"
         method: GET
@@ -38,6 +38,6 @@
       until: openclaw_health.status == 200
       ignore_errors: true
 
-    - name: Report OpenClaw status
+    - name: Report AlphaClaw status
       ansible.builtin.debug:
-        msg: "OpenClaw deployed — health: {{ openclaw_health.status | default('unknown') }}"
+        msg: "AlphaClaw deployed — health: {{ openclaw_health.status | default('unknown') }}"

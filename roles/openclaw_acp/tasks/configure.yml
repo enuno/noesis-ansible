@@ -1,12 +1,12 @@
 ---
-- name: Render OpenClaw gateway configuration
+- name: Render AlphaClaw gateway configuration
   ansible.builtin.template:
     src: openclaw-gateway.yml.j2
     dest: "{{ openclaw_config_dir }}/gateway.yml"
     mode: '0644'
   notify: reload openclaw acp
 
-- name: Render OpenClaw ACP bridge configuration
+- name: Render AlphaClaw ACP bridge configuration
   ansible.builtin.template:
     src: openclaw-acp-bridge.yml.j2
     dest: "{{ openclaw_config_dir }}/acp-bridge.yml"

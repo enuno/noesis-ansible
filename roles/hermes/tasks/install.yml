@@ -1,4 +1,19 @@
 ---
+- name: Ensure hermes_agent system group exists
+  ansible.builtin.group:
+    name: hermes_agent
+    system: yes
+    state: present
+
+- name: Ensure hermes_agent system user exists
+  ansible.builtin.user:
+    name: hermes_agent
+    system: yes
+    shell: /usr/sbin/nologin
+    home: /var/lib/hermes_agent
+    group: hermes_agent
+    state: present
+
 - name: Ensure Hermes data directory exists
   ansible.builtin.file:
     path: "{{ hermes_data_dir }}"

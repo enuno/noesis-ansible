@@ -4,5 +4,7 @@
     src: "{{ clawvisor_data_dir }}"
     dest: "{{ backup_dir }}/{{ ansible_date_time.date }}/clawvisor"
     mode: '0600'
+    remote_src: true
+  when: ansible_check_mode | bool or (clawvisor_data_dir is directory)
   ignore_errors: true
   tags: [clawvisor, backup]

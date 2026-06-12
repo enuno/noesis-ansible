@@ -36,7 +36,7 @@ The NoesisPraxis Ansible Stack is the infrastructure control plane for the Noesi
 | Security | MCPJungle | 8085 | MCP server gateway | Complete |
 | Security | Clawvisor | 8086 | Policy engine | Complete |
 | Security | ClawSec | — | Security scanning | Complete |
-| Runtime | OpenClaw | 8090 | Generic agent runtime | Complete |
+| Runtime | AlphaClaw | 8090 | Generic agent runtime | Complete |
 | Runtime | Hermes | 8091 | Supervisor runtime | Complete |
 | Runtime | SkillNet | 8089 | Dynamic skill discovery | Complete |
 | macOS | ClawDev | localhost | Lightweight agent (512MB) | Complete |
@@ -56,7 +56,7 @@ The `master-stack.yml` orchestrator runs in 8 phases:
 PHASE 0  Bootstrap        → Host prep, secrets, preflight
 PHASE 1  Identity         → ACP, ANS, Agent Registry, A2A
 PHASE 2  Security         → MCPJungle, Clawvisor, ClawSec policies
-PHASE 3  Runtime          → OpenClaw, Hermes (Docker)
+PHASE 3  Runtime          → AlphaClaw, Hermes (Docker)
 PHASE 4  macOS            → ClawDev, HermesDev (launchd)
 PHASE 5  Communications   → Telegram bot
 PHASE 6  Networking       → Tailscale mesh
@@ -158,7 +158,7 @@ PHASE 8  Validation       → Health, schema, connectivity
 **Deliverables:**
 - [x] `roles/mcpjungle/` — MCP server registry, approval workflow, gateway config
 - [x] `roles/clawvisor/` — Policy engine, ACL rules, identity verification
-- [x] `roles/clawsec/` — Security scanning integration for OpenClaw and Hermes
+- [x] `roles/clawsec/` — Security scanning integration for AlphaClaw and Hermes
 - [x] `playbooks/mcpjungle.yml` — Standalone MCPJungle deployment
 - [x] `playbooks/clawvisor.yml` — Standalone Clawvisor deployment
 - [x] `playbooks/clawsec.yml` — Standalone ClawSec security scanning
@@ -175,12 +175,12 @@ PHASE 8  Validation       → Health, schema, connectivity
 
 ### Phase 3: Runtime Layer (COMPLETE)
 
-**Goal:** Deploy Dockerized OpenClaw and Hermes with resource limits.
+**Goal:** Deploy Dockerized AlphaClaw and Hermes with resource limits.
 
 **Deliverables:**
 - [x] `roles/openclaw/` — Docker deployment, config generation, volume mounts
 - [x] `roles/hermes/` — Docker deployment, supervisor config, environment
-- [x] `playbooks/openclaw.yml` — Standalone OpenClaw deployment
+- [x] `playbooks/openclaw.yml` — Standalone AlphaClaw deployment
 - [x] `playbooks/hermes.yml` — Standalone Hermes deployment
 - [x] Resource budget enforcement (CPU/RAM limits)
 - [x] Log aggregation to `/var/log/noesispraxis/`
@@ -237,11 +237,11 @@ PHASE 8  Validation       → Health, schema, connectivity
 **Goal:** Deploy per-agent MemPalace and shared Honcho with full memory routing policy.
 
 **Deliverables:**
-- [x] `roles/mempalace/` — Per-agent MemPalace instance deployment (OpenClaw:8093, Hermes:8094)
+- [x] `roles/mempalace/` — Per-agent MemPalace instance deployment (AlphaClaw:8093, Hermes:8094)
 - [x] `roles/honcho/` — Self-hosted shared Honcho server deployment (port 8095)
 - [x] `playbooks/mempalace.yml` — Standalone MemPalace deployment
 - [x] `playbooks/honcho.yml` — Standalone Honcho deployment
-- [x] OpenClaw MemPalace config (isolated primary memory)
+- [x] AlphaClaw MemPalace config (isolated primary memory)
 - [x] Hermes MemPalace config (isolated primary memory)
 - [x] Honcho shared config (cross-agent secondary substrate)
 - [x] Memory routing policy implementation:
@@ -301,7 +301,7 @@ PHASE 8  Validation       → Health, schema, connectivity
 - [x] `roles/skillnet/` — SkillNet deployment, search/evaluate/install endpoints
 - [x] `roles/skillnet_mcp/` — SkillNet MCP server (stdio/SSE transport)
 - [x] `playbooks/skillnet.yml` — Standalone SkillNet deployment
-- [x] Skill search workflow for OpenClaw and Hermes
+- [x] Skill search workflow for AlphaClaw and Hermes
 - [x] Skill evaluation and installation hooks
 
 **Acceptance criteria:**
@@ -333,13 +333,13 @@ PHASE 8  Validation       → Health, schema, connectivity
 
 ### Phase 10: ACP Agent Registration (COMPLETE)
 
-**Goal:** Register OpenClaw and Hermes agents with ACP, A2A, and Agent registries.
+**Goal:** Register AlphaClaw and Hermes agents with ACP, A2A, and Agent registries.
 
 **Deliverables:**
-- [x] `roles/openclaw_acp/` — OpenClaw ACP gateway, bridge config, registration
-- [x] `roles/noesis_openclaw/` — Specialized Noesis* OpenClaw agent variants
+- [x] `roles/openclaw_acp/` — AlphaClaw ACP gateway, bridge config, registration
+- [x] `roles/noesis_openclaw/` — Specialized Noesis* AlphaClaw agent variants
 - [x] `roles/hermes_acp/` — Hermes ACP adapter, stdio JSON-RPC, registration
-- [x] `playbooks/openclaw-acp.yml` — OpenClaw ACP gateway deployment
+- [x] `playbooks/openclaw-acp.yml` — AlphaClaw ACP gateway deployment
 - [x] `playbooks/noesis-openclaw.yml` — Noesis* specialized agent deployment
 - [x] `playbooks/hermes-acp.yml` — Hermes ACP agent deployment
 - [x] Registry enrollment tasks for ACP, A2A, and Agent Registry
@@ -422,7 +422,7 @@ The `Tasks/` directory contains 16 sequential task files. Execute in numeric ord
 | 12 | `12.Agent-Skills.md` | 8 | SkillNet and SkillNet MCP |
 | 13 | `13.Agent-Memory-Substrate.md` | 6 | MemPalace and Honcho |
 | 14 | `14.Kubernetes-Deployments.md` | 9 | Helm charts for all services |
-| 15 | `15.Openclaw-ACP-Agent-Registration.md` | 10 | OpenClaw ACP gateway registration |
+| 15 | `15.Openclaw-ACP-Agent-Registration.md` | 10 | AlphaClaw ACP gateway registration |
 | 16 | `16.Hermes-ACP-Agent-Registration.md` | 10 | Hermes ACP agent registration |
 
 ---
@@ -509,7 +509,7 @@ The `Tasks/` directory contains 16 sequential task files. Execute in numeric ord
 | ANS | github.com/ruvnet/Agent-Name-Service | Secure agent naming |
 | ACP | agentclientprotocol.com | Agent-client protocol |
 | A2A | github.com/a2aproject/A2A | Agent-to-agent discovery |
-| OpenClaw | github.com/openclaw/openclaw | Generic agent runtime |
+| AlphaClaw | github.com/garrytan/alphaclaw | Generic agent runtime |
 | MCPJungle | github.com/mcpjungle/MCPJungle | MCP gateway |
 | Clawvisor | github.com/clawvisor/clawvisor | Security gatekeeper |
 | ClawSec | prompt.security/clawsec | Security scanning |
@@ -526,6 +526,6 @@ The `Tasks/` directory contains 16 sequential task files. Execute in numeric ord
 
 | Date | Version | Change |
 |------|---------|--------|
-| 2026-06-02 | v0.2.0 | Tasks 8-16 complete: GUIDANCE.md, orchestration, AG-UI, Harbor, ClawSec, SkillNet, MemPalace, Honcho, Helm charts (16), OpenClaw ACP registration, Hermes ACP registration |
+| 2026-06-02 | v0.2.0 | Tasks 8-16 complete: GUIDANCE.md, orchestration, AG-UI, Harbor, ClawSec, SkillNet, MemPalace, Honcho, Helm charts (16), AlphaClaw ACP registration, Hermes ACP registration |
 | 2026-06-02 | v0.1.1 | Updated Phase 6 (Memory Substrate) and gaps/risk register per Task 13 (Agent-Memory-Substrate.md) |
 | 2026-06-02 | v0.1.0 | Initial development plan from scaffold assessment |

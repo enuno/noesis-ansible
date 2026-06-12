@@ -1,5 +1,5 @@
 ---
-- name: Ensure OpenClaw data directory exists
+- name: Ensure AlphaClaw data directory exists
   ansible.builtin.file:
     path: "{{ openclaw_data_dir }}"
     state: directory

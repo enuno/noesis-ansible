@@ -77,7 +77,7 @@
   vars:
     _enable_generic: "{{ noesispraxis_enable_generic_agents | default(true) | bool }}"
   tasks:
-    - name: Include OpenClaw
+    - name: Include AlphaClaw
       ansible.builtin.include_role:
         name: openclaw
       when: _enable_generic

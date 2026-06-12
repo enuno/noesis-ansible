@@ -1,5 +1,5 @@
 ---
-- name: Wait for OpenClaw gateway health
+- name: Wait for AlphaClaw gateway health
   ansible.builtin.uri:
     url: "{{ openclaw_gateway_url }}{{ openclaw_gateway_health_path }}"
     method: GET

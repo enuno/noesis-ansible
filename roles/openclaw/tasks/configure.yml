@@ -1,5 +1,5 @@
 ---
-- name: Deploy OpenClaw config
+- name: Deploy AlphaClaw config
   ansible.builtin.template:
     src: openclaw-config.json.j2
     dest: "{{ openclaw_data_dir }}/config.json"

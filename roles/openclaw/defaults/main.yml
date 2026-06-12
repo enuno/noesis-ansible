@@ -1,5 +1,5 @@
 ---
-openclaw_name: noesis-openclaw
-openclaw_image: noesispraxis/openclaw:latest
+openclaw_name: noesis-alphaclaw
+openclaw_image: garrytan/alphaclaw:latest
 openclaw_port: 8090
-openclaw_data_dir: /opt/noesispraxis/openclaw
+openclaw_data_dir: /opt/noesispraxis/alphaclaw

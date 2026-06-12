@@ -1,0 +1,64 @@
+---
+- name: Ensure OpenViking group exists
+  ansible.builtin.group:
+    name: "{{ openviking_group }}"
+    state: present
+    system: true
+
+- name: Ensure OpenViking user exists
+  ansible.builtin.user:
+    name: "{{ openviking_user }}"
+    group: "{{ openviking_group }}"
+    home: "{{ openviking_install_path }}"
+    shell: /usr/sbin/nologin
+    system: true
+    state: present
+
+- name: Ensure OpenViking directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ openviking_user }}"
+    group: "{{ openviking_group }}"
+    mode: '0755'
+  loop:
+    - "{{ openviking_install_path }}"
+    - "{{ openviking_install_path }}/bin"
+    - "{{ openviking_install_path }}/etc"
+    - "{{ openviking_install_path }}/var"
+    - "{{ openviking_install_path }}/var/log"
+
+- name: Check if OpenViking binary exists
+  ansible.builtin.stat:
+    path: "{{ _openviking_binary }}"
+  register: _openviking_binary_stat
+
+- name: Download OpenViking release
+  ansible.builtin.get_url:
+    url: "{{ openviking_download_url }}"
+    dest: "/tmp/openviking-{{ openviking_version }}.tar.gz"
+    mode: '0644'
+    owner: root
+    group: root
+  when:
+    - not _openviking_binary_stat.stat.exists | bool
+    - openviking_version != 'latest'
+
+- name: Extract OpenViking archive
+  ansible.builtin.unarchive:
+    src: "/tmp/openviking-{{ openviking_version }}.tar.gz"
+    dest: "{{ openviking_install_path }}/bin"
+    remote_src: true
+    owner: "{{ openviking_user }}"
+    group: "{{ openviking_group }}"
+    mode: '0755'
+  when:
+    - not _openviking_binary_stat.stat.exists | bool
+    - openviking_version != 'latest'
+
+- name: Ensure OpenViking binary is executable
+  ansible.builtin.file:
+    path: "{{ _openviking_binary }}"
+    mode: '0755'
+    state: file
+  when: _openviking_binary_stat.stat.exists | bool

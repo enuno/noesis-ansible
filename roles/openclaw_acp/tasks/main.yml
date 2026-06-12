@@ -1,20 +1,20 @@
 ---
-- name: Include OpenClaw ACP install
+- name: Include AlphaClaw ACP install
   ansible.builtin.include_tasks: install.yml
   when: openclaw_acp_enabled | bool
   tags: [openclaw, acp, install]
 
-- name: Include OpenClaw ACP configure
+- name: Include AlphaClaw ACP configure
   ansible.builtin.include_tasks: configure.yml
   when: openclaw_acp_enabled | bool
   tags: [openclaw, acp, configure]
 
-- name: Include OpenClaw ACP registry registration
+- name: Include AlphaClaw ACP registry registration
   ansible.builtin.include_tasks: register.yml
   when: openclaw_acp_enabled | bool
   tags: [openclaw, acp, register]
 
-- name: Include OpenClaw ACP validate
+- name: Include AlphaClaw ACP validate
   ansible.builtin.include_tasks: validate.yml
   when: openclaw_acp_enabled | bool
   tags: [openclaw, acp, validate]

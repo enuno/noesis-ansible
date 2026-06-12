@@ -1,0 +1,19 @@
+---
+- name: Restart OpenViking
+  ansible.builtin.systemd_service:
+    name: "{{ _openviking_service_name }}"
+    state: restarted
+    daemon_reload: true
+  when:
+    - openviking_manage_service | bool
+    - ansible_service_mgr == 'systemd'
+  listen: restart_openviking
+
+- name: Reload OpenViking
+  ansible.builtin.systemd_service:
+    name: "{{ _openviking_service_name }}"
+    state: reloaded
+  when:
+    - openviking_manage_service | bool
+    - ansible_service_mgr == 'systemd'
+  listen: reload_openviking
