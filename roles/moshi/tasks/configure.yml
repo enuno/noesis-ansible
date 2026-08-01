@@ -1,0 +1,58 @@
+---
+- name: Pair Moshi hook when a token was provided
+  ansible.builtin.command:
+    cmd: "moshi-hook pair --token {{ moshi_hook_pair_token }}"
+  when:
+    - moshi_hook_enable_pairing | bool
+    - moshi_hook_pair_token | length > 0
+  no_log: true
+
+- name: Install Moshi-managed hook entries
+  ansible.builtin.command:
+    cmd: moshi-hook install
+  register: moshi_hook_install
+  changed_when: true
+
+- name: Write the Linux systemd unit for moshi-hook
+  ansible.builtin.template:
+    src: moshi-hook.service.j2
+    dest: "{{ moshi_hook_systemd_unit_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  when: ansible_system == 'Linux'
+  become: true
+  notify: Restart moshi-hook
+
+- name: Enable and start moshi-hook on Linux
+  ansible.builtin.systemd:
+    name: moshi-hook
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - ansible_system == 'Linux'
+    - moshi_hook_enable_service | bool
+  become: true
+
+- name: Restart moshi-hook via Homebrew services on macOS
+  ansible.builtin.command:
+    cmd: "brew services restart {{ moshi_hook_brew_formula }}"
+  when:
+    - ansible_system == 'Darwin'
+    - moshi_hook_enable_service | bool
+  register: moshi_hook_brew_restart
+  changed_when: true
+  failed_when: false
+
+- name: Start moshi-hook via Homebrew services on macOS when restart is unavailable
+  ansible.builtin.command:
+    cmd: "brew services start {{ moshi_hook_brew_formula }}"
+  when:
+    - ansible_system == 'Darwin'
+    - moshi_hook_enable_service | bool
+    - moshi_hook_brew_restart is defined
+    - moshi_hook_brew_restart.rc != 0
+  register: moshi_hook_brew_start
+  changed_when: true
+  failed_when: false

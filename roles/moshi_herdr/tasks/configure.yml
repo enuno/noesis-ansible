@@ -1,0 +1,40 @@
+---
+- name: Ensure Herdr config directory exists
+  ansible.builtin.file:
+    path: "{{ moshi_herdr_herdr_config_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Ensure tmux config directory exists on Linux/macOS
+  ansible.builtin.file:
+    path: "{{ moshi_herdr_user_home }}"
+    state: directory
+    mode: '0755'
+
+- name: Deploy Herdr configuration tuned for agent restore and manifest refresh
+  ansible.builtin.template:
+    src: herdr-config.toml.j2
+    dest: "{{ moshi_herdr_herdr_config_dir }}/config.toml"
+    mode: '0644'
+
+- name: Deploy a phone-friendly tmux configuration
+  ansible.builtin.template:
+    src: tmux.conf.j2
+    dest: "{{ moshi_herdr_tmux_config_path }}"
+    mode: '0644'
+
+- name: Refresh Herdr manifest cache when Herdr is present
+  ansible.builtin.command:
+    cmd: herdr server update-agent-manifests
+  when: herdr_path_check.rc == 0
+  register: herdr_manifest_refresh
+  changed_when: true
+  failed_when: false
+
+- name: Report Herdr integration status when the binary is present
+  ansible.builtin.command:
+    cmd: herdr integration status
+  when: herdr_path_check.rc == 0
+  register: herdr_integration_status
+  changed_when: false
+  failed_when: false

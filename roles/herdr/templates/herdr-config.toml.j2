@@ -1,0 +1,10 @@
+# Managed by noesis-ansible — baseline Herdr config for agent workspaces
+
+[session]
+resume_agents_on_restore = {{ herdr_resume_agents_on_restore | bool | lower }}
+
+[remote]
+manage_ssh_config = {{ herdr_manage_ssh_config | bool | lower }}
+
+[update]
+manifest_check = {{ herdr_manifest_check | bool | lower }}

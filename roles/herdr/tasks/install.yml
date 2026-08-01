@@ -1,0 +1,24 @@
+---
+- name: Check whether Herdr is already installed
+  ansible.builtin.command:
+    cmd: command -v herdr
+  register: herdr_binary_check
+  changed_when: false
+  failed_when: false
+
+- name: Install Herdr with the official installer when missing
+  ansible.builtin.shell: |
+    set -euo pipefail
+    curl -fsSL {{ herdr_install_script_url }} | sh
+  args:
+    executable: /bin/bash
+  when: herdr_binary_check.rc != 0
+  register: herdr_install
+  changed_when: true
+
+- name: Refresh Herdr binary check after installation
+  ansible.builtin.command:
+    cmd: command -v herdr
+  register: herdr_binary_path
+  changed_when: false
+  failed_when: false

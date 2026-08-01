@@ -1,0 +1,6 @@
+---
+- name: Deploy tmux configuration tuned for agent workspaces
+  ansible.builtin.template:
+    src: tmux.conf.j2
+    dest: "{{ tmux_config_path }}"
+    mode: '0644'

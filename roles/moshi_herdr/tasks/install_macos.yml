@@ -1,0 +1,92 @@
+---
+- name: Refresh Herdr path check on macOS
+  ansible.builtin.command:
+    cmd: command -v herdr
+  register: herdr_path_check
+  changed_when: false
+  failed_when: false
+
+- name: Refresh moshi-hook path check on macOS
+  ansible.builtin.command:
+    cmd: command -v moshi-hook
+  register: moshi_hook_path_check
+  changed_when: false
+  failed_when: false
+
+- name: Check which Herdr integrations are available on macOS
+  ansible.builtin.command:
+    cmd: "command -v {{ item }}"
+  loop: "{{ moshi_herdr_integrations }}"
+  register: herdr_integration_command_checks
+  changed_when: false
+  failed_when: false
+
+- name: Verify Homebrew is available
+  ansible.builtin.command:
+    cmd: brew --version
+  register: brew_version
+  changed_when: false
+
+- name: Tap the Moshi Homebrew repository
+  ansible.builtin.command:
+    cmd: brew tap rjyo/moshi
+  register: moshi_tap
+  changed_when: "'already tapped' not in (moshi_tap.stdout | default('') ~ moshi_tap.stderr | default(''))"
+
+- name: Trust the Moshi Homebrew repository
+  ansible.builtin.command:
+    cmd: brew trust rjyo/moshi
+  register: moshi_trust
+  changed_when: "moshi_trust.rc == 0 and ('already trusted' not in (moshi_trust.stdout | default('') ~ moshi_trust.stderr | default('')))"
+  failed_when: false
+
+- name: Install moshi-hook on macOS
+  ansible.builtin.command:
+    cmd: brew install moshi-hook
+  register: moshi_hook_brew
+  changed_when: "moshi_hook_brew.rc == 0 and ('already installed' not in (moshi_hook_brew.stdout | default('') ~ moshi_hook_brew.stderr | default('')))"
+
+- name: Install tmux on macOS
+  ansible.builtin.command:
+    cmd: brew install tmux
+  register: tmux_brew
+  changed_when: "tmux_brew.rc == 0 and ('already installed' not in (tmux_brew.stdout | default('') ~ tmux_brew.stderr | default('')))"
+
+- name: Install Herdr on macOS when missing
+  ansible.builtin.shell: |
+    set -euo pipefail
+    curl -fsSL https://herdr.dev/install.sh | sh
+  args:
+    executable: /bin/bash
+  when: herdr_path_check.rc != 0
+  register: herdr_install
+  changed_when: true
+
+- name: Pair moshi-hook on macOS when a token was provided
+  ansible.builtin.command:
+    cmd: "moshi-hook pair --token {{ moshi_herdr_pair_token }}"
+  when:
+    - moshi_herdr_enable_pairing | bool
+    - moshi_herdr_pair_token | length > 0
+  no_log: true
+
+- name: Install moshi-hook support files on macOS
+  ansible.builtin.command:
+    cmd: moshi-hook install
+  register: moshi_hook_install
+  changed_when: true
+
+- name: Start moshi-hook via Homebrew services on macOS
+  ansible.builtin.command:
+    cmd: brew services start moshi-hook
+  register: moshi_hook_service
+  changed_when: true
+  failed_when: false
+
+- name: Install Herdr integrations on macOS for supported agents
+  ansible.builtin.command:
+    cmd: "herdr integration install {{ item }}"
+  loop: "{{ herdr_integration_command_checks.results | selectattr('rc', 'equalto', 0) | map(attribute='item') | list }}"
+  when: herdr_path_check.rc == 0
+  register: herdr_integrations_macos
+  changed_when: true

@@ -1,0 +1,8 @@
+# Managed by noesis-ansible — tmux baseline for agent workspaces
+
+set -g history-limit {{ tmux_history_limit }}
+set -g base-index {{ tmux_base_index }}
+setw -g pane-base-index {{ tmux_base_index }}
+set -g renumber-windows {{ 'on' if tmux_renumber_windows | bool else 'off' }}
+set -sg escape-time {{ tmux_escape_time }}
+set -g destroy-unattached {{ 'on' if tmux_destroy_unattached | bool else 'off' }}

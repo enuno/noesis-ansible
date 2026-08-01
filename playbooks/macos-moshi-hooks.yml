@@ -1,0 +1,71 @@
+---
+# macos-moshi-hooks.yml — Standalone macOS Moshi Hooks deployment
+#
+# Usage:
+#   ansible-playbook -i inventory/tailscale/hosts.ini playbooks/macos-moshi-hooks.yml
+#   ansible-playbook -i inventory/tailscale/hosts.ini playbooks/macos-moshi-hooks.yml \
+#     -e moshi_pair_token='<token>'
+#   ansible-playbook -i inventory/tailscale/hosts.ini playbooks/macos-moshi-hooks.yml \
+#     -e moshi_skip_pair=true
+
+- name: Deploy Moshi hooks on macOS
+  hosts: macos
+  gather_facts: true
+  tags: [macos, moshi, hooks]
+
+  vars:
+    moshi_hooks_script: "{{ playbook_dir }}/../scripts/install-moshi-hooks-macos.sh"
+    moshi_brew_formula: "{{ moshi_brew_formula | default('moshi-hook') }}"
+    moshi_skip_pair: "{{ moshi_skip_pair | default(false) | bool }}"
+
+  pre_tasks:
+    - name: Validate macOS target and feature toggle
+      ansible.builtin.assert:
+        that:
+          - noesispraxis_enable_macos_agents | default(true) | bool
+          - ansible_os_family == 'Darwin'
+        fail_msg: "macOS agents are disabled or the target is not macOS. Check inventory and group_vars."
+
+    - name: Confirm Moshi installer script exists on the controller
+      ansible.builtin.stat:
+        path: "{{ moshi_hooks_script }}"
+      register: moshi_script_stat
+      delegate_to: localhost
+      run_once: true
+
+    - name: Fail when the Moshi installer script is missing
+      ansible.builtin.assert:
+        that:
+          - moshi_script_stat.stat.exists
+          - moshi_script_stat.stat.isreg
+        fail_msg: "Missing installer script: {{ moshi_hooks_script }}"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Require a pairing token unless pairing is skipped
+      ansible.builtin.assert:
+        that:
+          - moshi_skip_pair | bool or (moshi_pair_token is defined and (moshi_pair_token | length) > 0)
+        fail_msg: "Provide moshi_pair_token or set moshi_skip_pair=true."
+
+  tasks:
+    - name: Run the Moshi hooks installer script
+      ansible.builtin.script: >-
+        {{ moshi_hooks_script }}{{ ' --skip-pair' if moshi_skip_pair else '' }} --formula {{ moshi_brew_formula | quote }}
+      environment:
+        MOSHI_PAIR_TOKEN: "{{ moshi_pair_token | default('') }}"
+        MOSHI_BREW_FORMULA: "{{ moshi_brew_formula }}"
+      register: moshi_hooks_install
+      no_log: "{{ not moshi_skip_pair }}"
+      changed_when: true
+
+  post_tasks:
+    - name: Check Moshi hook daemon status
+      ansible.builtin.command:
+        cmd: moshi-hook status
+      register: moshi_hook_status
+      changed_when: false
+
+    - name: Report Moshi hook status
+      ansible.builtin.debug:
+        msg: "{{ moshi_hook_status.stdout | default(moshi_hook_status.stderr | default('moshi-hook status returned no output')) }}"

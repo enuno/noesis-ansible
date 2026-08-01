@@ -1,0 +1,99 @@
+---
+- name: Refresh Herdr path check on Linux
+  ansible.builtin.command:
+    cmd: command -v herdr
+  register: herdr_path_check
+  changed_when: false
+  failed_when: false
+
+- name: Refresh moshi-hook path check on Linux
+  ansible.builtin.command:
+    cmd: command -v moshi-hook
+  register: moshi_hook_path_check
+  changed_when: false
+  failed_when: false
+
+- name: Check which Herdr integrations are available on Linux
+  ansible.builtin.command:
+    cmd: "command -v {{ item }}"
+  loop: "{{ moshi_herdr_integrations }}"
+  register: herdr_integration_command_checks
+  changed_when: false
+  failed_when: false
+
+- name: Install tmux on Linux
+  ansible.builtin.package:
+    name: tmux
+    state: present
+  become: true
+
+- name: Install moshi-hook on Linux when missing
+  ansible.builtin.shell: |
+    set -euo pipefail
+    curl -fsSL https://getmoshi.app/install.sh | sh
+  args:
+    executable: /bin/bash
+  when: moshi_hook_path_check.rc != 0
+  register: moshi_hook_install_linux
+  changed_when: true
+
+- name: Install Herdr on Linux when missing
+  ansible.builtin.shell: |
+    set -euo pipefail
+    curl -fsSL https://herdr.dev/install.sh | sh
+  args:
+    executable: /bin/bash
+  when: herdr_path_check.rc != 0
+  register: herdr_install_linux
+  changed_when: true
+
+- name: Pair moshi-hook on Linux when a token was provided
+  ansible.builtin.command:
+    cmd: "moshi-hook pair --token {{ moshi_herdr_pair_token }}"
+  when:
+    - moshi_herdr_enable_pairing | bool
+    - moshi_herdr_pair_token | length > 0
+  no_log: true
+
+- name: Install moshi-hook support files on Linux
+  ansible.builtin.command:
+    cmd: moshi-hook install
+  register: moshi_hook_install_linux_hooks
+  changed_when: true
+
+- name: Discover moshi-hook binary path on Linux
+  ansible.builtin.command:
+    cmd: command -v moshi-hook
+  register: moshi_hook_binary_lookup
+  changed_when: false
+  failed_when: false
+
+- name: Install a systemd unit for moshi-hook on Linux
+  ansible.builtin.template:
+    src: moshi-hook.service.j2
+    dest: "{{ moshi_herdr_systemd_unit }}"
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+    - ansible_service_mgr == 'systemd'
+    - moshi_hook_binary_lookup.rc == 0
+  become: true
+  notify: Reload moshi-hook systemd unit
+
+- name: Enable and start moshi-hook on Linux
+  ansible.builtin.systemd:
+    name: moshi-hook
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: ansible_service_mgr == 'systemd'
+  become: true
+
+- name: Install Herdr integrations on Linux for supported agents
+  ansible.builtin.command:
+    cmd: "herdr integration install {{ item }}"
+  loop: "{{ herdr_integration_command_checks.results | selectattr('rc', 'equalto', 0) | map(attribute='item') | list }}"
+  when: herdr_path_check.rc == 0
+  register: herdr_integrations_linux
+  changed_when: true

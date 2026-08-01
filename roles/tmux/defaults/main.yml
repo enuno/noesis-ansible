@@ -1,0 +1,9 @@
+---
+tmux_base_index: 1
+tmux_brew_formula: tmux
+tmux_config_path: "{{ ansible_user_dir | default(ansible_env.HOME) }}/.tmux.conf"
+tmux_destroy_unattached: false
+tmux_escape_time: 10
+tmux_history_limit: 50000
+tmux_package_name: tmux
+tmux_renumber_windows: true

@@ -79,6 +79,12 @@ ansible-playbook -i inventory/local/hosts.ini playbooks/validate.yml
 ansible-playbook -i inventory/tailscale/hosts.ini playbooks/macos-clawdev.yml
 ansible-playbook -i inventory/tailscale/hosts.ini playbooks/macos-hermesdev.yml
 
+# Moshi hooks on macOS
+ansible-playbook -i inventory/tailscale/hosts.ini playbooks/macos-moshi-hooks.yml -e moshi_pair_token='<token>'
+
+# Cross-platform Moshi + Herdr + tmux baseline
+ansible-playbook -i inventory/local/hosts.ini playbooks/moshi-herdr-workspace.yml
+
 # Kubernetes deployments
 helm install openclaw charts/openclaw -f charts/values/values-dev.yaml
 helm install hermes charts/hermes -f charts/values/values-dev.yaml
@@ -89,7 +95,7 @@ helm install hermes charts/hermes -f charts/values/values-dev.yaml
 ```
 .
 ├── inventory/          # local, tailscale, production inventories
-├── playbooks/          # 29 layer-specific and orchestration playbooks
+├── playbooks/          # 30 layer-specific and orchestration playbooks
 ├── roles/              # 20 reusable roles per stack component
 ├── charts/             # 16 Helm charts for Kubernetes/K3s deployment
 ├── group_vars/         # Shared group variables (46 vars, 7 feature toggles)

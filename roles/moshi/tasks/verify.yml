@@ -1,0 +1,25 @@
+---
+- name: Confirm moshi-hook is on PATH
+  ansible.builtin.command:
+    cmd: command -v moshi-hook
+  changed_when: false
+
+- name: Check moshi-hook status
+  ansible.builtin.command:
+    cmd: moshi-hook status
+  changed_when: false
+  failed_when: false
+
+- name: Check moshi-hook systemd service status on Linux
+  ansible.builtin.command:
+    cmd: systemctl is-active moshi-hook
+  when: ansible_system == 'Linux'
+  changed_when: false
+  failed_when: false
+
+- name: Check moshi-hook Homebrew services status on macOS
+  ansible.builtin.command:
+    cmd: 'brew services list | grep -E ''^{{ moshi_hook_brew_formula }}\s'''
+  when: ansible_system == 'Darwin'
+  changed_when: false
+  failed_when: false

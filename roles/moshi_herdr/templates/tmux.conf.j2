@@ -1,0 +1,9 @@
+# Managed by noesis-ansible — mobile-friendly tmux baseline
+# Recommended by the Moshi tmux guide.
+
+set -g history-limit {{ moshi_herdr_tmux_history_limit }}
+set -g base-index {{ moshi_herdr_tmux_base_index }}
+setw -g pane-base-index {{ moshi_herdr_tmux_base_index }}
+set -g renumber-windows {{ 'on' if moshi_herdr_tmux_renumber_windows | bool else 'off' }}
+set -sg escape-time {{ moshi_herdr_tmux_escape_time }}
+set -g destroy-unattached {{ 'off' if not moshi_herdr_tmux_destroy_unattached | bool else 'on' }}

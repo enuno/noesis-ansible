@@ -1,0 +1,49 @@
+---
+- name: Ensure Herdr config directory exists
+  ansible.builtin.file:
+    path: "{{ herdr_config_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Deploy Herdr configuration tuned for restore and automation
+  ansible.builtin.template:
+    src: herdr-config.toml.j2
+    dest: "{{ herdr_config_dir }}/config.toml"
+    mode: '0644'
+
+- name: Detect supported agent binaries on PATH
+  ansible.builtin.command:
+    cmd: "command -v {{ item }}"
+  loop: "{{ herdr_integrations }}"
+  register: herdr_integration_command_checks
+  changed_when: false
+  failed_when: false
+
+- name: Install Herdr integrations for supported agents
+  ansible.builtin.command:
+    cmd: "herdr integration install {{ item.item }}"
+  loop: "{{ herdr_integration_command_checks.results }}"
+  when:
+    - item.rc == 0
+    - herdr_binary_path.rc == 0
+  register: herdr_integrations_installed
+  changed_when: true
+  failed_when: false
+
+- name: Refresh Herdr agent manifests
+  ansible.builtin.command:
+    cmd: herdr server update-agent-manifests
+  when:
+    - herdr_binary_path.rc == 0
+    - herdr_manifest_check | bool
+  register: herdr_manifest_refresh
+  changed_when: true
+  failed_when: false
+
+- name: Report Herdr integration status
+  ansible.builtin.command:
+    cmd: herdr integration status
+  when: herdr_binary_path.rc == 0
+  register: herdr_integration_status
+  changed_when: false
+  failed_when: false

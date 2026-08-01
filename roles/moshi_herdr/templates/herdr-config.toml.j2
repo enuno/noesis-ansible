@@ -1,0 +1,14 @@
+# Managed by noesis-ansible — baseline Herdr config for agent workspaces
+#
+# This intentionally keeps the config small: the playbook enables the
+# stable automation knobs called out in the Herdr docs and leaves the
+# rest to Herdr defaults and per-host overrides.
+
+[session]
+resume_agents_on_restore = {{ moshi_herdr_resume_agents_on_restore | bool | lower }}
+
+[remote]
+manage_ssh_config = {{ moshi_herdr_manage_ssh_config | bool | lower }}
+
+[update]
+manifest_check = {{ moshi_herdr_manifest_check | bool | lower }}

@@ -1,0 +1,10 @@
+---
+- name: Confirm tmux is on PATH
+  ansible.builtin.command:
+    cmd: command -v tmux
+  changed_when: false
+
+- name: Check tmux version
+  ansible.builtin.command:
+    cmd: tmux -V
+  changed_when: false

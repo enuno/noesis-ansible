@@ -1,0 +1,60 @@
+---
+- name: Check whether moshi-hook is already installed
+  ansible.builtin.command:
+    cmd: command -v moshi-hook
+  register: moshi_hook_binary_check
+  changed_when: false
+  failed_when: false
+
+- name: Verify Homebrew is available on macOS
+  ansible.builtin.command:
+    cmd: brew --version
+  when: ansible_system == 'Darwin'
+  register: moshi_hook_brew_check
+  changed_when: false
+
+- name: Add the Moshi Homebrew tap on macOS
+  ansible.builtin.command:
+    cmd: "brew tap {{ moshi_hook_brew_tap }}"
+  when:
+    - ansible_system == 'Darwin'
+    - moshi_hook_binary_check.rc != 0
+  register: moshi_hook_brew_tap_result
+  changed_when: true
+
+- name: Trust the Moshi Homebrew tap on macOS
+  ansible.builtin.command:
+    cmd: "brew trust {{ moshi_hook_brew_tap }}"
+  when:
+    - ansible_system == 'Darwin'
+    - moshi_hook_binary_check.rc != 0
+  register: moshi_hook_brew_trust_result
+  changed_when: true
+
+- name: Install moshi-hook on macOS via Homebrew
+  ansible.builtin.command:
+    cmd: "brew install {{ moshi_hook_brew_formula }}"
+  when:
+    - ansible_system == 'Darwin'
+    - moshi_hook_binary_check.rc != 0
+  register: moshi_hook_brew_install
+  changed_when: true
+
+- name: Install moshi-hook on Linux via installer script
+  ansible.builtin.shell: |
+    set -euo pipefail
+    curl -fsSL {{ moshi_hook_install_script_url }} | sh
+  args:
+    executable: /bin/bash
+  when:
+    - ansible_system == 'Linux'
+    - moshi_hook_binary_check.rc != 0
+  register: moshi_hook_linux_install
+  changed_when: true
+
+- name: Refresh moshi-hook binary check after installation
+  ansible.builtin.command:
+    cmd: command -v moshi-hook
+  register: moshi_hook_binary_path
+  changed_when: false
+  failed_when: false

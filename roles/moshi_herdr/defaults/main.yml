@@ -1,0 +1,34 @@
+---
+moshi_herdr_enable_moshi_hook: true
+moshi_herdr_enable_herdr: true
+moshi_herdr_enable_tmux: true
+
+# Optional pairing token from the Moshi app. Leave empty to install the
+# daemon and hook plumbing without pairing the host yet.
+moshi_herdr_pair_token: ""
+moshi_herdr_enable_pairing: false
+
+# Keep the agent integrations small and explicit; these are the two guides
+# this playbook is built around.
+moshi_herdr_integrations:
+  - claude
+  - codex
+
+moshi_herdr_herdr_config_dir: "{{ ansible_env.HOME }}/.config/herdr"
+moshi_herdr_tmux_config_path: "{{ ansible_env.HOME }}/.tmux.conf"
+moshi_herdr_user_home: "{{ ansible_user_dir | default(ansible_env.HOME) }}"
+moshi_herdr_tmux_history_limit: 50000
+moshi_herdr_tmux_escape_time: 10
+moshi_herdr_tmux_base_index: 1
+moshi_herdr_tmux_destroy_unattached: false
+moshi_herdr_tmux_renumber_windows: true
+
+# Herdr tuning based on the docs mirror and upstream docs.
+moshi_herdr_resume_agents_on_restore: true
+moshi_herdr_manage_ssh_config: true
+moshi_herdr_manifest_check: true
+
+# Linux-only service management.
+moshi_herdr_systemd_unit: /etc/systemd/system/moshi-hook.service
+moshi_herdr_service_user: "{{ ansible_user_id }}"
+moshi_herdr_service_home: "{{ ansible_env.HOME }}"

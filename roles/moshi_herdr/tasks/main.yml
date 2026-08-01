@@ -1,0 +1,11 @@
+---
+- name: Install platform-specific packages and binaries on macOS
+  ansible.builtin.include_tasks: install_macos.yml
+  when: ansible_os_family == 'Darwin'
+
+- name: Install platform-specific packages and binaries on Linux
+  ansible.builtin.include_tasks: install_linux.yml
+  when: ansible_os_family != 'Darwin'
+
+- name: Configure tmux and Herdr
+  ansible.builtin.include_tasks: configure.yml

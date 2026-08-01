@@ -1,0 +1,15 @@
+[Unit]
+Description=Moshi hook daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ moshi_hook_service_user }}
+WorkingDirectory={{ moshi_hook_user_home }}
+ExecStart={{ moshi_hook_binary_path.stdout | default('moshi-hook') }} serve
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

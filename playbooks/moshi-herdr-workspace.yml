@@ -1,0 +1,18 @@
+---
+# moshi-herdr-workspace.yml — Moshi, Herdr, and tmux baseline for agent workspaces
+#
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/moshi-herdr-workspace.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/moshi-herdr-workspace.yml -e moshi_hook_pair_token=... -e moshi_hook_enable_pairing=true
+#
+# This playbook installs Moshi hook support, Herdr, and tmux on both
+# Linux and macOS. It also installs the Herdr integrations for Claude Code
+# and Codex when those binaries are present on the host.
+
+- name: Deploy Moshi hook, Herdr, and tmux baseline on agent hosts
+  hosts: agents
+  gather_facts: true
+  roles:
+    - role: moshi
+    - role: herdr
+    - role: tmux

@@ -1,0 +1,9 @@
+---
+- name: Restart moshi-hook
+  ansible.builtin.systemd:
+    name: moshi-hook
+    enabled: true
+    state: restarted
+    daemon_reload: true
+  when: ansible_system == 'Linux'
+  become: true

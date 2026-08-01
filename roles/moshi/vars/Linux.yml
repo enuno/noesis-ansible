@@ -1,0 +1,3 @@
+---
+moshi_hook_service_command: "moshi-hook serve"
+moshi_hook_service_name: "moshi-hook"

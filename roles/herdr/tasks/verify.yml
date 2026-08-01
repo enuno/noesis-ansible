@@ -1,0 +1,16 @@
+---
+- name: Confirm Herdr is on PATH
+  ansible.builtin.command:
+    cmd: command -v herdr
+  changed_when: false
+
+- name: Check Herdr configuration file exists
+  ansible.builtin.stat:
+    path: "{{ herdr_config_dir }}/config.toml"
+  register: herdr_config_stat
+
+- name: Assert Herdr configuration file was written
+  ansible.builtin.assert:
+    that:
+      - herdr_config_stat.stat.exists
+    fail_msg: "Herdr config file is missing at {{ herdr_config_dir }}/config.toml"

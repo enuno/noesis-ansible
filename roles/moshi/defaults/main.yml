@@ -1,0 +1,11 @@
+---
+moshi_hook_enable_pairing: false
+moshi_hook_pair_token: ""
+moshi_hook_enable_service: true
+moshi_hook_install_script_url: "https://getmoshi.app/install.sh"
+moshi_hook_brew_tap: "rjyo/moshi"
+moshi_hook_brew_formula: "moshi-hook"
+moshi_hook_user_home: "{{ ansible_user_dir | default(ansible_env.HOME) }}"
+moshi_hook_systemd_unit_path: "/etc/systemd/system/moshi-hook.service"
+moshi_hook_service_user: "{{ ansible_user_id }}"
+moshi_hook_service_group: "{{ ansible_user_gid | default(omit) }}"
