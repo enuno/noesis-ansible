@@ -1,0 +1,13 @@
+{
+  "hub_bind_address": "{{ muxd_hub_bind }}",
+  "hub_auth_token": "{{ _muxd_hub_token_actual }}",
+  "hub_url": "http://localhost:{{ muxd_hub_port }}",
+  "hub_node_token": "{{ _muxd_hub_token_actual }}",
+  "hub_node_name": "{{ muxd_node_name }}",
+  "daemon_bind_address": "{{ muxd_daemon_bind }}"
+{% if muxd_provider | length > 0 and muxd_model | length > 0 and muxd_api_key | length > 0 %}
+  ,"provider": "{{ muxd_provider }}"
+  ,"model": "{{ muxd_model }}"
+  ,"{{ muxd_api_key_field_map[muxd_provider] }}": "{{ muxd_api_key }}"
+{% endif %}
+}

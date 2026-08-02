@@ -1,0 +1,57 @@
+---
+# muxd hub + daemon deployment playbook
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/muxd.yml
+# With a model provider:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/muxd.yml \
+#     -e muxd_provider=anthropic \
+#     -e muxd_model=claude-sonnet \
+#     -e "muxd_api_key=$ANTHROPIC_API_KEY"
+
+- name: Deploy muxd hub and daemon
+  hosts: local
+  gather_facts: true
+  tags: [foundation, muxd]
+
+  pre_tasks:
+    - name: Validate muxd binaries are installed
+      ansible.builtin.command:
+        cmd: "which {{ item }}"
+      loop:
+        - muxd-hub
+        - muxd-daemon
+        - muxd
+      changed_when: false
+
+  roles:
+    - role: muxd
+      tags: [muxd]
+
+  post_tasks:
+    - name: Show muxd hub status
+      ansible.builtin.command:
+        cmd: systemctl --user status muxd-hub
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_user_uid }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_user_uid }}/bus"
+      changed_when: false
+      ignore_errors: true
+
+    - name: Show muxd daemon status
+      ansible.builtin.command:
+        cmd: systemctl --user status muxd
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_user_uid }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_user_uid }}/bus"
+      changed_when: false
+      ignore_errors: true
+
+    - name: Report hub endpoint and token location
+      ansible.builtin.debug:
+        msg:
+          - "muxd hub running at http://{{ muxd_hub_bind }}:{{ muxd_hub_port }}"
+          - "Dashboard: http://{{ muxd_hub_bind }}:{{ muxd_hub_port }}"
+          - "Token: {{ muxd_config_dir }}/config.json  -> hub_auth_token"
+          - "TUI connect: muxd --remote localhost:{{ muxd_hub_port }} --token <hub_auth_token>"
+          - "Services: muxd-hub.service, muxd.service (user scope)"
+          - "Linger enabled for {{ ansible_user_id }}"

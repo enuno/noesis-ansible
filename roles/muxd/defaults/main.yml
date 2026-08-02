@@ -1,0 +1,31 @@
+---
+# muxd role defaults
+
+muxd_config_dir: "{{ ansible_env.HOME }}/.config/muxd"
+muxd_data_dir: "{{ ansible_env.HOME }}/.local/share/muxd"
+
+muxd_hub_bind: "0.0.0.0"
+muxd_hub_port: 4097
+muxd_hub_token: ""
+
+muxd_daemon_bind: "0.0.0.0"
+muxd_node_name: "{{ ansible_hostname }}"
+
+# Provider/model/API key for the daemon. Leave empty to configure hub + node registration only.
+# Supported providers: anthropic, openai, fireworks, google, mistral, grok, deepinfra, zai, ollama
+muxd_provider: ""
+muxd_model: ""
+muxd_api_key: ""
+
+muxd_api_key_field_map:
+  anthropic: anthropic_api_key
+  openai: openai_api_key
+  fireworks: fireworks_api_key
+  google: google_api_key
+  mistral: mistral_api_key
+  grok: grok_api_key
+  deepinfra: deepinfra_api_key
+  zai: zai_api_key
+
+muxd_firewall_manager: "auto"  # auto, ufw, firewalld, none
+muxd_open_firewall: true

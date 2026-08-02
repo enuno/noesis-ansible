@@ -1,0 +1,149 @@
+---
+- name: Ensure muxd config and data directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0750'
+  loop:
+    - "{{ muxd_config_dir }}"
+    - "{{ muxd_data_dir }}"
+
+- name: Read existing muxd config if present
+  ansible.builtin.slurp:
+    src: "{{ muxd_config_dir }}/config.json"
+  register: _muxd_existing_config
+  no_log: true
+  ignore_errors: true
+
+- name: Set existing hub token fact
+  ansible.builtin.set_fact:
+    _muxd_existing_token: "{{ (_muxd_existing_config.content | b64decode | from_json).hub_auth_token | default('') }}"
+  no_log: true
+  when: _muxd_existing_config is success
+
+- name: Generate muxd hub token if not provided and none exists
+  ansible.builtin.command:
+    cmd: openssl rand -hex 32
+  register: _muxd_generated_token
+  changed_when: false
+  no_log: true
+  when: muxd_hub_token | length == 0 and (_muxd_existing_token | default('')) | length == 0
+
+- name: Set hub token fact
+  ansible.builtin.set_fact:
+    _muxd_hub_token_actual: "{{ muxd_hub_token if muxd_hub_token | length > 0 else (_muxd_existing_token | default(_muxd_generated_token.stdout)) }}"
+  no_log: true
+
+- name: Render muxd config.json
+  ansible.builtin.template:
+    src: config.json.j2
+    dest: "{{ muxd_config_dir }}/config.json"
+    mode: '0600'
+  no_log: true
+  notify: restart muxd
+
+- name: Install muxd-hub systemd user service
+  ansible.builtin.command:
+    cmd: muxd-hub -service install
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_user_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_user_uid }}/bus"
+    MUXD_HUB_BIND: "{{ muxd_hub_bind }}"
+  changed_when: true
+  register: _muxd_hub_install
+  notify: restart muxd-hub
+
+- name: Install muxd-daemon systemd user service
+  ansible.builtin.command:
+    cmd: muxd-daemon -service install
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_user_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_user_uid }}/bus"
+  changed_when: true
+  notify: restart muxd-daemon
+- name: Ensure systemd user session is reloaded
+  ansible.builtin.systemd:
+    daemon_reload: true
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_user_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_user_uid }}/bus"
+
+- name: Enable linger for the user
+  become: true
+  ansible.builtin.command:
+    cmd: "loginctl enable-linger {{ ansible_user_id }}"
+  changed_when: true
+
+- name: Start and enable muxd-hub user service
+  ansible.builtin.systemd:
+    name: muxd-hub
+    state: started
+    enabled: true
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_user_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_user_uid }}/bus"
+
+- name: Start and enable muxd user service (daemon)
+  ansible.builtin.systemd:
+    name: muxd
+    state: started
+    enabled: true
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_user_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_user_uid }}/bus"
+
+- name: Detect firewall manager
+  ansible.builtin.set_fact:
+    _muxd_fw_manager: "{{ muxd_firewall_manager }}"
+  when: muxd_firewall_manager != 'auto'
+
+- name: Check which firewall manager is available
+  ansible.builtin.command:
+    cmd: "which {{ item }}"
+  loop:
+    - ufw
+    - firewall-cmd
+  register: _muxd_fw_check
+  changed_when: false
+  failed_when: false
+  when: muxd_firewall_manager == 'auto'
+
+- name: Set detected firewall manager
+  ansible.builtin.set_fact:
+    _muxd_fw_manager: "{{ 'ufw' if (_muxd_fw_check.results | selectattr('item', 'equalto', 'ufw') | first).rc == 0 else ('firewalld' if (_muxd_fw_check.results | selectattr('item', 'equalto', 'firewall-cmd') | first).rc == 0 else 'none') }}"
+  when: muxd_firewall_manager == 'auto'
+
+- name: Open muxd hub port with ufw
+  become: true
+  community.general.ufw:
+    rule: allow
+    port: "{{ muxd_hub_port }}"
+    proto: tcp
+  when:
+    - muxd_open_firewall | bool
+    - _muxd_fw_manager == 'ufw'
+
+- name: Open muxd hub port with firewalld
+  become: true
+  ansible.posix.firewalld:
+    port: "{{ muxd_hub_port }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
+  when:
+    - muxd_open_firewall | bool
+    - _muxd_fw_manager == 'firewalld'
+
+- name: Wait for hub to accept connections
+  ansible.builtin.uri:
+    url: "http://{{ muxd_hub_bind }}:{{ muxd_hub_port }}/health"
+    method: GET
+    status_code: 200
+  register: _muxd_hub_health
+  retries: 10
+  delay: 2
+  until: _muxd_hub_health.status == 200
+  ignore_errors: true
