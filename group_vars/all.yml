@@ -7,12 +7,10 @@ deployment_env: local
 stack_name: noesispraxis
 
 # Bitwarden Secrets Manager configuration
-# Source of truth for all secrets — fetched via bws CLI and written to Vault-managed files
-bitwarden_org_id: "93331de5-fa6e-44ab-8aee-b3840034e681"
+# Source of truth for all secrets — fetched via bws CLI and written to Vault-managed files.
+# Provide the access token via BWS_ACCESS_TOKEN environment variable or bitwarden_access_token.
 bitwarden_project_id: "7173d0ef-7c7d-4356-b98f-b3d20010b2e7"
 bitwarden_project_name: "noesis_universe"
-bitwarden_identity_url: "https://vault.bitwarden.com/identity"
-bitwarden_api_url: "https://vault.bitwarden.com/api"
 
 # bws CLI configuration
 bws_cli_path: "{{ ansible_env.HOME }}/.local/bin/bws"
@@ -75,6 +73,10 @@ bitwarden_secrets_map:
     bws_key: "TAILSCALE_AUTH_KEY"
     vault_file: "{{ inventory_dir }}/group_vars/secrets.yml"
     vault_key: "vault_tailscale_auth_key"
+  mistral_api_key:
+    bws_key: "MISTRAL_API_KEY"
+    vault_file: "{{ inventory_dir }}/group_vars/secrets.yml"
+    vault_key: "vault_mistral_api_key"
 
 # Telegram placeholders (actual values in vault)
 telegram_group: NoesisWorld

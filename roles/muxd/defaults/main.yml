@@ -19,7 +19,7 @@ muxd_node_name: "{{ ansible_hostname }}"
 # Supported providers: anthropic, openai, fireworks, google, mistral, grok, deepinfra, zai, ollama
 muxd_provider: ""
 muxd_model: ""
-muxd_api_key: ""
+muxd_api_key: "{{ vault_mistral_api_key | default('') if muxd_provider == 'mistral' else '' }}"
 
 muxd_api_key_field_map:
   anthropic: anthropic_api_key

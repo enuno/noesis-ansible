@@ -28,7 +28,7 @@
 - name: Fetch secrets using noesis_bws_secret custom module
   noesis_bws_secret:
     bws_cli_path: "{{ bws_cli_path }}"
-    org_id: "{{ bitwarden_org_id }}"
+    access_token: "{{ bitwarden_access_token | default('') }}"
     project_id: "{{ bitwarden_project_id | default('') }}"
     secret_key: "{{ item.value.bws_key }}"
     vault_file: "{{ item.value.vault_file }}"
@@ -37,9 +37,8 @@
     state: present
   loop: "{{ bitwarden_secrets_map | dict2items }}"
   when:
-    - bitwarden_org_id | length > 0
-    - bitwarden_secrets_map is defined
-    - bitwarden_secrets_map | length > 0
+    - bitwarden_secrets_map | default({}) | length > 0
+    - (bitwarden_access_token | default('')) | length > 0 or lookup('env', 'BWS_ACCESS_TOKEN') | length > 0
   no_log: true
   tags: [secrets, bootstrap]
 

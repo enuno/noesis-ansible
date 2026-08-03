@@ -143,9 +143,8 @@
         name: bitwarden_secrets
       when:
         - _enable_tailscale
-        - bitwarden_secrets_map is defined
-        - bitwarden_secrets_map | length > 0
-        - bitwarden_org_id | length > 0
+        - bitwarden_secrets_map | default({}) | length > 0
+        - bitwarden_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN')) | length > 0
 
     - name: Load fetched Tailscale secret
       ansible.builtin.include_vars:

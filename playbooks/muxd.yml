@@ -2,7 +2,14 @@
 # muxd hub + daemon deployment playbook
 # Usage:
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/muxd.yml
-# With a model provider:
+#
+# With a model provider from Bitwarden (recommended):
+#   export BWS_ACCESS_TOKEN=<your-bws-token>
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/muxd.yml \
+#     -e muxd_provider=mistral \
+#     -e muxd_model=mistral-large-latest
+#
+# With an explicit API key:
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/muxd.yml \
 #     -e muxd_provider=anthropic \
 #     -e muxd_model=claude-sonnet \
@@ -14,6 +21,19 @@
   tags: [foundation, muxd]
 
   pre_tasks:
+    - name: Fetch muxd secrets from Bitwarden
+      ansible.builtin.include_role:
+        name: bitwarden_secrets
+      when:
+        - bitwarden_secrets_map | default({}) | length > 0
+        - bitwarden_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN')) | length > 0
+
+    - name: Load fetched muxd secrets
+      ansible.builtin.include_vars:
+        file: "{{ inventory_dir }}/group_vars/secrets.yml"
+      ignore_errors: true
+      no_log: true
+
     - name: Validate muxd binaries are installed
       ansible.builtin.command:
         cmd: "which {{ item }}"

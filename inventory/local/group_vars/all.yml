@@ -40,3 +40,15 @@ telegram_group: NoesisWorld
 
 # Bitwarden secrets bootstrap toggle
 noesispraxis_enable_secrets_bootstrap: true
+
+# Bitwarden Secrets Manager configuration
+bitwarden_project_id: "7173d0ef-7c7d-4356-b98f-b3d20010b2e7"
+bitwarden_secrets_map:
+  tailscale_auth_key:
+    bws_key: "TAILSCALE_AUTH_KEY"
+    vault_file: "{{ inventory_dir }}/group_vars/secrets.yml"
+    vault_key: "vault_tailscale_auth_key"
+  mistral_api_key:
+    bws_key: "MISTRAL_API_KEY"
+    vault_file: "{{ inventory_dir }}/group_vars/secrets.yml"
+    vault_key: "vault_mistral_api_key"

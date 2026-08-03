@@ -22,12 +22,12 @@ options:
     description: Path to the bws CLI binary.
     type: path
     default: "~/.local/bin/bws"
-  org_id:
-    description: Bitwarden organization ID.
+  access_token:
+    description: Bitwarden Secrets Manager access token. Falls back to C(BWS_ACCESS_TOKEN) env var.
     type: str
-    required: true
+    required: false
   project_id:
-    description: Bitwarden project ID.
+    description: Bitwarden project ID to scope the secret list.
     type: str
     required: false
   secret_key:
@@ -60,19 +60,17 @@ author:
 """
 
 EXAMPLES = r"""
-- name: Import Telegram bot token from Bitwarden
+- name: Import Mistral API key from Bitwarden
   noesis_bws_secret:
-    org_id: "93331de5-fa6e-44ab-8aee-b3840034e681"
     project_id: "7173d0ef-7c7d-4356-b98f-b3d20010b2e7"
-    secret_key: "telegram-bot-token"
-    vault_file: "/opt/noesispraxis/secrets/telegram.yml"
-    vault_key: "telegram_bot_token"
+    secret_key: "MISTRAL_API_KEY"
+    vault_file: "/opt/noesispraxis/secrets/muxd.yml"
+    vault_key: "vault_mistral_api_key"
     vault_password_file: "~/projects/noesis-ansible/.vault_pass"
     state: present
 
 - name: Remove a secret from local vault
   noesis_bws_secret:
-    org_id: "93331de5-fa6e-44ab-8aee-b3840034e681"
     secret_key: "old-api-key"
     vault_file: "/opt/noesispraxis/secrets/legacy.yml"
     vault_key: "old_api_key"
@@ -97,6 +95,7 @@ vault_file:
 import os
 import subprocess
 import json
+import datetime
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.noesis import (
@@ -108,11 +107,15 @@ from ansible.module_utils.noesis import (
 )
 
 
-def run_bws_list(module, bws_path, org_id, project_id):
+def run_bws_list(module, bws_path, project_id, access_token):
     """Run bws secret list and return parsed JSON."""
-    cmd = [bws_path, "secret", "list", "--organization-id", org_id]
+    cmd = [bws_path, "secret", "list"]
     if project_id:
-        cmd.extend(["--project-id", project_id])
+        cmd.append(project_id)
+
+    env = os.environ.copy()
+    if access_token:
+        env["BWS_ACCESS_TOKEN"] = access_token
 
     try:
         result = subprocess.run(
@@ -120,7 +123,7 @@ def run_bws_list(module, bws_path, org_id, project_id):
             capture_output=True,
             text=True,
             check=False,
-            env={**os.environ, "BWS_ACCESS_TOKEN": os.environ.get("BWS_ACCESS_TOKEN", "")},
+            env=env,
         )
         if result.returncode != 0:
             module.fail_json(msg="bws secret list failed: %s" % result.stderr)
@@ -140,7 +143,7 @@ def find_secret(secrets_list, key):
 def main():
     module_args = dict(
         bws_cli_path=dict(type="path", default="~/.local/bin/bws"),
-        org_id=dict(type="str", required=True),
+        access_token=dict(type="str", default="", no_log=True),
         project_id=dict(type="str", default=""),
         secret_key=dict(type="str", required=True),
         vault_file=dict(type="path", required=True),
@@ -153,7 +156,7 @@ def main():
     module = AnsibleModule(argument_spec=module_args, supports_check_mode=True)
 
     bws_path = os.path.expanduser(module.params["bws_cli_path"])
-    org_id = module.params["org_id"]
+    access_token = module.params["access_token"] or os.environ.get("BWS_ACCESS_TOKEN", "")
     project_id = module.params["project_id"]
     secret_key = module.params["secret_key"]
     vault_file = os.path.expanduser(module.params["vault_file"])
@@ -167,6 +170,12 @@ def main():
     # Validate bws CLI exists
     if not os.path.exists(bws_path):
         module.fail_json(msg="bws CLI not found at: %s" % bws_path)
+
+    # Validate access token is available
+    if not access_token:
+        module.fail_json(
+            msg="Bitwarden access token not provided. Set access_token parameter or export BWS_ACCESS_TOKEN."
+        )
 
     # Validate vault password file exists
     if not os.path.exists(vault_password_file):
@@ -197,7 +206,7 @@ def main():
         module.exit_json(**result)
 
     # Fetch secrets from Bitwarden
-    secrets_list = run_bws_list(module, bws_path, org_id, project_id)
+    secrets_list = run_bws_list(module, bws_path, project_id, access_token)
     secret = find_secret(secrets_list, secret_key)
 
     if secret is None:
@@ -236,7 +245,7 @@ def main():
         data["_noesis_meta"] = {
             "secret_id": secret_id,
             "secret_key": secret_key,
-            "updated_at": json.dumps({}),  # Will be filled by caller
+            "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
             "source": "bitwarden",
         }
 

@@ -5,9 +5,15 @@
 # bws CLI path
 bws_cli_path: "{{ ansible_env.HOME }}/.local/bin/bws"
 
-# Bitwarden organization and project IDs (overridden in group_vars/all.yml)
-bitwarden_org_id: ""
+# Bitwarden access token for the bws CLI.
+# Falls back to the BWS_ACCESS_TOKEN environment variable. Keep it out of Git.
+bitwarden_access_token: ""
+
+# Bitwarden project ID to scope secret list (optional)
 bitwarden_project_id: ""
+
+# Legacy org_id (unused by bws v1.0.0+; kept for compatibility)
+bitwarden_org_id: ""
 
 # Secret keys to fetch from Bitwarden and map to Ansible Vault files
 # Override in inventory group_vars or host_vars
