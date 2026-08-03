@@ -139,7 +139,7 @@
 
 - name: Wait for hub to accept connections
   ansible.builtin.uri:
-    url: "http://{{ muxd_hub_bind }}:{{ muxd_hub_port }}/health"
+    url: "http://{{ muxd_hub_bind }}:{{ muxd_hub_port }}/api/health"
     method: GET
     status_code: 200
   register: _muxd_hub_health

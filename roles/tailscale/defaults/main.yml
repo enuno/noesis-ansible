@@ -6,9 +6,10 @@
 # Whether to install or uninstall Tailscale. Either 'latest', 'present', or 'absent'
 state: latest
 
-# Required Node auth key to authenticate to Tailscale
-# Store this in vault — never commit plaintext auth keys
-tailscale_authkey: ""
+# Required Node auth key to authenticate to Tailscale.
+# Defaults to the value fetched from Bitwarden Secrets Manager by the bitwarden_secrets role.
+# Override with -e tailscale_authkey=<key> if needed.
+tailscale_authkey: "{{ vault_tailscale_auth_key | default('') }}"
 
 # Optional command-line arguments for 'tailscale up'
 tailscale_args: ""

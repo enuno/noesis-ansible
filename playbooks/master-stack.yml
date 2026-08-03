@@ -138,6 +138,21 @@
   vars:
     _enable_tailscale: "{{ noesispraxis_enable_tailscale | default(true) | bool }}"
   tasks:
+    - name: Fetch Tailscale auth key from Bitwarden
+      ansible.builtin.include_role:
+        name: bitwarden_secrets
+      when:
+        - _enable_tailscale
+        - bitwarden_secrets_map is defined
+        - bitwarden_secrets_map | length > 0
+        - bitwarden_org_id | length > 0
+
+    - name: Load fetched Tailscale secret
+      ansible.builtin.include_vars:
+        file: "{{ inventory_dir }}/group_vars/secrets.yml"
+      ignore_errors: true
+      no_log: true
+
     - name: Include Tailscale
       ansible.builtin.include_role:
         name: tailscale

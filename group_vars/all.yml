@@ -69,5 +69,12 @@ backup_dir: /opt/noesispraxis/backups
 local_cpu_limit: 100
 local_ram_mb: 1024
 
+# Secret map for bitwarden_secrets role (fetched from Bitwarden Secrets Manager)
+bitwarden_secrets_map:
+  tailscale_auth_key:
+    bws_key: "TAILSCALE_AUTH_KEY"
+    vault_file: "{{ inventory_dir }}/group_vars/secrets.yml"
+    vault_key: "vault_tailscale_auth_key"
+
 # Telegram placeholders (actual values in vault)
 telegram_group: NoesisWorld

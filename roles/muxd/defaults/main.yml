@@ -4,11 +4,15 @@
 muxd_config_dir: "{{ ansible_env.HOME }}/.config/muxd"
 muxd_data_dir: "{{ ansible_env.HOME }}/.local/share/muxd"
 
-muxd_hub_bind: "0.0.0.0"
+# Hub binds to the Tailscale interface by default so the coordinator is only
+# reachable on the tailnet. Use 0.0.0.0 to bind all interfaces.
+muxd_hub_bind: "100.106.20.102"
 muxd_hub_port: 4097
 muxd_hub_token: ""
 
-muxd_daemon_bind: "0.0.0.0"
+# Daemon only needs to be reachable by the hub on the same host. Bind to
+# localhost so it is not exposed to the network.
+muxd_daemon_bind: "127.0.0.1"
 muxd_node_name: "{{ ansible_hostname }}"
 
 # Provider/model/API key for the daemon. Leave empty to configure hub + node registration only.
@@ -27,5 +31,7 @@ muxd_api_key_field_map:
   deepinfra: deepinfra_api_key
   zai: zai_api_key
 
+# When the hub is bound to a Tailscale IP, opening the host firewall is not
+# required and should be disabled.
 muxd_firewall_manager: "auto"  # auto, ufw, firewalld, none
-muxd_open_firewall: true
+muxd_open_firewall: false

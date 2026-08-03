@@ -11,7 +11,7 @@ Install, configure, and manage Tailscale nodes across Debian, Ubuntu, CentOS/RHE
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `state` | `latest` | `latest`, `present`, or `absent` |
-| `tailscale_authkey` | `""` | Node auth key (from vault) |
+| `tailscale_authkey` | `"{{ vault_tailscale_auth_key | default('') }}"` | Node auth key; defaults to Bitwarden-fetched value |
 | `tailscale_args` | `""` | Extra `tailscale up` arguments |
 | `tailscale_tags` | `[]` | Tags to apply (without `tag:` prefix) |
 | `tailscale_up_timeout` | `"120"` | `tailscale up` timeout in seconds |
@@ -25,12 +25,27 @@ Install, configure, and manage Tailscale nodes across Debian, Ubuntu, CentOS/RHE
 
 ## Usage
 
+By default the role reads `tailscale_authkey` from `vault_tailscale_auth_key`, which is populated by the `bitwarden_secrets` role from the Bitwarden secret named `TAILSCALE_AUTH_KEY`.
+
+```yaml
+- hosts: all
+  roles:
+    - role: bitwarden_secrets
+    - role: tailscale
+      vars:
+        tailscale_tags:
+          - server
+          - noesispraxis
+```
+
+To override with an explicit key:
+
 ```yaml
 - hosts: all
   roles:
     - role: tailscale
       vars:
-        tailscale_authkey: "{{ vault_tailscale_authkey }}"
+        tailscale_authkey: "tskey-auth-..."
         tailscale_tags:
           - server
           - noesispraxis
@@ -39,6 +54,8 @@ Install, configure, and manage Tailscale nodes across Debian, Ubuntu, CentOS/RHE
 ## Playbook
 
 ```bash
+# Fetch the ephemeral key from Bitwarden and join the tailnet
+export BWS_ACCESS_TOKEN=<your-bws-token>
 ansible-playbook -i inventory/local/hosts.ini playbooks/tailscale.yml
 ```
 

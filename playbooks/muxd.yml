@@ -51,7 +51,8 @@
         msg:
           - "muxd hub running at http://{{ muxd_hub_bind }}:{{ muxd_hub_port }}"
           - "Dashboard: http://{{ muxd_hub_bind }}:{{ muxd_hub_port }}"
+          - "Tailscale: http://100.106.20.102:{{ muxd_hub_port }}"
           - "Token: {{ muxd_config_dir }}/config.json  -> hub_auth_token"
-          - "TUI connect: muxd --remote localhost:{{ muxd_hub_port }} --token <hub_auth_token>"
+          - "TUI connect: muxd --remote 100.106.20.102:{{ muxd_hub_port }} --token <hub_auth_token>"
           - "Services: muxd-hub.service, muxd.service (user scope)"
           - "Linger enabled for {{ ansible_user_id }}"

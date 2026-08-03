@@ -3,6 +3,10 @@
 # Usage:
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/tailscale.yml
 #   ansible-playbook -i inventory/tailscale/hosts.ini playbooks/tailscale.yml --tags install,configure
+#
+# The Tailscale auth key is fetched from Bitwarden Secrets Manager
+# (secret key "TAILSCALE_AUTH_KEY") by the bitwarden_secrets role.
+# Ensure BWS_ACCESS_TOKEN is exported before running.
 
 - name: Configure Tailscale Networking
   hosts: all
@@ -16,9 +20,24 @@
           - noesispraxis_enable_tailscale | default(true) | bool
         fail_msg: "Tailscale is disabled. Check group_vars/all.yml"
 
-  roles:
-    - role: tailscale
-      tags: [tailscale]
+  tasks:
+    - name: Fetch Tailscale auth key from Bitwarden
+      ansible.builtin.include_role:
+        name: bitwarden_secrets
+      when:
+        - bitwarden_secrets_map is defined
+        - bitwarden_secrets_map | length > 0
+        - bitwarden_org_id | length > 0
+
+    - name: Load fetched secrets
+      ansible.builtin.include_vars:
+        file: "{{ inventory_dir }}/group_vars/secrets.yml"
+      ignore_errors: true
+      no_log: true
+
+    - name: Include Tailscale role
+      ansible.builtin.include_role:
+        name: tailscale
 
   post_tasks:
     - name: Validate Tailscale status
