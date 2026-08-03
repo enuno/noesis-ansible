@@ -1,0 +1,6 @@
+---
+- name: Restart muxd-daemon
+  ansible.builtin.command:
+    cmd: muxd-daemon -service restart
+  listen: restart muxd-daemon
+  changed_when: true

@@ -1,0 +1,11 @@
+{
+  "hub_url": "{{ muxd_hub_url }}",
+  "hub_node_token": "{{ _muxd_hub_token_actual }}",
+  "hub_node_name": "{{ muxd_node_name }}",
+  "daemon_bind_address": "127.0.0.1"
+{% if muxd_provider | length > 0 and muxd_model | length > 0 and muxd_api_key | length > 0 %}
+  ,"provider": "{{ muxd_provider }}"
+  ,"model": "{{ muxd_model }}"
+  ,"{{ muxd_api_key_field_map[muxd_provider] }}": "{{ muxd_api_key }}"
+{% endif %}
+}

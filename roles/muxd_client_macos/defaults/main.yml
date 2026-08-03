@@ -1,0 +1,41 @@
+---
+# muxd_client_macos role defaults
+# Install the muxd TUI + daemon on macOS and register it with a remote hub.
+
+# Hub endpoint. Default uses the NoesisPraxis hub tailnet hostname.
+# Override with the actual hub tailscale IP or hostname if needed, e.g.:
+#   ansible-playbook ... -e muxd_hub_host=100.64.0.3
+muxd_hub_host: "noesis-praxis.tailf99a0.ts.net"
+muxd_hub_port: 4097
+muxd_hub_url: "http://{{ muxd_hub_host }}:{{ muxd_hub_port }}"
+
+# Auth token for the hub. If left empty, the role attempts to read the token
+# from the controller's ~/.config/muxd/config.json (the hub config).
+muxd_hub_token: ""
+
+# Node identity reported to the hub.
+muxd_node_name: "{{ ansible_hostname | default(inventory_hostname) }}"
+
+# Optional model provider / API key for the daemon.
+# Supported providers: anthropic, openai, fireworks, google, mistral, grok, deepinfra, zai, ollama
+muxd_provider: ""
+muxd_model: ""
+muxd_api_key: ""
+
+muxd_api_key_field_map:
+  anthropic: anthropic_api_key
+  openai: openai_api_key
+  fireworks: fireworks_api_key
+  google: google_api_key
+  mistral: mistral_api_key
+  grok: grok_api_key
+  deepinfra: deepinfra_api_key
+  zai: zai_api_key
+
+# Paths
+muxd_config_dir: "{{ ansible_env.HOME }}/.config/muxd"
+muxd_data_dir: "{{ ansible_env.HOME }}/.local/share/muxd"
+
+# Installer
+muxd_install_url: "https://raw.githubusercontent.com/batalabs/muxd/main/install.sh"
+muxd_version: "latest"

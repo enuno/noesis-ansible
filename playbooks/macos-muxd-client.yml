@@ -1,0 +1,54 @@
+---
+# macos-muxd-client.yml — Install muxd client on macOS and register it with the NoesisPraxis hub
+#
+# Usage:
+#   ansible-playbook -i inventory/tailscale/hosts.ini playbooks/macos-muxd-client.yml
+#
+# Override hub endpoint or token:
+#   ansible-playbook -i inventory/tailscale/hosts.ini playbooks/macos-muxd-client.yml \
+#     -e muxd_hub_host=100.64.0.3 \
+#     -e muxd_hub_token=<token> \
+#     -e muxd_provider=anthropic \
+#     -e muxd_model=claude-sonnet \
+#     -e "muxd_api_key=$ANTHROPIC_API_KEY"
+
+- name: Deploy muxd client on macOS and register with hub
+  hosts: macos
+  gather_facts: true
+  tags: [macos, muxd, client]
+
+  pre_tasks:
+    - name: Validate macOS target and feature toggle
+      ansible.builtin.assert:
+        that:
+          - noesispraxis_enable_macos_agents | default(true) | bool
+          - ansible_os_family == "Darwin"
+        fail_msg: "macOS agents are disabled or the target is not macOS. Check inventory and group_vars."
+
+  roles:
+    - role: muxd_client_macos
+      tags: [macos, muxd, client]
+
+  post_tasks:
+    - name: Check muxd version
+      ansible.builtin.command:
+        cmd: muxd --version
+      register: muxd_version_check
+      changed_when: false
+
+    - name: Check muxd-daemon service status
+      ansible.builtin.command:
+        cmd: muxd-daemon -service status
+      register: muxd_daemon_status
+      changed_when: false
+      ignore_errors: true
+
+    - name: Report muxd client status
+      ansible.builtin.debug:
+        msg:
+          - "muxd version: {{ muxd_version_check.stdout | default(muxd_version_check.stderr | default('unknown')) }}"
+          - "muxd-daemon service status: {{ muxd_daemon_status.stdout | default(muxd_daemon_status.stderr | default('unknown')) }}"
+          - "Hub endpoint: {{ muxd_hub_url }}"
+          - "Node name: {{ muxd_node_name }}"
+          - "Config: {{ muxd_config_dir }}/config.json"
+          - "To start the TUI: muxd --remote {{ muxd_hub_host }}:{{ muxd_hub_port }} --token <hub_token>"

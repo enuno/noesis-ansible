@@ -1,0 +1,99 @@
+---
+- name: Validate macOS target
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == "Darwin"
+    fail_msg: "This role only supports macOS (Darwin). Target is {{ ansible_os_family }}."
+
+- name: Validate hub endpoint is set
+  ansible.builtin.assert:
+    that:
+      - muxd_hub_host | length > 0
+    fail_msg: "muxd_hub_host must be set to the tailscale IP/hostname of the hub."
+
+- name: Read hub token from controller muxd config when not provided
+  block:
+    - name: Slurp controller muxd config
+      ansible.builtin.slurp:
+        src: "{{ ansible_env.HOME }}/.config/muxd/config.json"
+      register: _muxd_controller_config
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Set hub token from controller config
+      ansible.builtin.set_fact:
+        _muxd_hub_token_actual: "{{ (_muxd_controller_config.content | b64decode | from_json).hub_auth_token | default('') }}"
+      no_log: true
+  when: muxd_hub_token | length == 0
+  rescue:
+    - name: Fail with helpful message when hub token cannot be read
+      ansible.builtin.fail:
+        msg: >
+          Could not read hub token from controller's ~/.config/muxd/config.json.
+          Either run the muxd hub playbook on the controller first, or pass the token with
+          -e muxd_hub_token=<token>.
+
+- name: Set hub token from provided variable
+  ansible.builtin.set_fact:
+    _muxd_hub_token_actual: "{{ muxd_hub_token }}"
+  no_log: true
+  when: muxd_hub_token | length > 0
+
+- name: Validate hub token is non-empty
+  ansible.builtin.assert:
+    that:
+      - _muxd_hub_token_actual | default('') | length > 0
+    fail_msg: "Hub token is empty. Provide it via -e muxd_hub_token=<token> or ensure the controller's muxd hub config exists."
+
+- name: Ensure muxd config and data directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0750'
+  loop:
+    - "{{ muxd_config_dir }}"
+    - "{{ muxd_data_dir }}"
+
+- name: Install muxd binaries
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -fsSL "{{ muxd_install_url }}" | sh
+  environment:
+    MUXD_VERSION: "{{ muxd_version }}"
+  args:
+    creates: /usr/local/bin/muxd
+  register: _muxd_install
+  changed_when: "'installed successfully' in _muxd_install.stdout | default('')"
+
+- name: Render muxd client config.json
+  ansible.builtin.template:
+    src: config.json.j2
+    dest: "{{ muxd_config_dir }}/config.json"
+    mode: '0600'
+  no_log: true
+  notify: restart muxd-daemon
+
+- name: Install muxd-daemon launchd service
+  ansible.builtin.command:
+    cmd: muxd-daemon -service install
+  environment:
+    MUXD_HUB_URL: "{{ muxd_hub_url }}"
+    MUXD_HUB_NODE_TOKEN: "{{ _muxd_hub_token_actual }}"
+    MUXD_NODE_NAME: "{{ muxd_node_name }}"
+  register: _muxd_service_install
+  changed_when: true
+  notify: restart muxd-daemon
+
+- name: Start muxd-daemon launchd service
+  ansible.builtin.command:
+    cmd: muxd-daemon -service start
+  register: _muxd_service_start
+  changed_when: true
+
+- name: Wait for daemon lockfile
+  ansible.builtin.wait_for:
+    path: "{{ muxd_data_dir }}/server.lock"
+    state: present
+    timeout: 15
+  ignore_errors: true
