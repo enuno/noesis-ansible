@@ -1,0 +1,49 @@
+---
+- name: Render OpenClaw agent Dockerfile
+  ansible.builtin.template:
+    src: Dockerfile.j2
+    dest: "{{ openclaw_agent_build_dir }}/Dockerfile"
+    owner: "{{ openclaw_agent_user }}"
+    group: "{{ openclaw_agent_group }}"
+    mode: '0644'
+  notify:
+    - rebuild openclaw agent image
+    - recreate openclaw agent container
+
+- name: Render OpenClaw build stub config
+  ansible.builtin.template:
+    src: openclaw-stub.json.j2
+    dest: "{{ openclaw_agent_build_dir }}/openclaw-stub.json"
+    owner: "{{ openclaw_agent_user }}"
+    group: "{{ openclaw_agent_group }}"
+    mode: '0644'
+  notify:
+    - rebuild openclaw agent image
+    - recreate openclaw agent container
+
+- name: Render OpenClaw agent environment file
+  ansible.builtin.template:
+    src: openclaw-agent.env.j2
+    dest: "{{ openclaw_agent_data_dir }}/openclaw-agent.env"
+    owner: "{{ openclaw_agent_user }}"
+    group: "{{ openclaw_agent_group }}"
+    mode: '0600'
+  notify: recreate openclaw agent container
+
+- name: Render OpenClaw agent configuration
+  ansible.builtin.template:
+    src: openclaw.json.j2
+    dest: "{{ openclaw_agent_data_dir }}/openclaw.json"
+    owner: "{{ openclaw_agent_user }}"
+    group: "{{ openclaw_agent_group }}"
+    mode: '0640'
+  notify: recreate openclaw agent container
+
+- name: Render MEMORY.md cheatsheet
+  ansible.builtin.template:
+    src: MEMORY.md.j2
+    dest: "{{ openclaw_agent_data_dir }}/MEMORY.md"
+    owner: "{{ openclaw_agent_user }}"
+    group: "{{ openclaw_agent_group }}"
+    mode: '0644'
+  notify: recreate openclaw agent container

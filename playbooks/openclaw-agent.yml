@@ -1,0 +1,44 @@
+---
+# Deploy OpenClaw as a Docker container using inventory/group_vars wiring.
+# MemPalace = local, fast, per-agent memory (immediate recall).
+# Honcho    = collective, cross-session memory substrate.
+# MEMORY.md is a quick-reference cheatsheet only.
+# TODO(central-monitoring): register the container and health endpoint in the
+# future service/healthcheck dashboard once a central management system exists.
+
+- name: OpenClaw agent deployment via Docker
+  hosts: openclaw_agents
+  become: true
+
+  pre_tasks:
+    - name: Ensure base data directories exist
+      ansible.builtin.file:
+        path: /var/lib/noesispraxis
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+  roles:
+    - role: mempalace
+      tags: [mempalace, memory]
+      when: noesispraxis_enable_mempalace | bool
+
+    - role: honcho
+      tags: [honcho, memory]
+      when: noesispraxis_enable_honcho | bool
+
+    - role: openclaw_agent
+      tags: [openclaw, agent]
+      when: noesispraxis_enable_openclaw_agent | bool
+
+  post_tasks:
+    - name: Summarize deployment
+      ansible.builtin.debug:
+        msg:
+          - "OpenClaw agent container: {{ openclaw_agent_container_name }}"
+          - "Gateway health: http://{{ openclaw_agent_gateway_host }}:{{ openclaw_agent_gateway_port }}/health"
+          - "MemPalace local MCP: {{ openclaw_agent_mempalace_url }}"
+          - "Honcho shared memory: {{ openclaw_agent_honcho_base_url }} (workspace: {{ openclaw_agent_honcho_workspace_id }})"
+          - "Memory cheatsheet: {{ openclaw_agent_data_dir }}/MEMORY.md"
+          - "To reset: ansible-playbook -i inventory/local/hosts.ini playbooks/openclaw-agent-reset.yml"

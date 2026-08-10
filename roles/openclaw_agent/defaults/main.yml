@@ -1,0 +1,64 @@
+---
+# OpenClaw delegatable agent instance defaults (Docker deployment)
+# Cattle-not-pet: the image is immutable; state lives in named host volumes.
+
+openclaw_agent_enabled: "{{ noesispraxis_enable_openclaw_agent | default(false) | bool }}"
+
+# Identity / ownership
+openclaw_agent_user: "openclaw"
+openclaw_agent_group: "openclaw"
+openclaw_agent_uid: 999
+openclaw_agent_gid: 985
+openclaw_agent_home: "/home/openclaw"
+openclaw_agent_state_dir: "{{ openclaw_agent_home }}/.openclaw"
+openclaw_agent_workspace_dir: "{{ openclaw_agent_home }}/workspace"
+openclaw_agent_log_dir: "/var/log/openclaw"
+openclaw_agent_build_dir: "/var/lib/noesispraxis/openclaw-agent/build"
+openclaw_agent_data_dir: "/var/lib/noesispraxis/openclaw-agent/data"
+
+# Docker image
+openclaw_agent_image_base: "openclaw/openclaw:latest"
+openclaw_agent_image_name: "noesispraxis/openclaw-agent"
+openclaw_agent_image_tag: "latest"
+openclaw_agent_image: "{{ openclaw_agent_image_name }}:{{ openclaw_agent_image_tag }}"
+openclaw_agent_container_name: "noesis-openclaw-agent"
+openclaw_agent_network_mode: "host"   # host lets the container reach localhost:8093/8095/11434
+
+# Gateway
+openclaw_agent_gateway_port: 19001
+openclaw_agent_gateway_host: "127.0.0.1"
+openclaw_agent_gateway_bind: "loopback"
+openclaw_agent_gateway_mode: "local"
+openclaw_agent_auth_mode: "token"
+openclaw_agent_auth_token: "{{ vault_openclaw_agent_token | default('openclaw-agent-local-token') }}"
+
+# Model (local Ollama by default)
+openclaw_agent_model_provider: "ollama"
+openclaw_agent_model_base_url: "http://localhost:11434"
+openclaw_agent_default_model: "ollama/llama3:8b"
+
+# Agent runtime
+openclaw_agent_id: "openclaw-worker"
+openclaw_agent_name: "OpenClaw Worker"
+openclaw_agent_runtime_type: "embedded"
+openclaw_agent_tools_profile: "full"
+
+# Memory substrate
+openclaw_agent_memory_backend: "builtin"
+openclaw_agent_memory_citations: "auto"
+
+openclaw_agent_mempalace_enabled: true
+openclaw_agent_mempalace_url: "http://localhost:8093/mcp"
+openclaw_agent_mempalace_transport: "sse"
+
+openclaw_agent_honcho_enabled: true
+openclaw_agent_honcho_base_url: "http://localhost:8095"
+openclaw_agent_honcho_workspace_id: "openclaw"
+openclaw_agent_honcho_api_key: ""
+
+# Plugin
+openclaw_agent_honcho_plugin: "@honcho-ai/openclaw-honcho"
+
+# Operational limits
+openclaw_agent_health_retries: 12
+openclaw_agent_health_delay: 5

@@ -48,6 +48,7 @@ noesispraxis_enable_honcho: false
 noesispraxis_enable_openclaw_acp: false
 noesispraxis_enable_noesis_openclaw: false
 noesispraxis_enable_hermes_acp: false
+noesispraxis_enable_openclaw_agent: false
 
 # Registry endpoints (localhost defaults)
 registry_base_url: http://localhost:8080

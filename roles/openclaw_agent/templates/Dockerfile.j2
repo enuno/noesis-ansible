@@ -1,0 +1,28 @@
+#syntax=docker/dockerfile:1
+FROM {{ openclaw_agent_image_base }}
+
+# Add a dedicated host-mapped openclaw user/group.
+# The official image runs as 'node'; we create the target identity here so
+# host volume ownership (uid={{ openclaw_agent_uid }}, gid={{ openclaw_agent_gid }}) aligns.
+USER root
+RUN groupadd -g {{ openclaw_agent_gid }} {{ openclaw_agent_group }} || true \
+ && useradd -m -u {{ openclaw_agent_uid }} -g {{ openclaw_agent_gid }} -d {{ openclaw_agent_home }} -s /bin/bash {{ openclaw_agent_user }} || true \
+ && mkdir -p {{ openclaw_agent_state_dir }} {{ openclaw_agent_workspace_dir }} {{ openclaw_agent_home }}/logs \
+ && chown -R {{ openclaw_agent_user }}:{{ openclaw_agent_group }} {{ openclaw_agent_home }}
+
+# Install the Honcho memory plugin at build time so the image is self-contained.
+# A throwaway config is created only to satisfy the plugin installer, then removed.
+COPY --chown={{ openclaw_agent_user }}:{{ openclaw_agent_group }} openclaw-stub.json {{ openclaw_agent_state_dir }}/openclaw.json
+RUN OPENCLAW_STATE_DIR={{ openclaw_agent_state_dir }} \
+    openclaw --no-color plugins install {{ openclaw_agent_honcho_plugin }} \
+ && rm -f {{ openclaw_agent_state_dir }}/openclaw.json
+
+USER {{ openclaw_agent_user }}
+WORKDIR {{ openclaw_agent_home }}
+ENV HOME={{ openclaw_agent_home }}
+ENV OPENCLAW_STATE_DIR={{ openclaw_agent_state_dir }}
+
+EXPOSE {{ openclaw_agent_gateway_port }}
+
+# Default entrypoint keeps the image reusable; the playbook overrides command for config validation.
+ENTRYPOINT ["openclaw", "--no-color", "gateway", "run", "--port", "{{ openclaw_agent_gateway_port }}", "--force"]

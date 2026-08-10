@@ -1,0 +1,19 @@
+---
+# Inventory-group vars for hosts in the openclaw_agents group.
+# Add the same group to another inventory to reuse this deployment pattern.
+
+noesispraxis_enable_mempalace: true
+noesispraxis_enable_honcho: true
+noesispraxis_enable_openclaw_agent: true
+
+# Keep the deployment self-contained on the local host.
+openclaw_agent_default_model: "ollama/llama3:8b"
+openclaw_agent_model_provider: "ollama"
+openclaw_agent_model_base_url: "http://localhost:11434"
+openclaw_agent_honcho_workspace_id: "openclaw"
+
+# MemPalace is limited to the OpenClaw deployment for this host group.
+mempalace_agents:
+  - name: openclaw
+    port: 8093
+    data_dir: /var/lib/noesispraxis/mempalace/openclaw

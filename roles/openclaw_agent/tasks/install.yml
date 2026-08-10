@@ -1,0 +1,33 @@
+---
+- name: Ensure OpenClaw agent group exists
+  ansible.builtin.group:
+    name: "{{ openclaw_agent_group }}"
+    gid: "{{ openclaw_agent_gid }}"
+    state: present
+
+- name: Ensure OpenClaw agent user exists
+  ansible.builtin.user:
+    name: "{{ openclaw_agent_user }}"
+    uid: "{{ openclaw_agent_uid }}"
+    group: "{{ openclaw_agent_group }}"
+    home: "{{ openclaw_agent_home }}"
+    shell: /bin/bash
+    system: true
+    state: present
+
+- name: Ensure OpenClaw data and build directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ openclaw_agent_user }}"
+    group: "{{ openclaw_agent_group }}"
+    mode: '0750'
+  loop:
+    - "{{ openclaw_agent_data_dir }}"
+    - "{{ openclaw_agent_build_dir }}"
+    - "{{ openclaw_agent_log_dir }}"
+
+- name: Ensure Docker is available
+  ansible.builtin.command:
+    argv: [docker, --version]
+  changed_when: false

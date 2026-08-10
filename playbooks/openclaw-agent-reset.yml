@@ -1,0 +1,12 @@
+---
+- name: Reset OpenClaw agent deployment
+  hosts: openclaw_agents
+  become: true
+
+  tasks:
+    - name: Include OpenClaw agent cleanup
+      ansible.builtin.include_role:
+        name: openclaw_agent
+        tasks_from: cleanup.yml
+      when: noesispraxis_enable_openclaw_agent | bool
+      tags: [openclaw, agent, cleanup, reset]

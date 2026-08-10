@@ -1,0 +1,16 @@
+{
+  "$schema": "https://schemas.openclaw.ai/openclaw.json",
+  "gateway": {
+    "port": {{ openclaw_agent_gateway_port }},
+    "mode": "local",
+    "bind": "loopback",
+    "auth": {
+      "mode": "token",
+      "token": "stub-token-build-only"
+    }
+  },
+  "memory": {
+    "backend": "builtin",
+    "citations": "auto"
+  }
+}

@@ -1,0 +1,20 @@
+---
+- name: Wait for OpenClaw agent gateway health
+  ansible.builtin.uri:
+    url: "http://{{ openclaw_agent_gateway_host }}:{{ openclaw_agent_gateway_port }}/health"
+    method: GET
+    status_code: 200
+  register: openclaw_agent_health
+  retries: "{{ openclaw_agent_health_retries }}"
+  delay: "{{ openclaw_agent_health_delay }}"
+  until: openclaw_agent_health.status == 200
+  ignore_errors: true
+
+- name: Report OpenClaw agent health
+  ansible.builtin.debug:
+    msg:
+      - "OpenClaw agent gateway: http://{{ openclaw_agent_gateway_host }}:{{ openclaw_agent_gateway_port }}/health"
+      - "Container: {{ openclaw_agent_container_name }}"
+      - "Status: {{ openclaw_agent_health.status | default('unreachable') }}"
+      - "Config: {{ openclaw_agent_data_dir }}/openclaw.json"
+      - "Memory cheatsheet: {{ openclaw_agent_data_dir }}/MEMORY.md"

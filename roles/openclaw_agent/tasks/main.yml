@@ -1,0 +1,25 @@
+---
+- name: Include OpenClaw agent installation
+  ansible.builtin.include_tasks: install.yml
+  when: openclaw_agent_enabled | bool
+  tags: [openclaw_agent, install]
+
+- name: Include OpenClaw agent configuration
+  ansible.builtin.include_tasks: configure.yml
+  when: openclaw_agent_enabled | bool
+  tags: [openclaw_agent, configure]
+
+- name: Include OpenClaw agent image build
+  ansible.builtin.include_tasks: build.yml
+  when: openclaw_agent_enabled | bool
+  tags: [openclaw_agent, build]
+
+- name: Include OpenClaw agent container run
+  ansible.builtin.include_tasks: run.yml
+  when: openclaw_agent_enabled | bool
+  tags: [openclaw_agent, run]
+
+- name: Include OpenClaw agent validation
+  ansible.builtin.include_tasks: validate.yml
+  when: openclaw_agent_enabled | bool
+  tags: [openclaw_agent, validate]

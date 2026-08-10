@@ -1,0 +1,42 @@
+---
+- name: rebuild openclaw agent image
+  community.docker.docker_image:
+    name: "{{ openclaw_agent_image_name }}"
+    tag: "{{ openclaw_agent_image_tag }}"
+    source: build
+    build:
+      path: "{{ openclaw_agent_build_dir }}"
+      pull: true
+    force_source: true
+    state: present
+
+- name: recreate openclaw agent container
+  community.docker.docker_container:
+    name: "{{ openclaw_agent_container_name }}"
+    state: absent
+
+- name: start openclaw agent container
+  community.docker.docker_container:
+    name: "{{ openclaw_agent_container_name }}"
+    image: "{{ openclaw_agent_image }}"
+    state: started
+    restart_policy: unless-stopped
+    network_mode: "{{ openclaw_agent_network_mode }}"
+    user: "{{ openclaw_agent_uid }}:{{ openclaw_agent_gid }}"
+    env:
+      OPENCLAW_STATE_DIR: "{{ openclaw_agent_state_dir }}"
+    env_file: "{{ openclaw_agent_data_dir }}/openclaw-agent.env"
+    entrypoint:
+      - openclaw
+      - --no-color
+      - gateway
+      - run
+      - --port
+      - "{{ openclaw_agent_gateway_port | string }}"
+      - --force
+    volumes:
+      - "{{ openclaw_agent_data_dir }}/openclaw.json:{{ openclaw_agent_state_dir }}/openclaw.json:ro"
+      - "{{ openclaw_agent_data_dir }}/MEMORY.md:{{ openclaw_agent_state_dir }}/MEMORY.md:ro"
+      - "{{ openclaw_agent_data_dir }}/workspace:{{ openclaw_agent_workspace_dir }}"
+      - "{{ openclaw_agent_log_dir }}:{{ openclaw_agent_home }}/logs"
+  listen: recreate openclaw agent container

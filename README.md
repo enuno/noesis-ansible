@@ -71,6 +71,7 @@ ansible-playbook -i inventory/local/hosts.ini playbooks/mempalace.yml
 ansible-playbook -i inventory/local/hosts.ini playbooks/honcho.yml
 ansible-playbook -i inventory/local/hosts.ini playbooks/openclaw-acp.yml
 ansible-playbook -i inventory/local/hosts.ini playbooks/hermes-acp.yml
+ansible-playbook -i inventory/local/hosts.ini playbooks/openclaw-agent-reset.yml  # clean reset for the Dockerized OpenClaw agent
 
 # Validate health
 ansible-playbook -i inventory/local/hosts.ini playbooks/validate.yml

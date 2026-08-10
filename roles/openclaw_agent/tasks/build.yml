@@ -1,0 +1,12 @@
+---
+- name: Build OpenClaw agent Docker image
+  community.docker.docker_image:
+    name: "{{ openclaw_agent_image_name }}"
+    tag: "{{ openclaw_agent_image_tag }}"
+    source: build
+    build:
+      path: "{{ openclaw_agent_build_dir }}"
+      pull: true
+    force_source: true
+    state: present
+  register: openclaw_agent_image_build

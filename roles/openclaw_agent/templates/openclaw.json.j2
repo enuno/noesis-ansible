@@ -1,0 +1,94 @@
+{
+  "$schema": "https://schemas.openclaw.ai/openclaw.json",
+  "meta": {
+    "lastTouchedVersion": "2026.5.22",
+    "lastTouchedAt": "{{ ansible_facts.date_time.iso8601 }}"
+  },
+  "env": {
+    "shellEnv": {
+      "enabled": false
+    },
+    "vars": {
+      "OPENCLAW_LOG_LEVEL": "info"
+    }
+  },
+  "gateway": {
+    "port": {{ openclaw_agent_gateway_port }},
+    "mode": "{{ openclaw_agent_gateway_mode }}",
+    "bind": "{{ openclaw_agent_gateway_bind }}",
+    "auth": {
+      "mode": "{{ openclaw_agent_auth_mode }}",
+      "token": "{{ openclaw_agent_auth_token }}"
+    },
+    "controlUi": {
+      "enabled": true
+    },
+    "http": {
+      "endpoints": {
+        "chatCompletions": {
+          "enabled": true
+        }
+      }
+    }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "{{ openclaw_agent_model_provider }}": {
+        "baseUrl": "{{ openclaw_agent_model_base_url }}"
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": "{{ openclaw_agent_default_model }}",
+      "workspace": "{{ openclaw_agent_workspace_dir }}",
+      "skills": []
+    },
+    "list": [
+      {
+        "id": "{{ openclaw_agent_id }}",
+        "name": "{{ openclaw_agent_name }}",
+        "runtime": {
+          "type": "{{ openclaw_agent_runtime_type }}"
+        },
+        "workspace": "{{ openclaw_agent_workspace_dir }}",
+        "tools": {
+          "profile": "{{ openclaw_agent_tools_profile }}"
+        }
+      }
+    ]
+  },
+  "memory": {
+    "backend": "{{ openclaw_agent_memory_backend }}",
+    "citations": "{{ openclaw_agent_memory_citations }}"
+  }{% if openclaw_agent_mempalace_enabled | bool or openclaw_agent_honcho_enabled | bool %},{% endif %}
+{% if openclaw_agent_mempalace_enabled | bool %}
+  "mcp": {
+    "servers": {
+      "mempalace": {
+        "url": "{{ openclaw_agent_mempalace_url }}",
+        "transport": "{{ openclaw_agent_mempalace_transport }}"
+      }
+    }
+  }{% if openclaw_agent_honcho_enabled | bool %},{% endif %}
+{% endif %}
+{% if openclaw_agent_honcho_enabled | bool %}
+  "plugins": {
+    "enabled": true,
+    "slots": {
+      "memory": "openclaw-honcho"
+    },
+    "entries": {
+      "openclaw-honcho": {
+        "enabled": true,
+        "config": {
+          "apiKey": "{{ openclaw_agent_honcho_api_key }}",
+          "baseUrl": "{{ openclaw_agent_honcho_base_url }}",
+          "workspaceId": "{{ openclaw_agent_honcho_workspace_id }}"
+        }
+      }
+    }
+  }
+{% endif %}
+}
