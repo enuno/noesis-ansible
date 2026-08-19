@@ -3,7 +3,7 @@
 # All secrets are fetched from Bitwarden via `bws` CLI and written to Vault-managed files
 
 # bws CLI path
-bws_cli_path: "{{ ansible_env.HOME }}/.local/bin/bws"
+bws_cli_path: "/usr/local/bin/bws"
 
 # Bitwarden access token for the bws CLI.
 # Falls back to the BWS_ACCESS_TOKEN environment variable. Keep it out of Git.

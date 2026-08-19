@@ -62,7 +62,7 @@ author:
 EXAMPLES = r"""
 - name: Import Mistral API key from Bitwarden
   noesis_bws_secret:
-    project_id: "7173d0ef-7c7d-4356-b98f-b3d20010b2e7"
+    project_id: "72974d0e-81af-4678-bab7-b46000985859"
     secret_key: "MISTRAL_API_KEY"
     vault_file: "/opt/noesispraxis/secrets/muxd.yml"
     vault_key: "vault_mistral_api_key"
@@ -142,7 +142,7 @@ def find_secret(secrets_list, key):
 
 def main():
     module_args = dict(
-        bws_cli_path=dict(type="path", default="~/.local/bin/bws"),
+        bws_cli_path=dict(type="path", default="/usr/local/bin/bws"),
         access_token=dict(type="str", default="", no_log=True),
         project_id=dict(type="str", default=""),
         secret_key=dict(type="str", required=True),

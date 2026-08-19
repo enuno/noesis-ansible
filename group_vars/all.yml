@@ -9,11 +9,11 @@ stack_name: noesispraxis
 # Bitwarden Secrets Manager configuration
 # Source of truth for all secrets — fetched via bws CLI and written to Vault-managed files.
 # Provide the access token via BWS_ACCESS_TOKEN environment variable or bitwarden_access_token.
-bitwarden_project_id: "7173d0ef-7c7d-4356-b98f-b3d20010b2e7"
-bitwarden_project_name: "noesis_universe"
+bitwarden_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+bitwarden_project_name: "noosphere"
 
 # bws CLI configuration
-bws_cli_path: "{{ ansible_env.HOME }}/.local/bin/bws"
+bws_cli_path: "/usr/local/bin/bws"
 
 # Vault configuration
 vault_password_file: "{{ playbook_dir }}/../.vault_pass"
@@ -49,6 +49,13 @@ noesispraxis_enable_openclaw_acp: false
 noesispraxis_enable_noesis_openclaw: false
 noesispraxis_enable_hermes_acp: false
 noesispraxis_enable_openclaw_agent: false
+noesispraxis_enable_grafana_stack: false
+
+# Observability stack endpoints (localhost defaults)
+grafana_url: http://localhost:3000
+prometheus_url: http://localhost:9090
+loki_url: http://localhost:3100
+tempo_url: http://localhost:3200
 
 # Registry endpoints (localhost defaults)
 registry_base_url: http://localhost:8080

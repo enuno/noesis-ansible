@@ -73,8 +73,8 @@ EXAMPLES = r"""
     rotation_strategy: bws_fetch
     bws_config:
       org_id: "93331de5-fa6e-44ab-8aee-b3840034e681"
-      project_id: "7173d0ef-7c7d-4356-b98f-b3d20010b2e7"
-      bws_cli_path: "~/.local/bin/bws"
+      project_id: "72974d0e-81af-4678-bab7-b46000985859"
+      bws_cli_path: "/usr/local/bin/bws"
 """
 
 RETURN = r"""
@@ -117,7 +117,7 @@ def fetch_from_bitwarden(module, bws_config, secret_key):
     import subprocess
     import json
 
-    bws_path = os.path.expanduser(bws_config.get("bws_cli_path", "~/.local/bin/bws"))
+    bws_path = os.path.expanduser(bws_config.get("bws_cli_path", "/usr/local/bin/bws"))
     org_id = bws_config.get("org_id", "")
     project_id = bws_config.get("project_id", "")
 
