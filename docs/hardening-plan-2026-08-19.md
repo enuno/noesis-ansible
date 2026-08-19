@@ -1,7 +1,7 @@
 # Host Network Hardening Plan — 2026-08-19
 
 **Risk tier:** R3 (firewall/DNS changes)
-**Status:** PLANNED — requires human approval of this manifest before execution
+**Status:** EXECUTED 2026-08-19 (operator approval received; see §8)
 **Owner:** Noesis Praxis (Hermes supervisor)
 **Executor:** noesis-ansible playbook (isolated worker / host-side enforcement)
 **Policy reference:** `shared/POLICY.global.md`, `shared/GUARDRAILS.global.yaml`, `platform/risk-tiers.yaml` (in noesis-agent-stack)
@@ -110,3 +110,32 @@ This plan is the action manifest. Execution requires:
 - Confirm SSH/2022 source restrictions for this pass (allow all, or tailnet/mgmt CIDR only).
 - Confirm whether `4097` (muxd-hub) and `22/2022` should be dropped now or after ACL pass.
 - Authorize service rebinding (3000/3210/8642/8765) as part of this pass or a follow-up.
+
+## 8. Execution record (2026-08-19)
+
+**Approval:** Operator (elvis) via CLI — "execute the firewall ruleset from the manifest". Single-use grant bound to this exact manifest; no rule outside the manifest was added.
+
+**Preflight (passed):**
+- Passwordless sudo available; session path loopback (127.0.0.1 → 127.0.1.1:22) protected by `-i lo` + established/related.
+- Tailscale up (100.106.20.102); netfilter-persistent active; Docker healthy (22 containers).
+- Syntax tested via `iptables-restore --test` and `ip6tables-restore --test` — both OK.
+- Backups: `/root/fw-backup-2026-08-19.rules` (389 lines), `/root/fw-backup6-2026-08-19.rules` (64 lines); copies in `/home/elvis/`.
+
+**Applied (exact manifest §2 ruleset):**
+- IPv4: `-P INPUT DROP`; established/related ACCEPT; lo ACCEPT; tailscale0 ACCEPT; tcp 22/2022 ACCEPT; icmp ACCEPT; tcp 2377/7946 DROP; udp 7946/4789 DROP; udp 41641 ACCEPT.
+- IPv6: `-P INPUT DROP`; established/related ACCEPT; lo ACCEPT; tailscale0 ACCEPT; ipv6-icmp ACCEPT; tcp 22/2022 ACCEPT; tcp 2377/7946 DROP; udp 7946/4789 DROP.
+- Persisted via `netfilter-persistent save` (exit 0); `/etc/iptables/rules.v4` (23 INPUT refs), `/etc/iptables/rules.v6` (19 refs).
+
+**Verification (all passed):**
+- `iptables -S INPUT` / `ip6tables -S INPUT` show `-P INPUT DROP` + full ruleset.
+- Current session survived; Tailscale status OK; Docker containers still running; loopback service check (dokploy :3000) returns HTTP 200.
+
+**Result:** Host-local public listeners now default-deny. Hermes :8642, muxd-hub :4097, swarm :7946 and any other host-local public port are blocked except allowed management (22/2022) and Tailscale.
+
+**Residual exposure (documented follow-up, NOT part of this manifest):**
+Docker-published ports traverse FORWARD/DOCKER chains, not INPUT: braiins-insights-mcp `0.0.0.0:8765`, jot-app `0.0.0.0:3210`, dokploy `0.0.0.0:3000` remain reachable on the public interface. Closing them requires either:
+  a. Service rebinding to tailscale0/127.0.0.1 (manifest §2 follow-up), or
+  b. DOCKER-USER DROP rules (e.g. `iptables -I DOCKER-USER -p tcp --dport 8765 -j DROP`).
+Either is a NEW R3 change requiring a new approval; it is not implied by this manifest.
+
+**Rollback:** armed. Restore `/root/fw-backup-2026-08-19.rules` + `fw-backup6` via `iptables-restore` / `ip6tables-restore`, then `netfilter-persistent save`. Rollback triggers: session loss, tailnet unreachable, or unexpected service breakage within 15 min of apply.
