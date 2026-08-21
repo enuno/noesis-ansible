@@ -177,7 +177,37 @@
         name: backup
       when: noesispraxis_enable_backup | default(false) | bool
 
-- name: "PHASE 8 — Final Validation"
+- name: "PHASE 8 — Observability (Grafana Stack)"
+  hosts: local
+  gather_facts: false
+  tags: [observability, grafana-stack]
+  tasks:
+    - name: Include Grafana Stack
+      ansible.builtin.include_role:
+        name: grafana_stack
+      when: noesispraxis_enable_grafana_stack | default(false) | bool
+
+    - name: Validate Phase 8
+      ansible.builtin.include_role:
+        name: validation
+      when: noesispraxis_enable_validation | default(true) | bool
+
+- name: "PHASE 9 — Claude Code Bridge (development delegation)"
+  hosts: local
+  gather_facts: false
+  tags: [claude-code-bridge, development]
+  tasks:
+    - name: Include Claude Code Bridge
+      ansible.builtin.include_role:
+        name: claude_code_bridge
+      when: noesispraxis_enable_claude_code_bridge | default(false) | bool
+
+    - name: Validate Phase 9
+      ansible.builtin.include_role:
+        name: validation
+      when: noesispraxis_enable_validation | default(true) | bool
+
+- name: "PHASE 10 — Final Validation"
   hosts: all
   gather_facts: false
   tags: [validate, always]

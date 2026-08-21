@@ -1,0 +1,74 @@
+---
+- name: Validate bridge directories
+  ansible.builtin.stat:
+    path: "{{ claude_code_bridge_dir }}/{{ item }}"
+  loop:
+    - inbox
+    - outbox
+    - active
+    - archive
+    - channel.jsonl
+  register: bridge_dirs
+
+- name: Assert bridge directories exist
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+    quiet: true
+  loop: "{{ bridge_dirs.results }}"
+
+- name: Validate hook file
+  ansible.builtin.stat:
+    path: "{{ claude_code_bridge_hook_path }}"
+  register: hook_stat
+
+- name: Assert hook installed and executable
+  ansible.builtin.assert:
+    that:
+      - hook_stat.stat.exists
+      - hook_stat.stat.xusr or hook_stat.stat.xgrp or hook_stat.stat.xoth
+    quiet: true
+
+- name: Syntax-check the hook
+  ansible.builtin.command:
+    cmd: "python3 -c \"import ast,io; ast.parse(io.open('{{ claude_code_bridge_hook_path }}').read())\""
+  register: hook_compile
+  changed_when: false
+  failed_when: hook_compile.rc != 0
+
+- name: Validate settings.json hook registration
+  ansible.builtin.command:
+    cmd: "grep -c 'noesis-bridge-check' {{ claude_code_claude_home }}/settings.json"
+  register: settings_grep
+  changed_when: false
+  failed_when: settings_grep.stdout | int < 2
+
+- name: Validate skills
+  ansible.builtin.stat:
+    path: "{{ claude_code_bridge_skills_dir }}/{{ item }}/SKILL.md"
+  loop:
+    - noesis-loop
+    - noesis-status
+  register: skill_stats
+  when: claude_code_bridge_install_skills | bool
+
+- name: Assert skills installed
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+    quiet: true
+  loop: "{{ skill_stats.results }}"
+  when: claude_code_bridge_install_skills | bool
+
+- name: Validate Hermes plugin
+  ansible.builtin.stat:
+    path: "{{ claude_code_bridge_hermes_plugins_dir }}/{{ claude_code_bridge_hermes_plugin_name }}/__init__.py"
+  register: hermes_plugin_stat
+  when: claude_code_bridge_sync_hermes_plugin | bool
+
+- name: Assert Hermes plugin installed
+  ansible.builtin.assert:
+    that:
+      - hermes_plugin_stat.stat.exists
+    quiet: true
+  when: claude_code_bridge_sync_hermes_plugin | bool

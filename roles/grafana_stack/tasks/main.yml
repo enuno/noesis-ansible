@@ -1,0 +1,9 @@
+---
+- name: Include Grafana Stack install
+  ansible.builtin.include_tasks: install.yml
+
+- name: Include Grafana Stack configure
+  ansible.builtin.include_tasks: configure.yml
+
+- name: Include Grafana Stack validate
+  ansible.builtin.include_tasks: validate.yml

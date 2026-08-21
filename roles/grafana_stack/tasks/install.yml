@@ -1,0 +1,20 @@
+---
+- name: Ensure Grafana Stack directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ grafana_stack_data_dir }}"
+    - "{{ grafana_stack_config_dir }}"
+
+- name: Ensure Grafana admin password is configured
+  ansible.builtin.fail:
+    msg: >
+      grafana_stack_admin_password must be set before deploying Grafana.
+      Add vault_grafana_admin_password to group_vars/secrets.yml,
+      store it in Bitwarden, or pass -e grafana_stack_admin_password=...
+  when:
+    - grafana_stack_enable_grafana | bool
+    - (grafana_stack_admin_password | default('')) | length == 0
+  no_log: true

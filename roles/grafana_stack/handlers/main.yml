@@ -1,0 +1,9 @@
+---
+- name: Restart Grafana Stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ grafana_stack_data_dir }}"
+    state: restarted
+    wait: true
+    wait_timeout: 120
+  listen: restart_grafana_stack
+  when: not ansible_check_mode

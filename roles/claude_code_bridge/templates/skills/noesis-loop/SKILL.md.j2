@@ -1,0 +1,54 @@
+---
+name: noesis-loop
+description: Noesis Development Loop — serve Noesis Praxis bridge tasks, then improve the stack, then log. Use when running a Claude Code session under the Noesis supervisor.
+metadata:
+  version: 1.0.0
+---
+
+# Noesis Development Loop
+
+## PLAN for this cycle
+
+Before doing anything, state:
+- **What**: one line
+- **Why**: what it improves
+- **Test**: how to verify
+
+## Priority 1: Serve Noesis Praxis
+
+1. Check `{{ claude_code_bridge_dir }}/inbox/` — process any tasks
+2. Check `{{ claude_code_bridge_dir }}/channel.jsonl` — answer messages
+3. Quick health: `docker ps` and `hermes status 2>&1 | head -20`
+
+## Priority 2: Improve the stack
+
+Pick ONE impactful action. Not tests, not verifications — actual improvements:
+- Improve noesis-agent-stack policy, agent profiles, or contracts
+- Create skills in `~/.hermes/skills/` or `~/.claude/skills/`
+- Fix known issues in noesis-ansible (roles, playbooks, hardening plan)
+- Add cron jobs for automation
+- Research new models, tools, patterns
+- Publish plugins to the Noesis GitHub org
+
+## Priority 3: Log + Report
+
+- Append milestone messages to `{{ claude_code_bridge_dir }}/channel.jsonl` (as `from: claude-code`)
+- For every inbox task processed, write a result file to `{{ claude_code_bridge_dir }}/outbox/{task_id}.result.yaml`:
+  ```yaml
+  task_id: <task_id>
+  status: completed|failed|blocked|needs_clarification
+  completed_at: <ISO-8601 UTC>
+  summary: <what was done>
+  artifacts:
+    - <paths>
+  test_results: {passed: N, failed: N, skipped: N}
+  ```
+
+## Rules
+
+- PLAN first, then execute
+- Ship real changes, not just tests
+- One cycle = one shipped improvement minimum
+- If bridge has tasks, those come FIRST — Noesis Praxis is the boss
+- Never touch secrets, wallets, providers, or production without an explicit grant
+- Never claim a result you did not observe

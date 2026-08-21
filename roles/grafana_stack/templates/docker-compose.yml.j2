@@ -1,0 +1,97 @@
+volumes:
+  prometheus_data:
+  loki_data:
+  tempo_data:
+  grafana_data:
+
+services:
+  prometheus:
+    image: prom/prometheus:{{ grafana_stack_prometheus_version }}
+    container_name: noesis-prometheus
+    user: root
+    ports:
+      - "{{ grafana_stack_prometheus_port }}:9090"
+    volumes:
+      - prometheus_data:/prometheus
+      - {{ grafana_stack_config_dir }}/prometheus.yml:/etc/prometheus/prom.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prom.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time={{ grafana_stack_prometheus_retention_time }}"
+    restart: unless-stopped
+    networks:
+      - {{ grafana_stack_network_name }}
+    deploy:
+      resources:
+        limits:
+          cpus: "{{ grafana_stack_cpu_limit }}"
+          memory: "{{ grafana_stack_memory_limit }}"
+
+  loki:
+    image: grafana/loki:{{ grafana_stack_loki_version }}
+    container_name: noesis-loki
+    user: root
+    ports:
+      - "{{ grafana_stack_loki_port }}:3100"
+    volumes:
+      - loki_data:/loki
+      - {{ grafana_stack_config_dir }}/loki.yml:/etc/loki/loki-config.yaml:ro
+    command:
+      - "-config.file=/etc/loki/loki-config.yaml"
+    restart: unless-stopped
+    networks:
+      - {{ grafana_stack_network_name }}
+    deploy:
+      resources:
+        limits:
+          cpus: "{{ grafana_stack_cpu_limit }}"
+          memory: "{{ grafana_stack_memory_limit }}"
+
+  tempo:
+    image: grafana/tempo:{{ grafana_stack_tempo_version }}
+    container_name: noesis-tempo
+    user: root
+    ports:
+      - "{{ grafana_stack_tempo_http_port }}:3200"
+      - "{{ grafana_stack_tempo_grpc_port }}:4317"
+      - "{{ grafana_stack_tempo_otlp_http_port }}:4318"
+    volumes:
+      - tempo_data:/var/tempo
+      - {{ grafana_stack_config_dir }}/tempo.yml:/etc/tempo/tempo.yml:ro
+    command:
+      - "-config.file=/etc/tempo/tempo.yml"
+    restart: unless-stopped
+    networks:
+      - {{ grafana_stack_network_name }}
+    deploy:
+      resources:
+        limits:
+          cpus: "{{ grafana_stack_cpu_limit }}"
+          memory: "{{ grafana_stack_memory_limit }}"
+
+  grafana:
+    image: grafana/grafana-oss:{{ grafana_stack_grafana_version }}
+    container_name: noesis-grafana
+    ports:
+      - "{{ grafana_stack_grafana_port }}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - {{ grafana_stack_config_dir }}/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+    env_file:
+      - {{ grafana_stack_data_dir }}/.env
+    restart: unless-stopped
+    networks:
+      - {{ grafana_stack_network_name }}
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    deploy:
+      resources:
+        limits:
+          cpus: "{{ grafana_stack_cpu_limit }}"
+          memory: "{{ grafana_stack_memory_limit }}"
+
+networks:
+  {{ grafana_stack_network_name }}:
+    driver: bridge

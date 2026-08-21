@@ -49,7 +49,9 @@ noesispraxis_enable_openclaw_acp: false
 noesispraxis_enable_noesis_openclaw: false
 noesispraxis_enable_hermes_acp: false
 noesispraxis_enable_openclaw_agent: false
+noesispraxis_enable_openclaw_gateway: true
 noesispraxis_enable_grafana_stack: false
+noesispraxis_enable_claude_code_bridge: true
 
 # Observability stack endpoints (localhost defaults)
 grafana_url: http://localhost:3000

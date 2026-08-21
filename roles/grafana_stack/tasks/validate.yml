@@ -1,0 +1,48 @@
+---
+- name: Wait for Grafana health endpoint
+  ansible.builtin.uri:
+    url: "http://localhost:{{ grafana_stack_grafana_port }}/api/health"
+    status_code: 200
+  register: grafana_health
+  until: grafana_health.status == 200
+  retries: 30
+  delay: 5
+  when:
+    - grafana_stack_enable_grafana | bool
+    - not ansible_check_mode
+
+- name: Check Prometheus health endpoint
+  ansible.builtin.uri:
+    url: "http://localhost:{{ grafana_stack_prometheus_port }}/-/healthy"
+    status_code: 200
+  register: prometheus_health
+  until: prometheus_health.status == 200
+  retries: 12
+  delay: 5
+  when:
+    - grafana_stack_enable_prometheus | bool
+    - not ansible_check_mode
+
+- name: Check Loki ready endpoint
+  ansible.builtin.uri:
+    url: "http://localhost:{{ grafana_stack_loki_port }}/ready"
+    status_code: 200
+  register: loki_health
+  until: loki_health.status == 200
+  retries: 12
+  delay: 5
+  when:
+    - grafana_stack_enable_loki | bool
+    - not ansible_check_mode
+
+- name: Check Tempo ready endpoint
+  ansible.builtin.uri:
+    url: "http://localhost:{{ grafana_stack_tempo_http_port }}/ready"
+    status_code: 200
+  register: tempo_health
+  until: tempo_health.status == 200
+  retries: 12
+  delay: 5
+  when:
+    - grafana_stack_enable_tempo | bool
+    - not ansible_check_mode

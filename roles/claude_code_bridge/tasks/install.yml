@@ -1,0 +1,97 @@
+---
+- name: Create bridge directories
+  ansible.builtin.file:
+    path: "{{ claude_code_bridge_dir }}/{{ item }}"
+    state: directory
+    mode: "0700"
+    owner: "{{ claude_code_bridge_owner_user }}"
+  loop:
+    - inbox
+    - outbox
+    - active
+    - archive
+
+- name: Ensure channel.jsonl exists
+  ansible.builtin.file:
+    path: "{{ claude_code_bridge_dir }}/channel.jsonl"
+    state: touch
+    mode: "0600"
+    owner: "{{ claude_code_bridge_owner_user }}"
+
+- name: Ensure bridge cursors exist
+  ansible.builtin.file:
+    path: "{{ claude_code_bridge_dir }}/{{ item }}"
+    state: touch
+    mode: "0600"
+    owner: "{{ claude_code_bridge_owner_user }}"
+  loop:
+    - .last_read
+    - .mother_last_read
+
+- name: Ensure Claude Code hooks directory exists
+  ansible.builtin.file:
+    path: "{{ claude_code_claude_home }}/hooks"
+    state: directory
+    mode: "0700"
+    owner: "{{ claude_code_bridge_owner_user }}"
+
+- name: Install the bridge check hook
+  ansible.builtin.template:
+    src: bridge-check.py.j2
+    dest: "{{ claude_code_bridge_hook_path }}"
+    mode: "0755"
+    owner: "{{ claude_code_bridge_owner_user }}"
+
+- name: Ensure Claude Code skills directories exist
+  ansible.builtin.file:
+    path: "{{ claude_code_bridge_skills_dir }}/{{ item }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ claude_code_bridge_owner_user }}"
+  loop:
+    - noesis-loop
+    - noesis-status
+  when: claude_code_bridge_install_skills | bool
+
+- name: Install the noesis-loop skill
+  ansible.builtin.template:
+    src: skills/noesis-loop/SKILL.md.j2
+    dest: "{{ claude_code_bridge_skills_dir }}/noesis-loop/SKILL.md"
+    mode: "0644"
+    owner: "{{ claude_code_bridge_owner_user }}"
+  when: claude_code_bridge_install_skills | bool
+
+- name: Install the noesis-status skill
+  ansible.builtin.template:
+    src: skills/noesis-status/SKILL.md.j2
+    dest: "{{ claude_code_bridge_skills_dir }}/noesis-status/SKILL.md"
+    mode: "0644"
+    owner: "{{ claude_code_bridge_owner_user }}"
+  when: claude_code_bridge_install_skills | bool
+
+- name: Ensure plugin manifest directory exists
+  ansible.builtin.file:
+    path: "{{ claude_code_bridge_plugin_state_dir }}/.claude-plugin"
+    state: directory
+    mode: "0700"
+    owner: "{{ claude_code_bridge_owner_user }}"
+  when: claude_code_bridge_register_plugin_manifest | bool
+
+- name: Install plugin manifest (provenance / marketplace-style registration)
+  ansible.builtin.template:
+    src: plugin.json.j2
+    dest: "{{ claude_code_bridge_plugin_state_dir }}/.claude-plugin/plugin.json"
+    mode: "0644"
+    owner: "{{ claude_code_bridge_owner_user }}"
+  when: claude_code_bridge_register_plugin_manifest | bool
+
+- name: Sync Hermes-side evey-bridge plugin
+  ansible.builtin.copy:
+    src: "hermes-bridge-plugin/{{ item }}"
+    dest: "{{ claude_code_bridge_hermes_plugins_dir }}/{{ claude_code_bridge_hermes_plugin_name }}/{{ item }}"
+    mode: "0644"
+    owner: "{{ claude_code_bridge_owner_user }}"
+  loop:
+    - __init__.py
+    - plugin.yaml
+  when: claude_code_bridge_sync_hermes_plugin | bool

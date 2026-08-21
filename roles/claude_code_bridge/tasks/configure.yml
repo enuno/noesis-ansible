@@ -1,0 +1,9 @@
+---
+# Registers the bridge hook in ~/.claude/settings.json for UserPromptSubmit
+# and Stop events. Idempotent: merge script only adds entries when absent and
+# preserves all existing settings/hooks.
+- name: Register bridge hook in Claude Code settings.json
+  ansible.builtin.command:
+    cmd: "python3 {{ role_path }}/files/merge-claude-settings.py {{ claude_code_claude_home }}/settings.json {{ claude_code_bridge_hook_path }} {{ claude_code_bridge_hook_timeout_s }}"
+  register: bridge_settings
+  changed_when: "'updated' in bridge_settings.stdout"

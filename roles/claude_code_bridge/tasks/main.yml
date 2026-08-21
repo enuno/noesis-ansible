@@ -1,0 +1,14 @@
+---
+- name: Include Claude Code bridge install
+  ansible.builtin.include_tasks: install.yml
+  when: claude_code_bridge_enabled | bool
+
+- name: Include Claude Code bridge configure
+  ansible.builtin.include_tasks: configure.yml
+  when: claude_code_bridge_enabled | bool
+
+- name: Include Claude Code bridge validate
+  ansible.builtin.include_tasks: validate.yml
+  when:
+    - claude_code_bridge_enabled | bool
+    - not ansible_check_mode

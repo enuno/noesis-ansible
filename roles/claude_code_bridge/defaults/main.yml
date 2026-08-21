@@ -1,0 +1,36 @@
+---
+# Claude Code bridge role defaults.
+# Deploys the Claude Code <-> Noesis Praxis development-delegation bridge:
+# bridge state directories, the Claude Code hook + skills, and a sync of the
+# Hermes-side evey-bridge plugin (claude_bridge_task / message / check).
+#
+# Contract reference: noesis-agent-stack agents/claude-code-worker/ and
+# contracts/bridge/ (task, channel-message, result schemas).
+
+# Enable flag (mirrors the stack toggle convention)
+claude_code_bridge_enabled: "{{ noesispraxis_enable_claude_code_bridge | default(false) | bool }}"
+
+# Owner
+claude_code_bridge_owner_user: "{{ ansible_user_id | default('elvis') }}"
+claude_code_bridge_owner_home: "{{ ansible_env.HOME | default('/home/elvis') }}"
+
+# Bridge state dir (must match the Hermes evey-bridge plugin default:
+# $HERMES_HOME/claude-bridge -> ~/.hermes/claude-bridge)
+claude_code_bridge_dir: "{{ claude_code_bridge_owner_home }}/.hermes/claude-bridge"
+claude_code_bridge_channel_max_lines: 200
+claude_code_bridge_archive_retention_days: 7
+
+# Claude Code side
+claude_code_claude_home: "{{ claude_code_bridge_owner_home }}/.claude"
+claude_code_bridge_hook_name: "noesis-bridge-check.py"
+claude_code_bridge_hook_path: "{{ claude_code_claude_home }}/hooks/{{ claude_code_bridge_hook_name }}"
+claude_code_bridge_hook_timeout_s: 10
+claude_code_bridge_skills_dir: "{{ claude_code_claude_home }}/skills"
+claude_code_bridge_install_skills: true
+claude_code_bridge_register_plugin_manifest: true
+claude_code_bridge_plugin_state_dir: "{{ claude_code_bridge_owner_home }}/.local/state/noesis/claude-plugin"
+
+# Hermes side plugin sync (source of truth for the Noesis flavor)
+claude_code_bridge_hermes_plugins_dir: "{{ claude_code_bridge_owner_home }}/.hermes/plugins"
+claude_code_bridge_hermes_plugin_name: "evey-bridge"
+claude_code_bridge_sync_hermes_plugin: true

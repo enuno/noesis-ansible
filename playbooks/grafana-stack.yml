@@ -1,0 +1,17 @@
+---
+# Deploy the Grafana observability stack (Grafana, Prometheus, Loki, Tempo)
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/grafana-stack.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/grafana-stack.yml -e noesispraxis_enable_grafana_stack=true
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/grafana-stack.yml -e grafana_stack_admin_password=changeme
+
+- name: NoesisPraxis Grafana Stack — Observability
+  hosts: local
+  gather_facts: false
+  tags: [observability, grafana-stack]
+
+  tasks:
+    - name: Include Grafana Stack role
+      ansible.builtin.include_role:
+        name: grafana_stack
+      when: noesispraxis_enable_grafana_stack | default(false) | bool

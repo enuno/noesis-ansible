@@ -1,0 +1,36 @@
+---
+name: noesis-status
+description: Quick Noesis stack status — bridge, health, repos, crons. Use when asked for a status check of the Noesis stack from a Claude Code session.
+metadata:
+  version: 1.0.0
+---
+
+# Noesis Status Check
+
+Run these commands and report results concisely:
+
+```bash
+# Bridge
+ls {{ claude_code_bridge_dir }}/inbox/ 2>/dev/null
+tail -3 {{ claude_code_bridge_dir }}/channel.jsonl 2>/dev/null
+
+# Health
+hermes status 2>&1 | head -20
+
+# Repos
+git -C ~/projects/noesis-agent-stack status --short 2>/dev/null | head
+git -C ~/projects/noesis-ansible status --short 2>/dev/null | head
+
+# Crons
+hermes cron list 2>&1 | grep -c "\[active\]" || true
+```
+
+Report format:
+
+```
+Agent: [healthy/down]
+Bridge: X pending inbox, Y unread channel
+Repos: [clean/dirty] agent-stack, [clean/dirty] ansible
+Crons: X active
+Last activity: [from channel tail]
+```

@@ -1,0 +1,21 @@
+---
+# claude-code-bridge.yml — Deploy the Claude Code <-> Noesis Praxis bridge.
+#
+# Enables Noesis Praxis (Hermes) to delegate bounded development tasks to
+# on-demand Claude Code sessions via the file bridge. Contract:
+# noesis-agent-stack agents/claude-code-worker/ + contracts/bridge/.
+#
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/claude-code-bridge.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/master-stack.yml --tags claude-code-bridge
+
+- name: Deploy the Claude Code bridge
+  hosts: local
+  gather_facts: false
+  vars:
+    _enable_bridge: "{{ noesispraxis_enable_claude_code_bridge | default(false) | bool }}"
+  tasks:
+    - name: Include Claude Code bridge role
+      ansible.builtin.include_role:
+        name: claude_code_bridge
+      when: _enable_bridge

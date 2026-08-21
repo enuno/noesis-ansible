@@ -1,0 +1,49 @@
+---
+# Grafana Stack observability defaults
+# Integrated from ~/tools/railway-grafana-stack
+
+grafana_stack_enabled: "{{ noesispraxis_enable_grafana_stack | default(false) | bool }}"
+
+# Service toggles
+grafana_stack_enable_prometheus: true
+grafana_stack_enable_loki: true
+grafana_stack_enable_tempo: true
+grafana_stack_enable_grafana: true
+
+# Base paths
+grafana_stack_data_dir: "{{ base_data_dir | default('/opt/noesispraxis') }}/grafana-stack"
+grafana_stack_config_dir: "{{ grafana_stack_data_dir }}/config"
+
+# Docker network for the observability stack
+grafana_stack_network_name: "grafana-stack"
+
+# Exposed host ports
+grafana_stack_prometheus_port: 9090
+grafana_stack_loki_port: 3100
+grafana_stack_tempo_http_port: 3200
+grafana_stack_tempo_grpc_port: 4317
+grafana_stack_tempo_otlp_http_port: 4318
+grafana_stack_grafana_port: 3000
+
+# Image versions (pinned from Railway template)
+grafana_stack_grafana_version: "11.5.2"
+grafana_stack_prometheus_version: "v3.2.1"
+grafana_stack_loki_version: "3.4"
+grafana_stack_tempo_version: "2.9.0"
+
+# Grafana settings
+grafana_stack_admin_user: "admin"
+# REQUIRED: set vault_grafana_admin_password in group_vars/secrets.yml or pass -e grafana_stack_admin_password=...
+grafana_stack_admin_password: "{{ vault_grafana_admin_password | default('') }}"
+grafana_stack_instance_name: "NoesisPraxis Grafana"
+grafana_stack_install_plugins: "grafana-simple-json-datasource,grafana-piechart-panel,grafana-worldmap-panel,grafana-clock-panel"
+
+# Prometheus retention
+grafana_stack_prometheus_retention_time: "15d"
+
+# Loki schema start date
+grafana_stack_loki_schema_from_date: "2025-01-01"
+
+# Resource limits applied to each container
+grafana_stack_cpu_limit: "1.0"
+grafana_stack_memory_limit: "2048m"

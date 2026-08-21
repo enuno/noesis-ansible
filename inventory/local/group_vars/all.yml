@@ -17,6 +17,7 @@ noesispraxis_enable_tailscale: true
 noesispraxis_enable_backup: false
 noesispraxis_enable_validation: true
 noesispraxis_enable_registry_sync: false
+noesispraxis_enable_claude_code_bridge: true
 
 # Registry endpoints (localhost)
 registry_base_url: http://localhost:8080

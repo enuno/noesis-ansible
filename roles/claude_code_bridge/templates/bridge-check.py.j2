@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""Noesis Claude Code bridge hook — checks the Noesis -> Claude Code bridge.
+
+Registered in ~/.claude/settings.json for UserPromptSubmit and Stop events.
+On UserPromptSubmit: reads pending inbox tasks and new channel messages from
+Noesis Praxis and injects them as additional context.
+On Stop: posts a brief session summary back to Noesis via channel.jsonl.
+
+Bridge layout ({{ claude_code_bridge_dir }}):
+  channel.jsonl     — messages both directions
+  inbox/            — task files written by Noesis Praxis (Hermes)
+  outbox/           — result files written by Claude Code for Noesis Praxis
+  active/           — processed outbox files
+  .mother_last_read — Claude Code read cursor for channel messages
+
+Contract: noesis-agent-stack contracts/bridge/ (task, channel-message schemas).
+"""
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+BRIDGE = Path("{{ claude_code_bridge_dir }}")
+CHANNEL = BRIDGE / "channel.jsonl"
+INBOX = BRIDGE / "inbox"
+OUTBOX = BRIDGE / "outbox"
+LAST_READ = BRIDGE / ".mother_last_read"
+
+SUPERVISOR_IDS = ("noesis-praxis", "evey", "hermes")
+
+
+def read_pending():
+    """Return pending channel messages and inbox task files from Noesis."""
+    messages = []
+    last_ts = LAST_READ.read_text().strip() if LAST_READ.exists() else ""
+
+    if CHANNEL.exists():
+        for line in CHANNEL.read_text().strip().split("\n"):
+            if not line.strip():
+                continue
+            try:
+                msg = json.loads(line)
+                if msg.get("from") in SUPERVISOR_IDS and msg.get("timestamp", "") > last_ts:
+                    messages.append(f"[{msg['timestamp'][:16]}] {msg['message'][:300]}")
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+    if INBOX.exists():
+        for f in sorted(INBOX.iterdir()):
+            if f.is_file():
+                messages.append(f"[TASK FILE: {f.name}] {f.read_text()[:500]}")
+
+    return messages
+
+
+def update_last_read():
+    """Advance the Claude Code read cursor to the latest supervisor message."""
+    if not CHANNEL.exists():
+        return
+    for line in reversed(CHANNEL.read_text().strip().split("\n")):
+        try:
+            msg = json.loads(line)
+            if msg.get("from") in SUPERVISOR_IDS:
+                LAST_READ.write_text(msg.get("timestamp", ""))
+                return
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+
+def post_summary(text):
+    """Best-effort session summary written back to Noesis via the channel."""
+    CHANNEL.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "from": "claude-code",
+        "to": "noesis-praxis",
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "type": "summary",
+        "message": text[:500],
+    }
+    with open(CHANNEL, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+def main():
+    event = sys.argv[1] if len(sys.argv) > 1 else "UserPromptSubmit"
+    pending = read_pending()
+
+    if event == "Stop":
+        post_summary("Claude Code session ended (bridge hook).")
+        if pending:
+            print(json.dumps({
+                "systemMessage": "Noesis bridge has pending items:\n" + "\n".join(pending[-3:])
+            }))
+        else:
+            print(json.dumps({"suppressOutput": True}))
+        return
+
+    if pending:
+        update_last_read()
+        seen = set()
+        unique = []
+        for m in pending:
+            key = m[:100]
+            if key not in seen:
+                seen.add(key)
+                unique.append(m)
+
+        context = "BRIDGE MESSAGE FROM NOESIS:\n" + "\n".join(unique[-5:])
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": event,
+                "additionalContext": context,
+            }
+        }))
+    else:
+        print(json.dumps({"suppressOutput": True}))
+
+
+if __name__ == "__main__":
+    main()

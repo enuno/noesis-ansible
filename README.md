@@ -43,9 +43,11 @@ This repository is the **single source of truth** for deploying, maintaining, an
 | **SkillNet** | Dynamic skill discovery, search, evaluation, installation | 8089 | Complete |
 | **AlphaClaw** | Generic Dockerized agent runtime | 8090 | Complete |
 | **Hermes** | Generic Dockerized supervisor/assistant runtime | 8091 | Complete |
+| **Grafana Stack** | Grafana + Prometheus + Loki + Tempo observability | 3000, 9090, 3100, 3200 | Complete |
 | **MemPalace** | Per-agent memory substrate (AlphaClaw:8093, Hermes:8094) | 8093-8094 | Complete |
 | **Honcho** | Shared secondary memory substrate | 8095 | Complete |
 | **Telegram** | Human-in-the-loop group chat communications | — | Complete |
+| **Claude Code Bridge** | On-demand dev delegation to Claude Code (bridge dirs + hook + skills) | — | Complete |
 | **Tailscale** | Secure mesh networking for remote management | — | Complete |
 | **macOS ClawDev** | Lightweight AlphaClaw for Apple Silicon | localhost | Complete |
 | **macOS HermesDev** | Local Hermes supervisor for Apple Silicon | localhost | Complete |
@@ -72,6 +74,8 @@ ansible-playbook -i inventory/local/hosts.ini playbooks/honcho.yml
 ansible-playbook -i inventory/local/hosts.ini playbooks/openclaw-acp.yml
 ansible-playbook -i inventory/local/hosts.ini playbooks/hermes-acp.yml
 ansible-playbook -i inventory/local/hosts.ini playbooks/openclaw-agent-reset.yml  # clean reset for the Dockerized OpenClaw agent
+ansible-playbook -i inventory/local/hosts.ini playbooks/grafana-stack.yml       # observability stack (disabled by default)
+ansible-playbook -i inventory/local/hosts.ini playbooks/claude-code-bridge.yml  # Claude Code development-delegation bridge
 
 # Validate health
 ansible-playbook -i inventory/local/hosts.ini playbooks/validate.yml
