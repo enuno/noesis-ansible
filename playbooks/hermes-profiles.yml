@@ -1,0 +1,30 @@
+---
+# hermes-profiles.yml — Apply the Noesis 16-agent profile fleet to a Hermes CLI home.
+# Requires the hermes binary on the target (roles/hermes deploys a container;
+# run this against a host with the hermes CLI installed).
+#
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/hermes-profiles.yml
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/hermes-profiles.yml -e hermes_profiles_mode=wave1
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/hermes-profiles.yml -e hermes_profiles_want='["noesis-forge","noesis-sentinel"]'
+
+- name: Apply Noesis profile fleet
+  hosts: local
+  gather_facts: true
+  tags: [runtime, hermes, hermes_profiles]
+
+  pre_tasks:
+    - name: Validate toggle
+      ansible.builtin.assert:
+        that:
+          - noesispraxis_enable_noesis_profiles | default(true) | bool
+        fail_msg: "Noesis profiles disabled. Check group_vars/all.yml"
+
+  roles:
+    - role: hermes_profiles
+      tags: [hermes_profiles]
+
+  post_tasks:
+    - name: Report fleet deployment
+      ansible.builtin.debug:
+        msg: "Noesis profile fleet applied to {{ ansible_facts.env.HOME }}/.hermes — see {{ hermes_profiles_stage_dir }}/apply.log"

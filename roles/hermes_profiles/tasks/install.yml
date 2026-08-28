@@ -1,0 +1,64 @@
+---
+# roles/hermes_profiles/tasks/install.yml
+# Stage the profile-fleet bundle (apply script + agents + roster) onto the target.
+
+- name: Ensure hermes CLI present
+  ansible.builtin.command: "hermes --version"
+  register: hp_hermes_check
+  changed_when: false
+  ignore_errors: true
+  failed_when: false
+
+- name: Fail clearly when hermes CLI is unavailable
+  ansible.builtin.fail:
+    msg: >-
+      hermes CLI not found on target. The Noesis profile fleet requires the
+      Hermes CLI (roles/hermes deploys a container; run this role against a
+      host with the hermes binary installed, e.g. via macos_hermesdev or the
+      official install script).
+  when: hp_hermes_check.rc != 0
+
+- name: Assert bundle source exists on control node
+  ansible.builtin.stat:
+    path: "{{ hermes_profiles_bundle_src }}/scripts/apply-noesis-profiles.sh"
+  delegate_to: localhost
+  register: hp_bundle_stat
+
+- name: Fail when bundle missing on control node
+  ansible.builtin.fail:
+    msg: >-
+      Noesis bundle not found at {{ hermes_profiles_bundle_src }}. Set
+      hermes_profiles_bundle_src to the noesis-agent-stack checkout (needs
+      scripts/apply-noesis-profiles.sh, agents/, profiles/noesis-roster.yaml).
+  when: not hp_bundle_stat.stat.exists
+
+- name: Ensure stage directory exists on target
+  ansible.builtin.file:
+    path: "{{ hermes_profiles_stage_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Copy apply script to target
+  ansible.builtin.copy:
+    src: "{{ hermes_profiles_bundle_src }}/scripts/apply-noesis-profiles.sh"
+    dest: "{{ hermes_profiles_stage_dir }}/apply-noesis-profiles.sh"
+    mode: '0755'
+
+- name: Copy agents bundle (SOUL.md + agent.yaml per profile)
+  ansible.builtin.copy:
+    src: "{{ hermes_profiles_bundle_src }}/agents/"
+    dest: "{{ hermes_profiles_stage_dir }}/agents/"
+    mode: preserve
+    directory_mode: '0755'
+
+- name: Ensure profiles dir exists on target
+  ansible.builtin.file:
+    path: "{{ hermes_profiles_stage_dir }}/profiles"
+    state: directory
+    mode: '0755'
+
+- name: Copy roster manifest
+  ansible.builtin.copy:
+    src: "{{ hermes_profiles_bundle_src }}/profiles/noesis-roster.yaml"
+    dest: "{{ hermes_profiles_stage_dir }}/profiles/noesis-roster.yaml"
+    mode: '0644'

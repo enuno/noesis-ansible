@@ -1,0 +1,17 @@
+---
+# roles/hermes_profiles/tasks/main.yml
+
+- name: Include hermes_profiles install
+  ansible.builtin.include_tasks: install.yml
+  when: noesispraxis_enable_noesis_profiles | bool
+  tags: [hermes_profiles, install]
+
+- name: Include hermes_profiles configure
+  ansible.builtin.include_tasks: configure.yml
+  when: noesispraxis_enable_noesis_profiles | bool
+  tags: [hermes_profiles, configure]
+
+- name: Include hermes_profiles validate
+  ansible.builtin.include_tasks: validate.yml
+  when: noesispraxis_enable_noesis_profiles | bool
+  tags: [hermes_profiles, validate]

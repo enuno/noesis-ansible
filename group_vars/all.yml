@@ -90,3 +90,4 @@ bitwarden_secrets_map:
 
 # Telegram placeholders (actual values in vault)
 telegram_group: NoesisWorld
+noesispraxis_enable_noesis_profiles: true

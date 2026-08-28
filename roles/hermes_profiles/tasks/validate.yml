@@ -1,0 +1,42 @@
+---
+# roles/hermes_profiles/tasks/validate.yml
+# Confirm the expected profiles exist and respond.
+
+- name: List Hermes profiles on target
+  ansible.builtin.command: "hermes profile list"
+  register: hp_list
+  changed_when: false
+  environment:
+    PATH: "{{ ansible_env.PATH }}:/usr/local/bin:{{ ansible_env.HOME }}/.local/bin"
+
+- name: Expected profile set (default + all noesis workers)
+  ansible.builtin.set_fact:
+    hp_expected:
+      - default
+      - noesis-steward
+      - noesis-cartographer
+      - noesis-forge
+      - noesis-sentinel
+      - noesis-scribe
+      - noesis-signal
+      - noesis-substrate
+      - noesis-tracer
+      - noesis-ledger
+      - noesis-grid
+      - noesis-quill
+      - noesis-advocate
+      - noesis-herald
+      - noesis-architect
+      - noesis-skeptic
+
+- name: Report missing profiles
+  ansible.builtin.fail:
+    msg: "Noesis profile missing after apply: {{ item }}"
+  loop: "{{ hp_expected }}"
+  when:
+    - not ansible_check_mode
+    - item not in hp_list.stdout
+
+- name: Report fleet status
+  ansible.builtin.debug:
+    msg: "Noesis profile fleet verified on {{ inventory_hostname }} — {{ hp_expected | length }} profiles present."
