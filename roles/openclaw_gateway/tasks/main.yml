@@ -1,0 +1,86 @@
+---
+# Native OpenClaw gateway (Noesis ClawDev) — main task flow.
+# install/configure/validate pattern, idempotent, check-mode aware.
+
+- name: Assert OpenClaw gateway enabled
+  ansible.builtin.assert:
+    that:
+      - openclaw_gateway_enabled | bool
+    fail_msg: "OpenClaw gateway disabled. Set noesispraxis_enable_openclaw_gateway=true in group_vars."
+  when: openclaw_gateway_enabled | bool
+
+- name: Ensure state and config directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0700'
+    owner: "{{ openclaw_gateway_owner_user }}"
+  loop:
+    - "{{ openclaw_gateway_state_dir }}"
+    - "{{ openclaw_gateway_env_file | dirname }}"
+    - "{{ openclaw_gateway_unit_path | dirname }}"
+  when: openclaw_gateway_enabled | bool
+
+- name: Fetch OpenClaw gateway token from Bitwarden into vault
+  noesis_bws_secret:
+    bws_cli_path: "{{ bws_cli_path | default('/usr/local/bin/bws') }}"
+    project_id: "{{ bitwarden_project_id | default('72974d0e-81af-4678-bab7-b46000985859') }}"
+    secret_key: "{{ openclaw_gateway_token_bws_key }}"
+    vault_file: "{{ openclaw_gateway_token_vault_file }}"
+    vault_key: "{{ openclaw_gateway_token_vault_key }}"
+    vault_password_file: "{{ vault_password_file | default(playbook_dir + '/../.vault_pass') }}"
+    state: present
+    force_refresh: false
+  when:
+    - openclaw_gateway_enabled | bool
+    - openclaw_gateway_fetch_token_from_bws | bool
+  tags: [secrets, openclaw, gateway]
+
+- name: Load vaulted gateway token
+  ansible.builtin.include_vars:
+    file: "{{ openclaw_gateway_token_vault_file }}"
+  when:
+    - openclaw_gateway_enabled | bool
+    - openclaw_gateway_fetch_token_from_bws | bool
+  tags: [secrets, openclaw, gateway]
+
+- name: Write gateway auth env file (0600, from vault token)
+  ansible.builtin.template:
+    src: openclaw-gateway.env.j2
+    dest: "{{ openclaw_gateway_env_file }}"
+    mode: '0600'
+    owner: "{{ openclaw_gateway_owner_user }}"
+  no_log: true
+  when: openclaw_gateway_enabled | bool
+  notify: restart openclaw gateway
+  tags: [openclaw, gateway, configure]
+
+- name: Write OpenClaw gateway config (schema v2026.5.22)
+  ansible.builtin.template:
+    src: openclaw.json.j2
+    dest: "{{ openclaw_gateway_config_path }}"
+    mode: '0600'
+    owner: "{{ openclaw_gateway_owner_user }}"
+  when: openclaw_gateway_enabled | bool
+  notify: restart openclaw gateway
+  tags: [openclaw, gateway, configure]
+
+- name: Install OpenClaw gateway user systemd unit
+  ansible.builtin.template:
+    src: openclaw-gateway.service.j2
+    dest: "{{ openclaw_gateway_unit_path }}"
+    mode: '0644'
+  when: openclaw_gateway_enabled | bool
+  notify: reload openclaw gateway
+  tags: [openclaw, gateway, systemd]
+
+- name: Start and enable OpenClaw gateway service
+  ansible.builtin.systemd:
+    name: openclaw-gateway.service
+    scope: user
+    enabled: true
+    state: started
+    daemon_reload: true
+  become_user: "{{ openclaw_gateway_owner_user }}"
+  when: openclaw_gateway_enabled | bool
+  tags: [openclaw, gateway, systemd]

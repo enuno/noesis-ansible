@@ -1,0 +1,52 @@
+{
+  "agents": {
+    "defaults": {
+      "maxConcurrent": 4,
+      "subagents": {
+        "maxConcurrent": 8
+      },
+      "compaction": {
+        "mode": "safeguard"
+      },
+      "workspace": "{{ openclaw_gateway_state_dir }}/workspace"
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "port": {{ openclaw_gateway_port }},
+    "bind": "{{ openclaw_gateway_bind }}",
+    "auth": {
+      "mode": "{{ openclaw_gateway_auth_mode }}",
+      "token": {
+        "source": "env",
+        "provider": "env",
+        "id": "{{ openclaw_gateway_token_env_name }}"
+      }
+    },
+    "tailscale": {
+      "mode": "{{ openclaw_gateway_tailscale_mode }}",
+      "resetOnExit": false
+    }
+  },
+  "secrets": {
+    "providers": {
+      "env": {
+        "source": "env",
+        "allowlist": [
+          "{{ openclaw_gateway_token_env_name }}",
+          "KIMI_SUBAGENT_KEY",
+          "VENICE_SUBAGENT_KEY",
+          "OPENROUTER_SUBAGENT_KEY",
+          "AGENTMEMORY_SECRET"
+        ]
+      }
+    }
+  },
+  "mcp": {
+    "servers": {{ openclaw_gateway_mcp_servers | tojson }}
+  },
+  "meta": {
+    "lastTouchedVersion": "{{ openclaw_gateway_service_version }}",
+    "lastTouchedAt": "{{ ansible_date_time.iso8601 }}"
+  }
+}

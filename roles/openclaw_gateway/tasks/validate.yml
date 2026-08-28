@@ -1,0 +1,45 @@
+---
+# Validation for the native OpenClaw gateway role.
+# Read-only health checks; failures do not roll back automatically.
+
+- name: Confirm gateway service is active
+  ansible.builtin.systemd:
+    name: openclaw-gateway.service
+    scope: user
+    state: started
+  become_user: "{{ openclaw_gateway_owner_user }}"
+  check_mode: false
+  register: openclaw_gateway_svc
+  failed_when: false
+
+- name: Probe gateway on loopback
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ openclaw_gateway_port }}/"
+    method: GET
+    status_code: [200, 401, 403]
+    validate_certs: false
+  register: openclaw_gateway_loopback
+  retries: 5
+  delay: 2
+  until: openclaw_gateway_loopback.status in [200, 401, 403]
+  ignore_errors: true
+
+- name: Probe gateway on tailnet address
+  ansible.builtin.uri:
+    url: "http://{{ ansible_default_ipv4.address }}:{{ openclaw_gateway_port }}/"
+    method: GET
+    status_code: [200, 401, 403]
+    validate_certs: false
+  register: openclaw_gateway_tailnet
+  retries: 5
+  delay: 2
+  until: openclaw_gateway_tailnet.status in [200, 401, 403]
+  ignore_errors: true
+
+- name: Report validation results
+  ansible.builtin.debug:
+    msg:
+      - "Service active: {{ openclaw_gateway_svc.status is defined and openclaw_gateway_svc.status == 'started' }}"
+      - "Loopback probe HTTP: {{ openclaw_gateway_loopback.status | default('unreachable') }}"
+      - "Tailnet probe HTTP: {{ openclaw_gateway_tailnet.status | default('unreachable') }}"
+      - "Note: 401/403 on the root path is expected when auth is required; the dashboard may serve on /."

@@ -1,0 +1,29 @@
+[Unit]
+Description=OpenClaw Gateway (Noesis ClawDev, v{{ openclaw_gateway_service_version }})
+After=network-online.target
+Wants=network-online.target
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+ExecStart={{ openclaw_gateway_node_bin }} {{ openclaw_gateway_dist_index }} gateway --port {{ openclaw_gateway_port }}
+Restart=always
+RestartSec=5
+RestartPreventExitStatus=78
+TimeoutStopSec=30
+TimeoutStartSec=30
+SuccessExitStatus=0 143
+KillMode=control-group
+Environment=HOME={{ ansible_env.HOME | default('/home/elvis') }}
+Environment=TMPDIR=/tmp
+Environment=NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+Environment=PATH=/usr/bin:/bin:/home/elvis/.bun/bin:/home/elvis/.nvm/current/bin:/home/elvis/.local/share/fnm/aliases/default/bin:/home/elvis/.local/share/fnm/current/bin:/home/elvis/.local/bin:/home/elvis/.npm-global/bin:/home/elvis/bin:/home/elvis/.nix-profile/bin:/home/elvis/.local/share/pnpm:/usr/local/bin
+Environment=OPENCLAW_GATEWAY_PORT={{ openclaw_gateway_port }}
+Environment=OPENCLAW_SYSTEMD_UNIT=openclaw-gateway.service
+Environment=OPENCLAW_SERVICE_MARKER=openclaw
+Environment=OPENCLAW_SERVICE_KIND=gateway
+Environment=OPENCLAW_SERVICE_VERSION={{ openclaw_gateway_service_version }}
+EnvironmentFile={{ openclaw_gateway_env_file }}
+
+[Install]
+WantedBy=default.target

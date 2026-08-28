@@ -1,0 +1,32 @@
+---
+# openclaw-gateway.yml — Deploy the native OpenClaw gateway (Noesis ClawDev)
+# on the local host: config schema, Bitwarden-sourced auth token, tailnet+loopback
+# bind, systemd user unit, and health validation.
+#
+# Usage:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/openclaw-gateway.yml
+
+- name: Deploy native OpenClaw gateway (Noesis ClawDev)
+  hosts: local
+  gather_facts: true
+  tags: [openclaw, gateway, clawdev]
+
+  pre_tasks:
+    - name: Validate OpenClaw gateway configuration
+      ansible.builtin.assert:
+        that:
+          - noesispraxis_enable_openclaw_gateway | default(false) | bool
+        fail_msg: "OpenClaw gateway disabled. Set noesispraxis_enable_openclaw_gateway=true in group_vars."
+
+  roles:
+    - role: openclaw_gateway
+      tags: [openclaw, gateway]
+
+  post_tasks:
+    - name: Report OpenClaw gateway status
+      ansible.builtin.debug:
+        msg:
+          - "OpenClaw gateway (Noesis ClawDev): http://127.0.0.1:{{ openclaw_gateway_port }} (loopback)"
+          - "Tailnet: http://{{ ansible_default_ipv4.address | default('') }}:{{ openclaw_gateway_port }}"
+          - "Auth mode: {{ openclaw_gateway_auth_mode }} (token from Bitwarden: {{ openclaw_gateway_token_bws_key }})"
+          - "Config: {{ openclaw_gateway_config_path }}"

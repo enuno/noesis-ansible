@@ -1,0 +1,41 @@
+---
+# Native OpenClaw gateway (Noesis ClawDev) role defaults.
+# Manages the native `openclaw` gateway on the host: config schema,
+# Bitwarden-sourced auth token, systemd user unit, tailnet+loopback bind,
+# and health validation.
+
+# Enable flag (mirrors the stack toggle convention)
+openclaw_gateway_enabled: "{{ noesispraxis_enable_openclaw_gateway | default(false) | bool }}"
+
+# Identity
+openclaw_gateway_agent_name: "noesis-clawdev"
+openclaw_gateway_owner_user: "{{ ansible_user_id | default('elvis') }}"
+
+# Paths
+openclaw_gateway_state_dir: "{{ ansible_env.HOME | default('/home/elvis') }}/.openclaw"
+openclaw_gateway_config_path: "{{ openclaw_gateway_state_dir }}/openclaw.json"
+openclaw_gateway_env_file: "{{ ansible_env.HOME | default('/home/elvis') }}/.config/openclaw-gateway.env"
+openclaw_gateway_unit_path: "{{ ansible_env.HOME | default('/home/elvis') }}/.config/systemd/user/openclaw-gateway.service"
+
+# Network exposure: tailnet = Tailscale interface + loopback (auth required)
+openclaw_gateway_port: 18789
+openclaw_gateway_bind: tailnet
+openclaw_gateway_auth_mode: token
+
+# Bitwarden token wiring (source of truth: project 72974d0e)
+openclaw_gateway_token_bws_key: "OPENCLAW_GATEWAY_TOKEN"
+openclaw_gateway_token_vault_file: "{{ inventory_dir }}/group_vars/secrets.yml"
+openclaw_gateway_token_vault_key: "vault_openclaw_gateway_token"
+openclaw_gateway_fetch_token_from_bws: true
+openclaw_gateway_token_env_name: "OPENCLAW_GATEWAY_TOKEN"
+
+# Service unit (kept in sync with installed version)
+openclaw_gateway_service_version: "2026.5.22"
+openclaw_gateway_node_bin: /usr/bin/node
+openclaw_gateway_dist_index: /usr/lib/node_modules/openclaw/dist/index.js
+
+# MCP servers migrated under mcp.servers (schema v2026.5.22)
+openclaw_gateway_mcp_servers: {}
+
+# Tailscale (for bind=tailnet; optional serve/funnel is separate)
+openclaw_gateway_tailscale_mode: off
