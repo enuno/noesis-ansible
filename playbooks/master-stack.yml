@@ -94,6 +94,14 @@
         - _enable_generic
         - noesispraxis_enable_noesis_profiles | default(true) | bool
 
+
+    - name: Include Honcho memory layer
+      ansible.builtin.include_role:
+        name: honcho
+      when:
+        - _enable_generic
+        - noesispraxis_enable_honcho | default(false) | bool
+
     - name: Validate Phase 3
       ansible.builtin.include_role:
         name: validation

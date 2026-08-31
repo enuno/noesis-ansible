@@ -1,43 +1,24 @@
 ---
-# honcho.yml — Standalone Honcho shared memory substrate deployment
-# Usage:
-#   ansible-playbook -i inventory/local/hosts.ini playbooks/honcho.yml
-#   ansible-playbook -i inventory/local/hosts.ini playbooks/honcho.yml --tags install,configure
+# Apply the Honcho memory module and runtime policy to a managed host.
 
-- name: Deploy Honcho Shared Memory Substrate
+- name: Apply Honcho memory standard
   hosts: local
-  gather_facts: false
-  tags: [memory, honcho]
+  gather_facts: true
+  tags: [honcho]
 
   pre_tasks:
-    - name: Validate Honcho configuration
+    - name: Validate toggle
       ansible.builtin.assert:
         that:
-          - noesispraxis_enable_honcho | default(false) | bool
-        fail_msg: "Honcho is disabled. Set noesispraxis_enable_honcho=true in group_vars"
-
-    - name: Ensure Honcho data directory exists
-      ansible.builtin.file:
-        path: "{{ base_data_dir | default('/opt/noesispraxis') }}/honcho"
-        state: directory
-        mode: '0755'
+          - honcho_enabled | default(noesispraxis_enable_honcho | default(false)) | bool
+        fail_msg: "Honcho is disabled. Set noesispraxis_enable_honcho=true or honcho_enabled=true."
 
   roles:
     - role: honcho
       tags: [honcho]
 
   post_tasks:
-    - name: Validate Honcho health
-      ansible.builtin.uri:
-        url: "http://localhost:8095/health"
-        method: GET
-        status_code: 200
-      register: honcho_health
-      retries: 10
-      delay: 5
-      until: honcho_health.status == 200
-      ignore_errors: true
-
-    - name: Report Honcho status
+    - name: Report Honcho staging path
       ansible.builtin.debug:
-        msg: "Honcho deployed at http://localhost:8095 — health: {{ honcho_health.status | default('unknown') }}"
+        msg: "Honcho staged at {{ honcho_stage_dir }} and runtime files written to {{ honcho_runtime_dir }}"
+

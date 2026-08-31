@@ -1,13 +1,32 @@
 ---
-- name: Render Honcho configuration
+- name: Write Honcho runtime env file
   ansible.builtin.template:
-    src: honcho-config.yml.j2
-    dest: "{{ honcho_install_dir }}/config.yml"
-    mode: '0644'
-  notify: restart honcho
+    src: honcho.env.j2
+    dest: "{{ honcho_runtime_dir }}/honcho.env"
+    mode: '0600'
+  no_log: true
+  notify: reload honcho configuration
 
-- name: Render Honcho peer card policy
-  ansible.builtin.template:
-    src: honcho-peer-policy.yml.j2
-    dest: "{{ honcho_install_dir }}/peer-policy.yml"
+- name: Copy selected environment overlay into runtime state
+  ansible.builtin.copy:
+    src: "{{ honcho_module_src }}/overlays/{{ honcho_environment }}.yaml"
+    dest: "{{ honcho_runtime_dir }}/overlay.yaml"
     mode: '0644'
+  notify: reload honcho configuration
+
+- name: Render active Honcho policy summary
+  ansible.builtin.copy:
+    content: |-
+      workspace_id: {{ honcho_workspace_id }}
+      environment: {{ honcho_environment }}
+      api_endpoint_ref: {{ honcho_api_endpoint_ref }}
+      api_key_ref: {{ honcho_api_key_ref }}
+      mempalace_transport: {{ honcho_mempalace_transport }}
+      tool_allowlist:
+      {% for item in honcho_mcp_tool_allowlist %}
+        - {{ item }}
+      {% endfor %}
+    dest: "{{ honcho_runtime_dir }}/active-policy.yaml"
+    mode: '0644'
+  notify: reload honcho configuration
+

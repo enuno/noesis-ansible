@@ -1,8 +1,4 @@
 ---
-- name: Restart Honcho
-  ansible.builtin.docker_container:
-    name: "{{ honcho_container_name }}"
-    state: started
-    restart: true
-  when: honcho_enabled | bool
-  listen: restart honcho
+- name: reload honcho configuration
+  ansible.builtin.debug:
+    msg: "Honcho configuration changed; re-run the honcho validation/playbook to refresh runtime state."

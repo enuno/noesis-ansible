@@ -1,25 +1,32 @@
 ---
-- name: Check Honcho health
-  ansible.builtin.uri:
-    url: "{{ honcho_base_url }}/health"
-    method: GET
-    status_code: 200
-  register: honcho_health
-  retries: 10
-  delay: 5
-  until: honcho_health.status == 200
-  ignore_errors: true
+- name: Validate Honcho profile bundle
+  ansible.builtin.command: "python3 {{ honcho_validate_script }}"
+  register: honcho_validation
+  changed_when: false
+  when: not ansible_check_mode
 
-- name: Test Honcho API with auth
-  ansible.builtin.uri:
-    url: "{{ honcho_base_url }}/api/v1/apps"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ honcho_api_key }}"
-    status_code: 200
-  register: honcho_apps
-  ignore_errors: true
-
-- name: Report Honcho validation
+- name: Show Honcho validation summary
   ansible.builtin.debug:
-    msg: "Honcho health: {{ honcho_health.status | default('unreachable') }} | Apps: {{ honcho_apps.json | default({}) | length }}"
+    var: honcho_validation.stdout
+  when:
+    - not ansible_check_mode
+    - honcho_validation is defined
+
+- name: Confirm runtime files exist
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: honcho_runtime_stats
+  loop:
+    - "{{ honcho_runtime_dir }}/honcho.env"
+    - "{{ honcho_runtime_dir }}/overlay.yaml"
+    - "{{ honcho_runtime_dir }}/active-policy.yaml"
+  when: not ansible_check_mode
+
+- name: Fail if runtime files are missing
+  ansible.builtin.fail:
+    msg: "Missing Honcho runtime file: {{ item.stat.path }}"
+  loop: "{{ honcho_runtime_stats.results | default([]) }}"
+  when:
+    - not ansible_check_mode
+    - not item.stat.exists
+

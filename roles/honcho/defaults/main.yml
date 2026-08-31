@@ -1,39 +1,39 @@
 ---
-# Honcho shared secondary memory substrate defaults
-# https://github.com/plastic-labs/honcho
+# Honcho role defaults.
+# Stages the Honcho memory module and renders runtime config for Noesis.
 
 honcho_enabled: "{{ noesispraxis_enable_honcho | default(false) | bool }}"
-honcho_version: "v3"
-honcho_port: 8095
-honcho_base_url: "http://localhost:{{ honcho_port }}"
 
-# Self-hosted deployment
-honcho_repo: "https://github.com/plastic-labs/honcho.git"
-honcho_install_dir: "{{ base_data_dir | default('/opt/noesispraxis') }}/honcho"
-honcho_data_dir: "{{ base_data_dir | default('/opt/noesispraxis') }}/honcho/data"
+# Source of truth from the noesis-agent-stack checkout on the control node
+honcho_module_src: "{{ lookup('env', 'HOME') }}/projects/noesis-agent-stack/honcho"
 
-# Database
-honcho_db_password: "{{ vault_honcho_db_password | default('honcho123') }}"
-honcho_db_volume: "{{ honcho_data_dir }}/postgres"
+# Target staging/runtime paths on the managed host
+honcho_stage_dir: "{{ ansible_facts.env.HOME | default('/home/elvis') }}/.local/share/noesis/honcho"
+honcho_runtime_dir: "{{ ansible_facts.env.HOME | default('/home/elvis') }}/.config/noesis/honcho"
+honcho_backup_dir: "{{ honcho_stage_dir }}/backups"
 
-# Reasoning and capabilities
-honcho_reasoning_enabled: true
-honcho_peer_cards_enabled: true
-honcho_dreaming_enabled: true
-honcho_streaming_enabled: true
-honcho_file_uploads_enabled: true
+# Environment overlay to activate
+honcho_environment: prod
+honcho_workspace_id: noesis-prod
 
-# Security
-honcho_auth_enabled: true
-honcho_api_key: "{{ vault_honcho_api_key | default('honcho-api-key') }}"
+# Secret references only; the role never writes live keys to Git
+honcho_api_endpoint_ref: "secret://honcho/api-endpoint"
+honcho_api_key_ref: "secret://honcho/shared-gateway"
+honcho_mempalace_transport: stdio
 
-# Docker
-honcho_image: "ghcr.io/plastic-labs/honcho:{{ honcho_version }}"
-honcho_container_name: noesis-honcho
+# Optional per-agent allowlist to surface in the runtime manifest
+honcho_mcp_tool_allowlist:
+  - memory.read_scoped
+  - memory.write_attributed
+  - memory.search_scoped
+  - memory.context
+  - memory.conclusion_search
+  - memory.queue_status
+  - memory.file_ingest
+  - memory.chat
 
-# Resource limits
-honcho_cpu_limit: "0.5"
-honcho_memory_limit: "512m"
+# Validation
+honcho_validate_script: "{{ honcho_stage_dir }}/scripts/validate-honcho-profiles.py"
+honcho_validate_connectivity: false
+honcho_validate_queue: false
 
-# Logging
-honcho_log_level: info
