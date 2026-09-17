@@ -1,33 +1,43 @@
 ---
 # roles/hermes_profiles/tasks/configure.yml
-# Run the idempotent apply script against the target Hermes home.
+# Run each ENABLED fleet's roster-driven apply script against the target
+# Hermes home. Selector dialect differs per script (documented in the fleet
+# var): noesis takes --all (mode=all) or nothing (mode=wave1, the script
+# default); agency takes --all or --wave N. --yes is mandatory under Ansible
+# (no TTY for the interactive confirmation).
 
-- name: Build apply args
+- name: Build per-fleet apply args
   ansible.builtin.set_fact:
     hp_apply_args: >-
-      --home {{ hermes_profiles_home }}
-      --{{ 'all' if hermes_profiles_mode == 'all' else 'wave1' }}
+      {{ hp_apply_args | default({}) | combine({
+           item.key: (
+             '--home ' ~ (hermes_profiles_home | quote) ~ ' '
+             ~ ('--all' if (item.value.mode == 'all')
+                else ('' if item.key == 'noesis'
+                      else '--wave ' ~ (item.value.mode | regex_replace('wave', ''))))
+             ~ (' --yes' if item.key == 'agency' else '')
+             ~ ('' if (item.value.get('tune_models', true) | bool) else ' --no-model-tuning')
+             ~ ((' ' ~ item.value.want_flag ~ ' '
+                 ~ (item.value.get('want', []) | join(' ' ~ item.value.want_flag ~ ' ')))
+                if item.value.get('want', []) | length > 0 else '')
+           )
+         }) }}
+  loop: "{{ hp_fleets_enabled | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
 
-- name: Add no-model-tuning flag when requested
-  ansible.builtin.set_fact:
-    hp_apply_args: "{{ hp_apply_args }} --no-model-tuning"
-  when: not (hermes_profiles_tune_models | bool)
-
-- name: Add profile filter when a subset is requested
-  ansible.builtin.set_fact:
-    hp_apply_args: "{{ hp_apply_args }}{% for p in hermes_profiles_want %} --profile {{ p }}{% endfor %}"
-  when: hermes_profiles_want | length > 0
-
-- name: Apply Noesis profile fleet
+- name: Apply enabled fleets
   ansible.builtin.shell:
     cmd: >-
       set -o pipefail;
-      NOESIS_STACK_DIR={{ hermes_profiles_stage_dir | quote }}
       HERMES_HOME={{ hermes_profiles_home | quote }}
-      {{ hermes_profiles_stage_dir | quote }}/apply-noesis-profiles.sh {{ hp_apply_args }}
-      | tee {{ hermes_profiles_stage_dir | quote }}/apply.log
+      {{ (hermes_profiles_stage_dir ~ '/' ~ item.value.apply_script) | quote }} {{ hp_apply_args[item.key] }}
+      | tee {{ hermes_profiles_stage_dir | quote }}/apply-{{ item.key }}.log
   register: hp_apply
   changed_when: "'created=' in hp_apply.stdout"
   failed_when: "'Failed:' in hp_apply.stdout"
   environment:
     PATH: "{{ ansible_env.PATH }}:/usr/local/bin:{{ ansible_env.HOME }}/.local/bin"
+  loop: "{{ hp_fleets_enabled | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"

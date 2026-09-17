@@ -1,17 +1,44 @@
 ---
 # roles/hermes_profiles/tasks/main.yml
+# Fleet-gated include of install/configure/validate. The SAME
+# `hermes_profiles_fleets` var drives all three (A5).
+
+- name: Compute enabled fleets (normalized booleans)
+  ansible.builtin.set_fact:
+    hp_fleets_enabled: "{{ hp_fleets_enabled | default({}) | combine({item.key: item.value}) }}"
+  when: item.value.enabled | bool
+  loop: "{{ hermes_profiles_fleets | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Assert fleet dependencies are defined (A7)
+  ansible.builtin.assert:
+    that:
+      - (item.value.get('requires', []) | difference(hermes_profiles_fleets.keys())) | length == 0
+    fail_msg: >-
+      Fleet '{{ item.key }}' requires fleets {{ item.value.get('requires', []) }}
+      but they are not all defined in hermes_profiles_fleets (A7).
+  loop: "{{ hermes_profiles_fleets | dict2items }}"
+  when: item.value.get('requires', []) | length > 0
+
+- name: Assert required fleets are enabled (A7)
+  ansible.builtin.assert:
+    that:
+      - hermes_profiles_fleets[item].enabled | bool
+    fail_msg: >-
+      Fleet '{{ item }}' is required by an enabled fleet but is not enabled
+      (A7: agency-only fleets are rejected). Set
+      noesispraxis_enable_noesis_profiles: true or disable the dependent fleet.
+  loop: "{{ hp_fleets_enabled | dict2items | map(attribute='value.requires') | flatten | unique }}"
 
 - name: Include hermes_profiles install
   ansible.builtin.include_tasks: install.yml
-  when: noesispraxis_enable_noesis_profiles | bool
   tags: [hermes_profiles, install]
 
 - name: Include hermes_profiles configure
   ansible.builtin.include_tasks: configure.yml
-  when: noesispraxis_enable_noesis_profiles | bool
   tags: [hermes_profiles, configure]
 
 - name: Include hermes_profiles validate
   ansible.builtin.include_tasks: validate.yml
-  when: noesispraxis_enable_noesis_profiles | bool
   tags: [hermes_profiles, validate]

@@ -11,6 +11,7 @@ noesispraxis_enable_mcpjungle: true
 noesispraxis_enable_clawvisor: true
 noesispraxis_enable_telegram: false
 noesispraxis_enable_generic_agents: true
+noesispraxis_enable_agency_profiles: false
 noesispraxis_enable_macos_agents: false
 noesispraxis_enable_tailscale: false
 noesispraxis_enable_backup: true

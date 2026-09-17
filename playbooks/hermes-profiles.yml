@@ -1,12 +1,20 @@
 ---
-# hermes-profiles.yml — Apply the Noesis 16-agent profile fleet to a Hermes CLI home.
+# hermes-profiles.yml — Apply profile fleets (Noesis 16-agent roster; Agency
+# Tier A behind its toggle) to a Hermes CLI home.
 # Requires the hermes binary on the target (roles/hermes deploys a container;
 # run this against a host with the hermes CLI installed).
 #
+# Fleets are declared in ONE var: hermes_profiles_fleets
+# (roles/hermes_profiles/defaults/main.yml). It drives install, configure,
+# and validate (A5). Agency is default-OFF:
+#   noesispraxis_enable_agency_profiles: true   # only after the operator
+#                                                # review gate (stack repo
+#                                                # agency/REVIEW-GATE.md)
+#
 # Usage:
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/hermes-profiles.yml
-#   ansible-playbook -i inventory/local/hosts.ini playbooks/hermes-profiles.yml -e hermes_profiles_mode=wave1
-#   ansible-playbook -i inventory/local/hosts.ini playbooks/hermes-profiles.yml -e hermes_profiles_want='["noesis-forge","noesis-sentinel"]'
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/hermes-profiles.yml -e hermes_profiles_fleets.noesis.mode=wave1
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/hermes-profiles.yml -e '{"hermes_profiles_fleets":{"noesis":{"want":["noesis-forge","noesis-sentinel"]}}}'
 
 - name: Apply Noesis profile fleet
   hosts: local

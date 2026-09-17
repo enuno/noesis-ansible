@@ -1,21 +1,25 @@
 ---
 # roles/hermes_profiles/tasks/install.yml
-# Stage the profile-fleet bundle (apply script + agents + roster) onto the target.
+# Stage each ENABLED fleet's apply script + agents + roster + control files
+# onto the target. `scripts/lib/apply-common.sh` is staged once (both apply
+# scripts source it). Agency extra_files carry the validator/secretscan/
+# curation/plugin surface the apply script needs at runtime (A7 guarantees
+# the noesis fleet stages profiles/noesis-roster.yaml alongside).
 
 - name: Ensure hermes CLI present
   ansible.builtin.command: "hermes --version"
   register: hp_hermes_check
   changed_when: false
+  check_mode: false   # read-only probe; keeps --check runs evaluable
   ignore_errors: true
   failed_when: false
 
 - name: Fail clearly when hermes CLI is unavailable
   ansible.builtin.fail:
     msg: >-
-      hermes CLI not found on target. The Noesis profile fleet requires the
-      Hermes CLI (roles/hermes deploys a container; run this role against a
-      host with the hermes binary installed, e.g. via macos_hermesdev or the
-      official install script).
+      hermes CLI not found on target. The profile fleets require the Hermes
+      CLI (run this role against a host with the hermes binary installed,
+      e.g. via macos_hermesdev or the official install script).
   when: hp_hermes_check.rc != 0
 
 - name: Assert bundle source exists on control node
@@ -28,8 +32,7 @@
   ansible.builtin.fail:
     msg: >-
       Noesis bundle not found at {{ hermes_profiles_bundle_src }}. Set
-      hermes_profiles_bundle_src to the noesis-agent-stack checkout (needs
-      scripts/apply-noesis-profiles.sh, agents/, profiles/noesis-roster.yaml).
+      hermes_profiles_bundle_src to the noesis-agent-stack checkout.
   when: not hp_bundle_stat.stat.exists
 
 - name: Ensure stage directory exists on target
@@ -38,27 +41,47 @@
     state: directory
     mode: '0755'
 
-- name: Copy apply script to target
+- name: Copy shared apply library (both apply scripts source it)
   ansible.builtin.copy:
-    src: "{{ hermes_profiles_bundle_src }}/scripts/apply-noesis-profiles.sh"
-    dest: "{{ hermes_profiles_stage_dir }}/apply-noesis-profiles.sh"
+    src: "{{ hermes_profiles_bundle_src }}/scripts/lib/"
+    dest: "{{ hermes_profiles_stage_dir }}/scripts/lib/"
     mode: '0755'
-
-- name: Copy agents bundle (SOUL.md + agent.yaml per profile)
-  ansible.builtin.copy:
-    src: "{{ hermes_profiles_bundle_src }}/agents/"
-    dest: "{{ hermes_profiles_stage_dir }}/agents/"
-    mode: preserve
     directory_mode: '0755'
 
-- name: Ensure profiles dir exists on target
-  ansible.builtin.file:
-    path: "{{ hermes_profiles_stage_dir }}/profiles"
-    state: directory
-    mode: '0755'
-
-- name: Copy roster manifest
+- name: Stage fleet apply scripts
   ansible.builtin.copy:
-    src: "{{ hermes_profiles_bundle_src }}/profiles/noesis-roster.yaml"
-    dest: "{{ hermes_profiles_stage_dir }}/profiles/noesis-roster.yaml"
+    src: "{{ hermes_profiles_bundle_src }}/{{ item.value.apply_script }}"
+    dest: "{{ hermes_profiles_stage_dir }}/{{ item.value.apply_script }}"
+    mode: '0755'
+  loop: "{{ hp_fleets_enabled | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Stage fleet agents trees
+  ansible.builtin.copy:
+    src: "{{ hermes_profiles_bundle_src }}/{{ item.value.agents_dir }}/"
+    dest: "{{ hermes_profiles_stage_dir }}/{{ item.value.agents_dir }}/"
+    mode: preserve
+    directory_mode: '0755'
+  loop: "{{ hp_fleets_enabled | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Stage fleet rosters
+  ansible.builtin.copy:
+    src: "{{ hermes_profiles_bundle_src }}/{{ item.value.roster }}"
+    dest: "{{ hermes_profiles_stage_dir }}/{{ item.value.roster }}"
     mode: '0644'
+  loop: "{{ hp_fleets_enabled | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Stage fleet extra control files
+  ansible.builtin.copy:
+    src: "{{ hermes_profiles_bundle_src }}/{{ extra_item }}"
+    dest: "{{ hermes_profiles_stage_dir }}/{{ extra_item }}"
+    mode: preserve
+    directory_mode: '0755'
+  loop: "{{ hp_fleets_enabled | dict2items | subelements('value.extra_files', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.key }}: {{ item.1 }}"

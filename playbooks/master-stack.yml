@@ -88,6 +88,11 @@
       when: _enable_generic
 
     - name: Include Hermes profile fleet
+      # Fleet registry (noesis + agency) is driven by ONE var:
+      # roles/hermes_profiles/defaults/main.yml :: hermes_profiles_fleets.
+      # Agency fleet is default-OFF (noesispraxis_enable_agency_profiles)
+      # and gated behind the operator review gate in the stack repo
+      # (agency/REVIEW-GATE.md). No changes needed here for agency enablement.
       ansible.builtin.include_role:
         name: hermes_profiles
       when:

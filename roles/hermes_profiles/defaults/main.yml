@@ -1,10 +1,15 @@
 ---
 # roles/hermes_profiles/defaults/main.yml
-# Noesis profile fleet — applies the 16-agent roster to a Hermes CLI home.
-# Mirrors the noesis-agent-stack apply script. Toggle-driven; safe to re-run.
+# Profile fleets — Noesis 16-agent roster + Agency Tier A (18) — applied to a
+# Hermes CLI home. Toggle-driven; safe to re-run.
+#
+# ONE var drives both configure and validate (A5): `hermes_profiles_fleets`.
+# Do not add per-profile lists here — fleets point at roster files that are the
+# declared source of truth (W1b; the retired hardcoded ROSTER stays dead).
 
-# Master toggle (also set in group_vars/all.yml)
+# Master toggles (also settable in group_vars/all.yml)
 noesispraxis_enable_noesis_profiles: true
+noesispraxis_enable_agency_profiles: false   # T14: agency default-OFF
 
 # Bundle source: the noesis-agent-stack checkout on the control node
 hermes_profiles_bundle_src: "{{ lookup('env', 'HOME') }}/projects/noesis-agent-stack"
@@ -12,14 +17,50 @@ hermes_profiles_bundle_src: "{{ lookup('env', 'HOME') }}/projects/noesis-agent-s
 # Target Hermes home on the remote
 hermes_profiles_home: "{{ ansible_env.HOME | default('/root') }}/.hermes"
 
-# How much of the roster to apply: all | wave1
-hermes_profiles_mode: all
-
-# Verify each model lane with a real call before applying (slower, safer)
-hermes_profiles_tune_models: true
-
 # Where the bundle is staged on the remote (auto-created)
 hermes_profiles_stage_dir: "{{ hermes_profiles_home }}/../noesis-profile-bundle"
 
-# Which profiles the role targets (empty = all per mode)
-hermes_profiles_want: []
+# ---- Fleet registry (A5: this var drives install, configure AND validate) ----
+# Per fleet:
+#   apply_script  repo-relative path to the roster-driven apply script
+#   roster        repo-relative path to the declared roster source
+#   agents_dir    repo-relative dir of SOUL.md/agent.yaml trees
+#   extra_files   repo-relative control files the apply script needs at runtime
+#   mode          noesis: all | wave1     agency: all | wave1 | wave2
+#   want_flag     script-specific filter flag (--profile vs --only)
+#   want          filter list (empty = whole mode)
+#   tune_models   verify model lanes with a real call before applying
+#   requires      A7: fleet may only run when these fleets are also enabled
+hermes_profiles_fleets:
+  noesis:
+    apply_script: scripts/apply-noesis-profiles.sh
+    roster: profiles/noesis-roster.yaml
+    agents_dir: agents
+    extra_files: []
+    mode: all
+    want_flag: "--profile"
+    want: []
+    tune_models: true
+    requires: []
+    enabled: "{{ noesispraxis_enable_noesis_profiles }}"
+  agency:
+    apply_script: scripts/apply-agency-profiles.sh
+    roster: agency/.scratch/roster.yaml
+    agents_dir: agency/.scratch/agents
+    extra_files:
+      - agency/curation.yaml
+      - agency/validate-specs.py
+      - agency/secretscan.py
+      - agency/integrations/
+    mode: all
+    want_flag: "--only"
+    want: []
+    tune_models: true
+    requires:
+      - noesis          # A7: agency fleet requires the noesis fleet
+    enabled: "{{ noesispraxis_enable_agency_profiles }}"
+
+# ---- Legacy knobs (feed the noesis fleet; kept for backward compatibility) ----
+hermes_profiles_mode: all            # all | wave1  (noesis fleet)
+hermes_profiles_tune_models: true    # noesis fleet lane verification
+hermes_profiles_want: []             # noesis fleet profile filter

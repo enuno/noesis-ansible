@@ -1,42 +1,68 @@
 ---
 # roles/hermes_profiles/tasks/validate.yml
-# Confirm the expected profiles exist and respond.
+# Derive the expected profile set from the SAME var that drove configure
+# (A5): each enabled fleet's roster file is the declared source of truth,
+# selected with the same mode/want the configure step applied.
+# W1b cross-check: the retired hardcoded noesis ROSTER must stay dead — fail
+# loudly if any apply script reintroduces a hardcoded profile list.
+
+- name: Cross-check — no hardcoded ROSTER in apply scripts (W1b)
+  ansible.builtin.shell: >-
+    grep -lE '^[[:space:]]*ROSTER=\(' {{ hermes_profiles_bundle_src }}/scripts/apply-*.sh || true
+  delegate_to: localhost
+  register: hp_hardcoded_roster
+  changed_when: false
+  check_mode: false   # read-only control-node grep
+
+- name: Fail if a hardcoded ROSTER reappears (W1b)
+  ansible.builtin.fail:
+    msg: >-
+      Hardcoded profile list found in {{ hp_hardcoded_roster.stdout }}.
+      Rosters must stay derived from declared roster sources
+      (profiles/noesis-roster.yaml / agency curation) — the drift class the
+      T11 migration retired is back.
+  when: hp_hardcoded_roster.stdout | trim | length > 0
+
+- name: Derive expected profile set from enabled-fleet rosters (A5)
+  ansible.builtin.set_fact:
+    hp_expected: "{{ hp_expected | default(['default']) | union(hp_fleet_set) }}"
+  vars:
+    hp_fleet_set: >-
+      {{ lookup('pipe',
+           'python3 ' ~ role_path ~ '/files/expected_profiles.py '
+           ~ (hermes_profiles_bundle_src ~ '/' ~ item.value.roster) ~ ' '
+           ~ item.key ~ ' ' ~ item.value.mode ~ ' '
+           ~ (item.value.get('want', []) | join(',') | default('-', true))
+         ) | from_yaml }}
+  loop: "{{ hp_fleets_enabled | dict2items | list }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Expected set must be non-trivial (configure-vs-validate disagreement)
+  ansible.builtin.assert:
+    that:
+      - hp_expected | length > 1
+    fail_msg: >-
+      Derived expected set is empty/trivial — fleet rosters did not parse.
+      Configure/validate disagreement: refusing to report success.
 
 - name: List Hermes profiles on target
   ansible.builtin.command: "hermes profile list"
   register: hp_list
   changed_when: false
+  check_mode: false   # read-only; let --check runs evaluate too
   environment:
     PATH: "{{ ansible_env.PATH }}:/usr/local/bin:{{ ansible_env.HOME }}/.local/bin"
 
-- name: Expected profile set (default + all noesis workers)
-  ansible.builtin.set_fact:
-    hp_expected:
-      - default
-      - noesis-steward
-      - noesis-cartographer
-      - noesis-forge
-      - noesis-sentinel
-      - noesis-scribe
-      - noesis-signal
-      - noesis-substrate
-      - noesis-tracer
-      - noesis-ledger
-      - noesis-grid
-      - noesis-quill
-      - noesis-advocate
-      - noesis-herald
-      - noesis-architect
-      - noesis-skeptic
-
 - name: Report missing profiles
   ansible.builtin.fail:
-    msg: "Noesis profile missing after apply: {{ item }}"
+    msg: "Profile missing after apply: {{ item }}"
   loop: "{{ hp_expected }}"
-  when:
-    - not ansible_check_mode
-    - item not in hp_list.stdout
+  when: item not in hp_list.stdout
 
 - name: Report fleet status
   ansible.builtin.debug:
-    msg: "Noesis profile fleet verified on {{ inventory_hostname }} — {{ hp_expected | length }} profiles present."
+    msg: >-
+      Profile fleets verified on {{ inventory_hostname }} —
+      {{ hp_expected | length }} profiles present:
+      {{ hp_expected | join(', ') }}.
