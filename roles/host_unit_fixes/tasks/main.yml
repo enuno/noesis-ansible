@@ -1,0 +1,39 @@
+---
+# host_unit_fixes — repair chronic failed systemd units on the NoesisPraxis host.
+#
+# Background (2026-09-17 agent-stack report):
+# - nftables.service failed at every boot since Sep 15: /etc/nftables.conf:13
+#   references iif "tailscale0", which does not exist until tailscaled creates
+#   it. nftables starts before tailscaled → hard failure. Fix = ordering
+#   drop-in (rules untouched; Tailscale exposure unchanged).
+# - logrotate.service failed on duplicate /var/log/cloud-init-output.log entry:
+#   both the cloud-init and cloud-init-base packages ship an identical
+#   logrotate config. Removing the cloud-init-base copy resolves it (dpkg may
+#   restore it on package upgrade; this task re-enforces absence idempotently).
+# - noemabroker.service (user unit) used Docker-ism Restart=unless-stopped,
+#   which systemd rejects; corrected to on-failure.
+- name: Ensure nftables starts after tailscaled (boot-order drop-in)
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/nftables.service.d/after-tailscale.conf
+    content: |
+      [Unit]
+      After=tailscaled.service
+      Wants=tailscaled.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd daemon
+
+- name: Remove duplicate cloud-init logrotate config
+  become: true
+  ansible.builtin.file:
+    path: /etc/logrotate.d/cloud-init-base
+    state: absent
+
+- name: Fix noemabroker Restart directive (unless-stopped is not valid systemd)
+  ansible.builtin.replace:
+    path: "{{ ansible_user_dir }}/.config/systemd/user/noemabroker.service"
+    regexp: '^Restart=unless-stopped$'
+    replace: 'Restart=on-failure'
+  notify: Reload user systemd daemon

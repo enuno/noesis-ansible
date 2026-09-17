@@ -54,7 +54,13 @@
   vars:
     _enable_mcpjungle: "{{ noesispraxis_enable_mcpjungle | default(true) | bool }}"
     _enable_clawvisor: "{{ noesispraxis_enable_clawvisor | default(true) | bool }}"
+    _enable_host_unit_fixes: "{{ noesispraxis_enable_host_unit_fixes | default(true) | bool }}"
   tasks:
+    - name: Include host systemd unit fixes
+      ansible.builtin.include_role:
+        name: host_unit_fixes
+      when: _enable_host_unit_fixes
+
     - name: Include MCPJungle
       ansible.builtin.include_role:
         name: mcpjungle
