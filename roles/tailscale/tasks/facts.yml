@@ -7,12 +7,14 @@
     cmd: tailscale ip --4
   register: tailscale_ipv4_cmd
   changed_when: false
+  check_mode: false    # read-only query; command tasks are skipped in check mode
 
 - name: Facts | Get IPv6 address
   ansible.builtin.command:
     cmd: tailscale ip --6
   register: tailscale_ipv6_cmd
   changed_when: false
+  check_mode: false
 
 - name: Facts | Register IP facts
   ansible.builtin.set_fact:
@@ -24,6 +26,7 @@
     cmd: tailscale whois --json {{ tailscale_node_ipv4 }}
   register: tailscale_whois_cmd
   changed_when: false
+  check_mode: false
 
 - name: Facts | Parse Tailscale host information
   ansible.builtin.set_fact:

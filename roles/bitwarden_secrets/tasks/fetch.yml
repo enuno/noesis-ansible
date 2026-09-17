@@ -23,6 +23,9 @@
     path: "{{ local_secrets_dir }}"
     state: directory
     mode: '0700'
+    owner: "{{ ansible_user_id }}"    # root-managed parent, but the deploying
+    group: "{{ ansible_user_gid }}"    # user must stat/read/write metadata
+  become: true
   tags: [secrets, bootstrap]
 
 - name: Fetch secrets using noesis_bws_secret custom module
@@ -51,4 +54,7 @@
       secrets_count: {{ bitwarden_secrets_map | default({}) | length }}
     dest: "{{ local_secrets_dir }}/.secrets-meta.yml"
     mode: '0600'
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_gid }}"
+  become: true
   tags: [secrets, bootstrap]

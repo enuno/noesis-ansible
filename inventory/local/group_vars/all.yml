@@ -53,7 +53,8 @@ bitwarden_secrets_map:
     bws_key: "TAILSCALE_AUTH_KEY"
     vault_file: "{{ inventory_dir }}/group_vars/secrets.yml"
     vault_key: "vault_tailscale_auth_key"
-  mistral_api_key:
-    bws_key: "MISTRAL_API_KEY"
-    vault_file: "{{ inventory_dir }}/group_vars/secrets.yml"
-    vault_key: "vault_mistral_api_key"
+  # mistral_api_key removed 2026-09-17: muxd_provider is unset (never
+  # 'mistral') in every inventory, no consumer references
+  # vault_mistral_api_key, and BWS has no MISTRAL_API_KEY secret — the entry
+  # failed every bootstrap run since the kimi lane migration. Re-add here
+  # only if a mistral consumer returns.

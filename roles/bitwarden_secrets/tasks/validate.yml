@@ -12,13 +12,29 @@
   when: secrets_meta_stat.stat.exists
   tags: [secrets, validate]
 
-- name: Validate secrets are not empty
-  ansible.builtin.fail:
-    msg: "Secret {{ item.key }} is empty or undefined"
+- name: Stat vault files before value validation
+  ansible.builtin.stat:
+    path: "{{ item.value.vault_file }}"
   loop: "{{ bitwarden_secrets_map | dict2items }}"
   when:
     - validate_secrets | bool
     - item.value.vault_key is defined
+  register: hp_vault_file_stat
+  tags: [secrets, validate]
+
+- name: Validate secrets are not empty
+  ansible.builtin.assert:
+    that:
+      - (lookup('ansible.builtin.unvault', item.value.vault_file)
+         | from_yaml | default({}, true))[item.value.vault_key]
+        | default('') | string | length > 0
+    fail_msg: "Secret {{ item.key }} is empty or undefined"
+  loop: "{{ bitwarden_secrets_map | dict2items }}"
+  when:
+    - validate_secrets | bool
+    - item.value.vault_key is defined
+    - not ansible_check_mode    # check mode never writes the vault file; asserting here would validate stale state
+    - (hp_vault_file_stat.results | selectattr('item.key', 'equalto', item.key) | first).stat.exists
   tags: [secrets, validate]
 
 - name: Validate secrets age
@@ -26,5 +42,5 @@
     msg: "Secrets are older than {{ secret_max_age_days }} days. Run with --tags secrets to refresh."
   when:
     - secrets_meta_stat.stat.exists
-    - (ansible_date_time.epoch | int - (secrets_meta.secrets_fetched_at | default(ansible_date_time.iso8601) | to_datetime('%Y-%m-%dT%H:%M:%SZ').strftime('%s')) | int) > (secret_max_age_days | int * 86400)
+    - (ansible_date_time.epoch | int - ((secrets_meta.secrets_fetched_at | default(ansible_date_time.iso8601) | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) > (secret_max_age_days | int * 86400)
   tags: [secrets, validate]

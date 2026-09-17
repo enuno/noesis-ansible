@@ -74,6 +74,7 @@
   ansible.builtin.command: tailscale status --json
   changed_when: false
   register: tailscale_status
+  check_mode: false    # read-only query; command tasks are skipped in check mode
 
 - name: Install | Parse status JSON
   vars:
@@ -84,7 +85,7 @@
 
 - name: Install | Tailscale version and online status
   ansible.builtin.debug:
-    msg: "Ver: {{ tailscale_version }} Online: {{ tailscale_is_online }}"
+    msg: "Ver: {{ tailscale_version | default('unknown') }} Online: {{ tailscale_is_online | default(false) }}"
   when: verbose
 
 - name: Install | Prepend 'tag:' to each item in the list
@@ -150,7 +151,7 @@
   ignore_errors: true
   when:
     - not tailscale_up_skip
-    - state_file is changed or not tailscale_is_online
+    - state_file is changed or not (tailscale_is_online | default(false))
   notify: Confirm Tailscale is Connected
   async: "{{ (tailscale_up_timeout | trim | int) + 10 }}"
   poll: 5

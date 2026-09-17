@@ -27,6 +27,6 @@
   when:
     - secrets_meta_stat.stat.exists
     - bitwarden_secrets_map | length > 0
-    - (ansible_date_time.epoch | int - (secrets_meta.secrets_fetched_at | default(ansible_date_time.iso8601) | to_datetime('%Y-%m-%dT%H:%M:%SZ').strftime('%s')) | int) > (secret_max_age_days | int * 86400)
+    - (ansible_date_time.epoch | int - ((secrets_meta.secrets_fetched_at | default(ansible_date_time.iso8601) | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) > (secret_max_age_days | int * 86400)
   no_log: true
   tags: [secrets, maintenance]

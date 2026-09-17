@@ -161,6 +161,7 @@
     - name: Fetch Tailscale auth key from Bitwarden
       ansible.builtin.include_role:
         name: bitwarden_secrets
+      tags: [secrets]
       when:
         - _enable_tailscale
         - bitwarden_secrets_map | default({}) | length > 0
