@@ -78,8 +78,8 @@
 
 - name: Stage fleet extra control files
   ansible.builtin.copy:
-    src: "{{ hermes_profiles_bundle_src }}/{{ extra_item }}"
-    dest: "{{ hermes_profiles_stage_dir }}/{{ extra_item }}"
+    src: "{{ hermes_profiles_bundle_src }}/{{ item.1 }}"
+    dest: "{{ hermes_profiles_stage_dir }}/{{ item.1 }}"
     mode: preserve
     directory_mode: '0755'
   loop: "{{ hp_fleets_enabled | dict2items | subelements('value.extra_files', skip_missing=True) }}"

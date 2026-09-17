@@ -12,7 +12,10 @@ noesispraxis_enable_mcpjungle: true
 noesispraxis_enable_clawvisor: true
 noesispraxis_enable_telegram: true
 noesispraxis_enable_generic_agents: true
-noesispraxis_enable_agency_profiles: false
+# Tier A deployment was operator-approved at the T17 review gate and is live
+# (18/18, see noesis-agent-stack agency/REVIEW-GATE.md). Local inventory
+# mirrors reality; production stays false until explicitly enabled.
+noesispraxis_enable_agency_profiles: true
 noesispraxis_enable_macos_agents: true
 noesispraxis_enable_tailscale: true
 noesispraxis_enable_backup: false

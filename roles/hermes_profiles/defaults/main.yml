@@ -62,5 +62,9 @@ hermes_profiles_fleets:
 
 # ---- Legacy knobs (feed the noesis fleet; kept for backward compatibility) ----
 hermes_profiles_mode: all            # all | wave1  (noesis fleet)
-hermes_profiles_tune_models: true    # noesis fleet lane verification
+# Per-run model-lane verification (a real `hermes models`-style call per
+# profile). Expensive on idempotent fleet applies — default OFF; lanes are
+# verified at roster-change time. Opt back in with
+# -e hermes_profiles_tune_models=true.
+hermes_profiles_tune_models: false
 hermes_profiles_want: []             # noesis fleet profile filter
