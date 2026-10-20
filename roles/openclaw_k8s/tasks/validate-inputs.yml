@@ -1,0 +1,79 @@
+---
+- name: Assert immutable pins and execution inputs
+  ansible.builtin.assert:
+    that:
+      - openclaw_k8s_desired_state in ['present', 'absent']
+      - openclaw_k8s_kubeconfig_path is match('^/')
+      - "'apiVersion:' not in openclaw_k8s_kubeconfig_path"
+      - "'\\n' not in openclaw_k8s_kubeconfig_path"
+      - openclaw_k8s_kube_context | length > 0
+      - "'CHANGE_ME' not in openclaw_k8s_kube_context"
+      - openclaw_k8s_helm_binary_path is match('^/')
+      - openclaw_k8s_kubectl_binary_path is match('^/')
+      - openclaw_k8s_release_name is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - openclaw_k8s_release_name | length <= 53
+      - openclaw_k8s_namespace is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - openclaw_k8s_namespace | length <= 63
+      - openclaw_k8s_chart_version == '0.1.0'
+      - openclaw_k8s_chart_app_version == '2026.10.5'
+      - openclaw_k8s_image_repository == 'ghcr.io/openclaw/openclaw'
+      - openclaw_k8s_image_tag == '2026.10.5'
+      - openclaw_k8s_image_digest == 'sha256:f40d1e66fd14d8c5b49c832f4100f83b53fdc01f5108f7db11de38fd0ee6dbe5'
+      - openclaw_k8s_image_digest is match('^sha256:[0-9a-f]{64}$')
+      - openclaw_k8s_replica_count | int == 1
+      - openclaw_k8s_strategy == 'Recreate'
+      - openclaw_k8s_service_type == 'ClusterIP'
+      - openclaw_k8s_service_port | int == 18789
+      - openclaw_k8s_gateway_auth_mode == 'token'
+      - openclaw_k8s_image_pull_policy in ['IfNotPresent', 'Always', 'Never']
+      - openclaw_k8s_helm_history_max | int >= 1
+      - not (openclaw_k8s_external_messaging_enabled | bool)
+      - not (openclaw_k8s_funnel_enabled | bool)
+      - openclaw_k8s_persistence_access_mode in ['ReadWriteOnce', 'ReadWriteMany', 'ReadOnlyMany', 'ReadWriteOncePod']
+      - openclaw_k8s_persistence_size is match('^[0-9]+(\\.[0-9]+)?(E|P|T|G|M|K|Ei|Pi|Ti|Gi|Mi|Ki)?$')
+      - openclaw_k8s_existing_claim | length == 0 or openclaw_k8s_existing_claim is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - openclaw_k8s_storage_class | length == 0 or openclaw_k8s_storage_class is match('^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$')
+      - openclaw_k8s_worker_identity | length == 0 or openclaw_k8s_worker_identity is match('^[A-Za-z0-9][A-Za-z0-9_.:-]*$')
+      - openclaw_k8s_broker_endpoint | length == 0 or openclaw_k8s_broker_endpoint is match('^https?://\\S+$')
+      - openclaw_k8s_helm_timeout is match('^([0-9]+(\\.[0-9]+)?(h|m|s|ms|us|ns))+$')
+    fail_msg: OpenClaw inputs failed closed offline validation.
+
+- name: Require a non-placeholder existing Secret name
+  ansible.builtin.assert:
+    that:
+      - openclaw_k8s_existing_secret is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - "'change-me' not in openclaw_k8s_existing_secret"
+      - "'CHANGE_ME' not in openclaw_k8s_existing_secret"
+    fail_msg: Set the name of a pre-existing Secret; literal credentials are not accepted.
+
+- name: Require storage for persistent single-writer state
+  ansible.builtin.assert:
+    that:
+      - openclaw_k8s_persistence_enabled | bool
+      - openclaw_k8s_storage_class | length > 0 or openclaw_k8s_existing_claim | length > 0
+      - "'CHANGE_ME' not in openclaw_k8s_storage_class"
+    fail_msg: Persistence requires a real storage class or an existing claim.
+
+- name: Validate fail-closed Tailscale exposure
+  ansible.builtin.assert:
+    that:
+      - (openclaw_k8s_exposure_enabled | bool) or openclaw_k8s_gateway_bind == 'loopback'
+      - (not (openclaw_k8s_exposure_enabled | bool)) or openclaw_k8s_gateway_bind == 'lan'
+      - (not (openclaw_k8s_exposure_enabled | bool)) or openclaw_k8s_ingress_class_name == 'tailscale'
+      - (not (openclaw_k8s_exposure_enabled | bool)) or openclaw_k8s_tailnet_hostname | length > 0
+      - (not (openclaw_k8s_exposure_enabled | bool)) or openclaw_k8s_tailnet_hostname is match('^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$')
+      - openclaw_k8s_tailscale_operator_namespace is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - (not (openclaw_k8s_exposure_enabled | bool)) or openclaw_k8s_allowed_origins | length > 0
+      - (not (openclaw_k8s_exposure_enabled | bool)) or ('https://' ~ openclaw_k8s_tailnet_hostname) in openclaw_k8s_allowed_origins
+      - openclaw_k8s_allowed_origins | select('match', '^https://') | list | length == openclaw_k8s_allowed_origins | length
+      - "'*' not in (openclaw_k8s_allowed_origins | join(','))"
+      - "'@' not in (openclaw_k8s_allowed_origins | join(','))"
+    fail_msg: Exposure requires bind=lan, class tailscale, an HTTPS origin, and a tailnet hostname.
+
+- name: Validate inert broker reference pairing
+  ansible.builtin.assert:
+    that:
+      - (openclaw_k8s_broker_secret_name | length == 0) == (openclaw_k8s_broker_secret_key | length == 0)
+      - openclaw_k8s_broker_secret_name | length == 0 or openclaw_k8s_broker_secret_name is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - openclaw_k8s_broker_secret_key | length == 0 or openclaw_k8s_broker_secret_key is match('^[A-Za-z0-9._-]+$')
+    fail_msg: Broker Secret name and key must both be set or both be empty.

@@ -1,0 +1,95 @@
+---
+- name: Report that live preflight is not running
+  ansible.builtin.debug:
+    msg: >-
+      NOT RUN: openclaw_k8s_live_checks is false. Cluster reachability,
+      namespace authorization, StorageClass, Secret, and IngressClass were not checked.
+  when: not (openclaw_k8s_live_checks | bool)
+
+- name: Read namespace without changing it
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ openclaw_k8s_kubeconfig_path }}"
+    context: "{{ openclaw_k8s_kube_context }}"
+    api_version: v1
+    kind: Namespace
+    name: "{{ openclaw_k8s_namespace }}"
+  register: openclaw_k8s_namespace_info
+  when: openclaw_k8s_live_checks | bool
+
+- name: Check namespace creation authorization without changing the cluster
+  ansible.builtin.command:
+    argv:
+      - "{{ openclaw_k8s_kubectl_binary_path }}"
+      - --kubeconfig
+      - "{{ openclaw_k8s_kubeconfig_path }}"
+      - --context
+      - "{{ openclaw_k8s_kube_context }}"
+      - auth
+      - can-i
+      - create
+      - namespaces
+  register: openclaw_k8s_namespace_access
+  changed_when: false
+  failed_when: openclaw_k8s_namespace_access.rc not in [0, 1]
+  when:
+    - openclaw_k8s_live_checks | bool
+    - openclaw_k8s_namespace_info.resources | length == 0
+
+- name: Read required StorageClass
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ openclaw_k8s_kubeconfig_path }}"
+    context: "{{ openclaw_k8s_kube_context }}"
+    api_version: storage.k8s.io/v1
+    kind: StorageClass
+    name: "{{ openclaw_k8s_storage_class }}"
+  register: openclaw_k8s_storage_info
+  when:
+    - openclaw_k8s_live_checks | bool
+    - openclaw_k8s_storage_class | length > 0
+
+- name: Read referenced Secret without printing data
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ openclaw_k8s_kubeconfig_path }}"
+    context: "{{ openclaw_k8s_kube_context }}"
+    api_version: v1
+    kind: Secret
+    namespace: "{{ openclaw_k8s_namespace }}"
+    name: "{{ openclaw_k8s_existing_secret }}"
+  register: openclaw_k8s_secret_info
+  no_log: true
+  when:
+    - openclaw_k8s_live_checks | bool
+    - openclaw_k8s_namespace_info.resources | length > 0
+
+- name: Assert referenced Secret contains gateway token without printing data
+  ansible.builtin.assert:
+    that:
+      - openclaw_k8s_secret_info.resources | default([]) | length == 1
+      - openclaw_k8s_secret_info.resources[0].data.OPENCLAW_GATEWAY_TOKEN is defined
+    fail_msg: Referenced Secret is missing or lacks OPENCLAW_GATEWAY_TOKEN.
+  no_log: true
+  when:
+    - openclaw_k8s_live_checks | bool
+    - openclaw_k8s_namespace_info.resources | length > 0
+
+- name: Read Tailscale IngressClass
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ openclaw_k8s_kubeconfig_path }}"
+    context: "{{ openclaw_k8s_kube_context }}"
+    api_version: networking.k8s.io/v1
+    kind: IngressClass
+    name: tailscale
+  register: openclaw_k8s_ingress_class_info
+  when:
+    - openclaw_k8s_live_checks | bool
+    - openclaw_k8s_exposure_enabled | bool
+
+- name: Assert live prerequisites are available
+  ansible.builtin.assert:
+    that:
+      - openclaw_k8s_storage_class | length == 0 or openclaw_k8s_storage_info.resources | length == 1
+      - openclaw_k8s_namespace_info.resources | length > 0 or (openclaw_k8s_namespace_access.stdout | default('no') | trim) == 'yes'
+      - openclaw_k8s_namespace_info.resources | length == 0 or openclaw_k8s_secret_info.resources | default([]) | length == 1
+      - not (openclaw_k8s_exposure_enabled | bool) or openclaw_k8s_ingress_class_info.resources | length == 1
+    fail_msg: Live preflight found an unavailable prerequisite; no object was changed.
+  when: openclaw_k8s_live_checks | bool

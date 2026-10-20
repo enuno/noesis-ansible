@@ -1,0 +1,80 @@
+---
+- name: Assert Helm is installed
+  ansible.builtin.stat:
+    path: "{{ openclaw_k8s_helm_binary_path }}"
+  register: openclaw_k8s_helm_binary
+
+- name: Refuse install without Helm and live preflight
+  ansible.builtin.assert:
+    that:
+      - openclaw_k8s_helm_binary.stat.exists
+      - openclaw_k8s_live_checks | bool
+    fail_msg: Install requires Helm and a successful live preflight in this run.
+
+- name: Read existing OpenClaw release metadata
+  kubernetes.core.helm_info:
+    binary_path: "{{ openclaw_k8s_helm_binary_path }}"
+    kubeconfig: "{{ openclaw_k8s_kubeconfig_path }}"
+    context: "{{ openclaw_k8s_kube_context }}"
+    release_name: "{{ openclaw_k8s_release_name }}"
+    release_namespace: "{{ openclaw_k8s_namespace }}"
+    release_state: [all]
+    get_all_values: false
+  register: openclaw_k8s_existing_release
+  failed_when: false
+  no_log: true
+
+- name: Record whether rollback history exists
+  ansible.builtin.set_fact:
+    openclaw_k8s_release_preexisted: >-
+      {{ (openclaw_k8s_existing_release.status | default({})).chart is defined }}
+
+- name: Install or upgrade the pinned OpenClaw release
+  block:
+    - name: Apply OpenClaw chart with atomic wait
+      kubernetes.core.helm:
+        binary_path: "{{ openclaw_k8s_helm_binary_path }}"
+        kubeconfig: "{{ openclaw_k8s_kubeconfig_path }}"
+        context: "{{ openclaw_k8s_kube_context }}"
+        chart_ref: "{{ openclaw_k8s_chart_path }}"
+        release_name: "{{ openclaw_k8s_release_name }}"
+        release_namespace: "{{ openclaw_k8s_namespace }}"
+        release_state: present
+        values_files:
+          - "{{ openclaw_k8s_stage_dir }}/values-openclaw.yml"
+        create_namespace: "{{ openclaw_k8s_helm_create_namespace | bool }}"
+        wait: "{{ openclaw_k8s_helm_wait | bool }}"
+        timeout: "{{ openclaw_k8s_helm_timeout }}"
+        atomic: "{{ openclaw_k8s_helm_atomic | bool }}"
+        history_max: "{{ openclaw_k8s_helm_history_max | int }}"
+      register: openclaw_k8s_helm_result
+      tags: [install, upgrade]
+  rescue:
+    - name: Roll back a failed upgrade to the previous revision
+      ansible.builtin.command:
+        argv:
+          - "{{ openclaw_k8s_helm_binary_path }}"
+          - rollback
+          - "{{ openclaw_k8s_release_name }}"
+          - "0"
+          - --namespace
+          - "{{ openclaw_k8s_namespace }}"
+          - --kubeconfig
+          - "{{ openclaw_k8s_kubeconfig_path }}"
+          - --kube-context
+          - "{{ openclaw_k8s_kube_context }}"
+          - --wait
+          - --timeout
+          - "{{ openclaw_k8s_helm_timeout }}"
+      when: openclaw_k8s_release_preexisted | bool
+      changed_when: true
+      no_log: true
+      tags: [rollback]
+    - name: Report atomic cleanup for a failed first install
+      ansible.builtin.debug:
+        msg: First install failed; Helm atomic cleanup removed the failed release.
+      when: not (openclaw_k8s_release_preexisted | bool)
+      tags: [rollback]
+    - name: Fail after rollback handling
+      ansible.builtin.fail:
+        msg: OpenClaw install or upgrade failed; rollback handling completed.

@@ -1,0 +1,35 @@
+---
+- name: Inspect OpenClaw Kubernetes prerequisites without changing the cluster
+  hosts: openclaw_k3s
+  gather_facts: false
+  become: true
+  tags: [openclaw, preflight]
+  vars:
+    openclaw_k8s_live_checks: true
+  pre_tasks:
+    - name: Assert this is not the placeholder example host
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname != 'openclaw-k3s.example.invalid'
+        fail_msg: inventory/example is not a cluster target.
+    - name: Verify the pinned Kubernetes Python environment already exists
+      ansible.builtin.stat:
+        path: "{{ openclaw_k8s_kubernetes_venv }}/bin/python"
+      register: openclaw_k8s_venv_python
+    - name: Require the pre-created target-side Python environment
+      ansible.builtin.assert:
+        that:
+          - openclaw_k8s_venv_python.stat.exists
+        fail_msg: Preflight is read-only; create /opt/ansible-kubernetes with kubernetes 34.1.0 first.
+    - name: Select the existing pinned target-side Python environment
+      ansible.builtin.set_fact:
+        ansible_python_interpreter: "{{ openclaw_k8s_kubernetes_venv }}/bin/python"
+  tasks:
+    - name: Run offline validation
+      ansible.builtin.include_role:
+        name: openclaw_k8s
+        tasks_from: validate-inputs.yml
+    - name: Run read-only live preflight
+      ansible.builtin.include_role:
+        name: openclaw_k8s
+        tasks_from: preflight.yml

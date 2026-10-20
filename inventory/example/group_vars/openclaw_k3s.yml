@@ -1,0 +1,24 @@
+---
+# Non-secret placeholders for syntax checks and offline tests only.
+openclaw_k8s_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+openclaw_k8s_kube_context: CHANGE_ME_CONTEXT
+openclaw_k8s_release_name: openclaw
+openclaw_k8s_namespace: openclaw
+openclaw_k8s_image_tag: "2026.10.5"
+openclaw_k8s_image_digest: sha256:f40d1e66fd14d8c5b49c832f4100f83b53fdc01f5108f7db11de38fd0ee6dbe5
+openclaw_k8s_existing_secret: change-me-openclaw-secret
+openclaw_k8s_storage_class: CHANGE_ME_STORAGE_CLASS
+openclaw_k8s_exposure_enabled: true
+openclaw_k8s_ingress_class_name: tailscale
+openclaw_k8s_tailnet_hostname: openclaw.CHANGE_ME.ts.net
+openclaw_k8s_tailscale_operator_namespace: tailscale
+openclaw_k8s_allowed_origins:
+  - https://openclaw.CHANGE_ME.ts.net
+openclaw_k8s_gateway_bind: lan
+openclaw_k8s_gateway_auth_mode: token
+openclaw_k8s_worker_identity: research-openclaw
+openclaw_k8s_broker_endpoint: ""
+openclaw_k8s_broker_secret_name: ""
+openclaw_k8s_broker_secret_key: ""
+openclaw_k8s_live_checks: false
+openclaw_k8s_destroy_pvc: false

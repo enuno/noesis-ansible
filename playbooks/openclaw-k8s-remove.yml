@@ -1,0 +1,47 @@
+---
+- name: Remove OpenClaw and retain state unless explicitly confirmed
+  hosts: openclaw_k3s
+  gather_facts: false
+  become: true
+  tags: [openclaw, remove]
+  pre_tasks:
+
+    - name: Install Python venv support with the pinned system interpreter
+      ansible.builtin.apt:
+        name: python3-venv
+        state: present
+      vars:
+        ansible_python_interpreter: /usr/bin/python3.14
+
+    - name: Create dedicated target-side Kubernetes Python environment
+      ansible.builtin.command:
+        cmd: "/usr/bin/python3.14 -m venv {{ openclaw_k8s_kubernetes_venv }}"
+        creates: "{{ openclaw_k8s_kubernetes_venv }}/bin/python"
+      vars:
+        ansible_python_interpreter: /usr/bin/python3.14
+
+    - name: Install exact Kubernetes Python client pin
+      ansible.builtin.pip:
+        name: "kubernetes=={{ openclaw_k8s_kubernetes_python_version }}"
+        virtualenv: "{{ openclaw_k8s_kubernetes_venv }}"
+        state: present
+
+    - name: Select pinned target-side Kubernetes Python environment
+      ansible.builtin.set_fact:
+        ansible_python_interpreter: "{{ openclaw_k8s_kubernetes_venv }}/bin/python"
+
+  tasks:
+    - name: Validate removal inputs
+      ansible.builtin.assert:
+        that:
+          - openclaw_k8s_kubeconfig_path is match('^/')
+          - openclaw_k8s_kube_context | length > 0
+          - "'CHANGE_ME' not in openclaw_k8s_kube_context"
+          - openclaw_k8s_release_name is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+          - openclaw_k8s_namespace is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+          - not (openclaw_k8s_destroy_pvc | bool) or openclaw_k8s_destroy_pvc_confirm == 'DELETE-OPENCLAW-PVC'
+        fail_msg: Removal inputs failed closed validation.
+    - name: Remove release with optional separately confirmed PVC deletion
+      ansible.builtin.include_role:
+        name: openclaw_k8s
+        tasks_from: remove.yml

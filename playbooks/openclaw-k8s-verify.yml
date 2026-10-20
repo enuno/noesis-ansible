@@ -1,0 +1,83 @@
+---
+- name: Verify OpenClaw offline and optionally against a cluster
+  hosts: openclaw_k3s
+  gather_facts: false
+  become: true
+  tags: [openclaw, verify]
+  pre_tasks:
+    - name: Install Python venv support only for requested live checks
+      ansible.builtin.apt:
+        name: python3-venv
+        state: present
+      vars:
+        ansible_python_interpreter: /usr/bin/python3.14
+      when: openclaw_k8s_live_checks | bool
+    - name: Create target-side Python environment only for requested live checks
+      ansible.builtin.command:
+        cmd: "/usr/bin/python3.14 -m venv {{ openclaw_k8s_kubernetes_venv }}"
+        creates: "{{ openclaw_k8s_kubernetes_venv }}/bin/python"
+      vars:
+        ansible_python_interpreter: /usr/bin/python3.14
+      when: openclaw_k8s_live_checks | bool
+    - name: Install exact Kubernetes client only for requested live checks
+      ansible.builtin.pip:
+        name: "kubernetes=={{ openclaw_k8s_kubernetes_python_version }}"
+        virtualenv: "{{ openclaw_k8s_kubernetes_venv }}"
+        state: present
+      when: openclaw_k8s_live_checks | bool
+    - name: Select target-side Kubernetes Python environment
+      ansible.builtin.set_fact:
+        ansible_python_interpreter: "{{ openclaw_k8s_kubernetes_venv }}/bin/python"
+      when: openclaw_k8s_live_checks | bool
+  tasks:
+    - name: Run offline input assertions
+      ansible.builtin.include_role:
+        name: openclaw_k8s
+        tasks_from: validate-inputs.yml
+    - name: Render values for offline review
+      ansible.builtin.template:
+        src: "{{ playbook_dir | dirname }}/roles/openclaw_k8s/templates/values-openclaw.yml.j2"
+        dest: /tmp/openclaw-values-offline.yml
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      when: not (openclaw_k8s_live_checks | bool)
+    - name: Read chart metadata for offline pin verification
+      ansible.builtin.slurp:
+        src: "{{ playbook_dir | dirname }}/charts/openclaw/0.1.0/Chart.yaml"
+      delegate_to: localhost
+      become: false
+      register: openclaw_k8s_offline_chart
+      when: not (openclaw_k8s_live_checks | bool)
+    - name: Read rendered values for offline policy verification
+      ansible.builtin.slurp:
+        src: /tmp/openclaw-values-offline.yml
+      delegate_to: localhost
+      become: false
+      register: openclaw_k8s_offline_values
+      when: not (openclaw_k8s_live_checks | bool)
+    - name: Assert offline chart, exposure, and Secret-reference policy
+      ansible.builtin.assert:
+        that:
+          - "'version: 0.1.0' in (openclaw_k8s_offline_chart.content | b64decode)"
+          - "'appVersion: \"2026.10.5\"' in (openclaw_k8s_offline_chart.content | b64decode)"
+          - "'type: ClusterIP' in (openclaw_k8s_offline_values.content | b64decode)"
+          - "'existingSecret:' in (openclaw_k8s_offline_values.content | b64decode)"
+          - "'NodePort' not in (openclaw_k8s_offline_values.content | b64decode)"
+          - "'LoadBalancer' not in (openclaw_k8s_offline_values.content | b64decode)"
+          - "'hostNetwork' not in (openclaw_k8s_offline_values.content | b64decode)"
+          - not (openclaw_k8s_funnel_enabled | bool)
+          - not (openclaw_k8s_external_messaging_enabled | bool)
+        fail_msg: Offline OpenClaw chart or values policy verification failed.
+      when: not (openclaw_k8s_live_checks | bool)
+    - name: Report live verification was not run
+      ansible.builtin.debug:
+        msg: >-
+          NOT RUN: openclaw_k8s_live_checks is false. Cluster health and release
+          state were not checked; offline assertions are not runtime proof.
+      when: not (openclaw_k8s_live_checks | bool)
+    - name: Run live release checks when explicitly enabled
+      ansible.builtin.include_role:
+        name: openclaw_k8s
+        tasks_from: validate.yml
+      when: openclaw_k8s_live_checks | bool

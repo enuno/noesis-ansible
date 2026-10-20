@@ -1,0 +1,6 @@
+---
+# Collection interface for the OpenClaw Kubernetes lifecycle playbooks.
+# The lower bound matches the repository's Kubernetes automation requirement.
+collections:
+  - name: kubernetes.core
+    version: ">=6.6.0"

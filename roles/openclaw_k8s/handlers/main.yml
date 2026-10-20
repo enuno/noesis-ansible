@@ -1,0 +1,2 @@
+---
+# Helm owns rollout and rollback. No out-of-band restart handlers are defined.

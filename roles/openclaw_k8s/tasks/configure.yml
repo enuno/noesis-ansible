@@ -1,0 +1,39 @@
+---
+- name: Ensure managed-host staging directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop:
+    - "{{ openclaw_k8s_stage_dir }}"
+    - "{{ openclaw_k8s_chart_path }}"
+
+- name: Copy Noesis-maintained pinned chart to managed host
+  ansible.builtin.copy:
+    src: "{{ openclaw_k8s_chart_source }}/"
+    dest: "{{ openclaw_k8s_chart_path }}/"
+    mode: preserve
+    directory_mode: "0700"
+
+- name: Read copied chart metadata
+  ansible.builtin.slurp:
+    src: "{{ openclaw_k8s_chart_path }}/Chart.yaml"
+  register: openclaw_k8s_chart_yaml
+
+- name: Assert copied chart pin
+  ansible.builtin.assert:
+    that:
+      - "'version: 0.1.0' in (openclaw_k8s_chart_yaml.content | b64decode)"
+      - "'appVersion: \"2026.10.5\"' in (openclaw_k8s_chart_yaml.content | b64decode)"
+    fail_msg: Copied chart does not match version 0.1.0 / appVersion 2026.10.5.
+
+- name: Render non-secret OpenClaw values
+  ansible.builtin.template:
+    src: values-openclaw.yml.j2
+    dest: "{{ openclaw_k8s_stage_dir }}/values-openclaw.yml"
+    owner: root
+    group: root
+    mode: "0600"
+  diff: false

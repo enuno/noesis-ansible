@@ -1,0 +1,145 @@
+{{- include "openclaw.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openclaw.fullname" . }}
+  labels:
+    {{- include "openclaw.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "openclaw.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openclaw.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "openclaw.fullname" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: seed-config
+          image: "{{ .Values.initImage.repository }}:{{ .Values.initImage.tag }}"
+          imagePullPolicy: {{ .Values.initImage.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /home/node/.openclaw/workspace /home/node/.openclaw/.cache
+              [ -f /home/node/.openclaw/openclaw.json ] || cp /seed/openclaw.json /home/node/.openclaw/openclaw.json
+              [ -f /home/node/.openclaw/workspace/AGENTS.md ] || cp /seed/AGENTS.md /home/node/.openclaw/workspace/AGENTS.md
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: home
+              mountPath: /home/node/.openclaw
+            - name: seed
+              mountPath: /seed
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: gateway
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["node", "/app/dist/index.js", "gateway", "run"]
+          ports:
+            - name: gateway
+              containerPort: 18789
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: {{ required "existingSecret is required" .Values.existingSecret | quote }}
+          env:
+            - name: HOME
+              value: /home/node
+            - name: OPENCLAW_CONFIG_DIR
+              value: /home/node/.openclaw
+            - name: XDG_CACHE_HOME
+              value: /home/node/.openclaw/.cache
+            - name: NODE_ENV
+              value: production
+            - name: NOESIS_WORKER_IDENTITY
+              value: {{ .Values.worker.identity | quote }}
+            - name: NOESIS_BROKER_ENDPOINT
+              value: {{ .Values.worker.brokerEndpoint | quote }}
+            {{- if and .Values.worker.brokerSecretName .Values.worker.brokerSecretKey }}
+            - name: NOESIS_BROKER_REFERENCE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.worker.brokerSecretName | quote }}
+                  key: {{ .Values.worker.brokerSecretKey | quote }}
+            {{- end }}
+          startupProbe:
+            exec:
+              command:
+                - node
+                - -e
+                - >-
+                  require('http').get('http://127.0.0.1:18789/startupz',r=>{let b='';r.on('data',d=>b+=d);r.on('end',()=>{try{const j=JSON.parse(b);process.exit(r.statusCode<400&&j.ready===true?0:1)}catch{process.exit(1)}})}).on('error',()=>process.exit(1))
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command:
+                - node
+                - -e
+                - >-
+                  require('http').get('http://127.0.0.1:18789/startupz',r=>{let b='';r.on('data',d=>b+=d);r.on('end',()=>{try{const j=JSON.parse(b);process.exit(r.statusCode<400&&j.ready===true?0:1)}catch{process.exit(1)}})}).on('error',()=>process.exit(1))
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - node
+                - -e
+                - >-
+                  require('http').get('http://127.0.0.1:18789/healthz',r=>{let b='';r.on('data',d=>b+=d);r.on('end',()=>{try{const j=JSON.parse(b);process.exit(r.statusCode<400&&j.ok===true?0:1)}catch{process.exit(1)}})}).on('error',()=>process.exit(1))
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: home
+              mountPath: /home/node/.openclaw
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: home
+          persistentVolumeClaim:
+            claimName: {{ include "openclaw.pvcName" . }}
+        - name: seed
+          configMap:
+            name: {{ include "openclaw.fullname" . }}-seed
+        - name: tmp
+          emptyDir: {}

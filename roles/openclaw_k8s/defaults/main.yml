@@ -1,0 +1,59 @@
+---
+# Noesis-maintained OpenClaw Kubernetes deployment defaults.
+# Safe defaults are private, single-replica, persistent, and non-destructive.
+
+openclaw_k8s_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+openclaw_k8s_kube_context: ""
+openclaw_k8s_helm_binary_path: /usr/local/bin/helm
+openclaw_k8s_kubectl_binary_path: /usr/local/bin/kubectl
+openclaw_k8s_kubernetes_python_version: "34.1.0"
+openclaw_k8s_kubernetes_venv: /opt/ansible-kubernetes
+
+openclaw_k8s_release_name: openclaw
+openclaw_k8s_namespace: openclaw
+openclaw_k8s_desired_state: present
+openclaw_k8s_chart_version: "0.1.0"
+openclaw_k8s_chart_app_version: "2026.10.5"
+openclaw_k8s_chart_source: "{{ playbook_dir | dirname }}/charts/openclaw/{{ openclaw_k8s_chart_version }}"
+openclaw_k8s_chart_path: "/opt/openclaw-chart/{{ openclaw_k8s_chart_version }}"
+openclaw_k8s_stage_dir: /opt/openclaw-stage
+
+openclaw_k8s_image_repository: ghcr.io/openclaw/openclaw
+openclaw_k8s_image_tag: "2026.10.5"
+openclaw_k8s_image_digest: sha256:f40d1e66fd14d8c5b49c832f4100f83b53fdc01f5108f7db11de38fd0ee6dbe5
+openclaw_k8s_image_pull_policy: IfNotPresent
+
+openclaw_k8s_replica_count: 1
+openclaw_k8s_strategy: Recreate
+openclaw_k8s_existing_secret: ""
+openclaw_k8s_worker_identity: ""
+openclaw_k8s_broker_endpoint: ""
+openclaw_k8s_broker_secret_name: ""
+openclaw_k8s_broker_secret_key: ""
+
+openclaw_k8s_persistence_enabled: true
+openclaw_k8s_persistence_size: 10Gi
+openclaw_k8s_persistence_access_mode: ReadWriteOnce
+openclaw_k8s_storage_class: ""
+openclaw_k8s_existing_claim: ""
+
+openclaw_k8s_exposure_enabled: false
+openclaw_k8s_ingress_class_name: ""
+openclaw_k8s_tailnet_hostname: ""
+openclaw_k8s_tailscale_operator_namespace: tailscale
+openclaw_k8s_allowed_origins: []
+openclaw_k8s_gateway_bind: loopback
+openclaw_k8s_gateway_auth_mode: token
+openclaw_k8s_external_messaging_enabled: false
+openclaw_k8s_funnel_enabled: false
+
+openclaw_k8s_service_type: ClusterIP
+openclaw_k8s_service_port: 18789
+openclaw_k8s_helm_wait: true
+openclaw_k8s_helm_timeout: 10m0s
+openclaw_k8s_helm_atomic: true
+openclaw_k8s_helm_create_namespace: true
+openclaw_k8s_helm_history_max: 10
+openclaw_k8s_live_checks: false
+openclaw_k8s_destroy_pvc: false
+openclaw_k8s_destroy_pvc_confirm: ""

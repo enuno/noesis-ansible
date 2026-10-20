@@ -1,0 +1,19 @@
+---
+- name: Validate OpenClaw inputs offline
+  ansible.builtin.include_tasks: validate-inputs.yml
+  when: openclaw_k8s_desired_state == 'present'
+- name: Inspect live prerequisites when explicitly enabled
+  ansible.builtin.include_tasks: preflight.yml
+  when: openclaw_k8s_desired_state == 'present'
+- name: Stage the pinned chart and rendered values
+  ansible.builtin.include_tasks: configure.yml
+  when: openclaw_k8s_desired_state == 'present'
+- name: Install or upgrade OpenClaw
+  ansible.builtin.include_tasks: install.yml
+  when: openclaw_k8s_desired_state == 'present'
+- name: Validate OpenClaw
+  ansible.builtin.include_tasks: validate.yml
+  when: openclaw_k8s_desired_state == 'present'
+- name: Remove OpenClaw
+  ansible.builtin.include_tasks: remove.yml
+  when: openclaw_k8s_desired_state == 'absent'

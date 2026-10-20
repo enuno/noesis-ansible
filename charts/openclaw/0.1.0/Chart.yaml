@@ -1,0 +1,11 @@
+apiVersion: v2
+name: openclaw
+version: 0.1.0
+appVersion: "2026.10.5"
+description: Noesis-maintained Helm chart for OpenClaw (not an official upstream chart)
+type: application
+home: https://github.com/openclaw/openclaw
+sources:
+  - https://github.com/openclaw/openclaw
+annotations:
+  noesis.dev/maintenance: "Noesis-maintained; not official OpenClaw packaging"

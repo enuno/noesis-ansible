@@ -1,0 +1,37 @@
+---
+replicaCount: {{ openclaw_k8s_replica_count | int }}
+strategy: {{ openclaw_k8s_strategy | tojson }}
+image:
+  repository: {{ openclaw_k8s_image_repository | tojson }}
+  tag: {{ openclaw_k8s_image_tag | tojson }}
+  digest: {{ openclaw_k8s_image_digest | tojson }}
+  pullPolicy: {{ openclaw_k8s_image_pull_policy | tojson }}
+existingSecret: {{ openclaw_k8s_existing_secret | tojson }}
+worker:
+  identity: {{ openclaw_k8s_worker_identity | tojson }}
+  brokerEndpoint: {{ openclaw_k8s_broker_endpoint | tojson }}
+  brokerSecretName: {{ openclaw_k8s_broker_secret_name | tojson }}
+  brokerSecretKey: {{ openclaw_k8s_broker_secret_key | tojson }}
+gateway:
+  bind: {{ openclaw_k8s_gateway_bind | tojson }}
+  authMode: {{ openclaw_k8s_gateway_auth_mode | tojson }}
+  port: {{ openclaw_k8s_service_port | int }}
+  allowedOrigins: {{ openclaw_k8s_allowed_origins | tojson }}
+  externalMessagingEnabled: false
+service:
+  type: ClusterIP
+  port: {{ openclaw_k8s_service_port | int }}
+persistence:
+  enabled: {{ openclaw_k8s_persistence_enabled | bool | tojson }}
+  existingClaim: {{ openclaw_k8s_existing_claim | tojson }}
+  storageClass: {{ openclaw_k8s_storage_class | tojson }}
+  accessMode: {{ openclaw_k8s_persistence_access_mode | tojson }}
+  size: {{ openclaw_k8s_persistence_size | tojson }}
+ingress:
+  enabled: {{ openclaw_k8s_exposure_enabled | bool | tojson }}
+  className: {{ openclaw_k8s_ingress_class_name | tojson }}
+  host: {{ openclaw_k8s_tailnet_hostname | tojson }}
+  operatorNamespace: {{ openclaw_k8s_tailscale_operator_namespace | tojson }}
+networkPolicy:
+  enabled: true
+  allowHttpsEgress: true

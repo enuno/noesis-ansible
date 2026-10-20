@@ -1,0 +1,42 @@
+---
+- name: Install or upgrade the pinned OpenClaw release
+  hosts: openclaw_k3s
+  gather_facts: false
+  become: true
+  tags: [openclaw]
+  vars:
+    openclaw_k8s_live_checks: true
+  pre_tasks:
+    - name: Assert this is not the placeholder example host
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname != 'openclaw-k3s.example.invalid'
+        fail_msg: inventory/example is not a deploy target.
+
+    - name: Install Python venv support with the pinned system interpreter
+      ansible.builtin.apt:
+        name: python3-venv
+        state: present
+      vars:
+        ansible_python_interpreter: /usr/bin/python3.14
+
+    - name: Create dedicated target-side Kubernetes Python environment
+      ansible.builtin.command:
+        cmd: "/usr/bin/python3.14 -m venv {{ openclaw_k8s_kubernetes_venv }}"
+        creates: "{{ openclaw_k8s_kubernetes_venv }}/bin/python"
+      vars:
+        ansible_python_interpreter: /usr/bin/python3.14
+
+    - name: Install exact Kubernetes Python client pin
+      ansible.builtin.pip:
+        name: "kubernetes=={{ openclaw_k8s_kubernetes_python_version }}"
+        virtualenv: "{{ openclaw_k8s_kubernetes_venv }}"
+        state: present
+
+    - name: Select pinned target-side Kubernetes Python environment
+      ansible.builtin.set_fact:
+        ansible_python_interpreter: "{{ openclaw_k8s_kubernetes_venv }}/bin/python"
+
+  roles:
+    - role: openclaw_k8s
+      tags: [install, upgrade, rollback]

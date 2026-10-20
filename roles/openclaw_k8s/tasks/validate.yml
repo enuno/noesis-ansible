@@ -1,0 +1,42 @@
+---
+- name: Report that live verification is not running
+  ansible.builtin.debug:
+    msg: >-
+      NOT RUN: openclaw_k8s_live_checks is false. Offline validation is not
+      runtime proof of deployment, health, backup, restore, or rollback.
+  when: not (openclaw_k8s_live_checks | bool)
+
+- name: Read deployed release metadata
+  kubernetes.core.helm_info:
+    binary_path: "{{ openclaw_k8s_helm_binary_path }}"
+    kubeconfig: "{{ openclaw_k8s_kubeconfig_path }}"
+    context: "{{ openclaw_k8s_kube_context }}"
+    release_name: "{{ openclaw_k8s_release_name }}"
+    release_namespace: "{{ openclaw_k8s_namespace }}"
+    release_state: [deployed]
+    get_all_values: false
+  register: openclaw_k8s_release_info
+  no_log: true
+  when: openclaw_k8s_live_checks | bool
+
+- name: Read OpenClaw pods
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ openclaw_k8s_kubeconfig_path }}"
+    context: "{{ openclaw_k8s_kube_context }}"
+    api_version: v1
+    kind: Pod
+    namespace: "{{ openclaw_k8s_namespace }}"
+    label_selectors:
+      - "app.kubernetes.io/instance={{ openclaw_k8s_release_name }}"
+  register: openclaw_k8s_pods
+  when: openclaw_k8s_live_checks | bool
+
+- name: Assert release and single pod are ready
+  ansible.builtin.assert:
+    that:
+      - openclaw_k8s_release_info.status.status | default('') | lower == 'deployed'
+      - openclaw_k8s_chart_version in openclaw_k8s_release_info.status.chart | default('')
+      - openclaw_k8s_pods.resources | length == 1
+      - openclaw_k8s_pods.resources[0].status.containerStatuses[0].ready | default(false) | bool
+    fail_msg: OpenClaw release is not deployed and ready at the pinned chart version.
+  when: openclaw_k8s_live_checks | bool
