@@ -1,0 +1,90 @@
+---
+# Post-install reads. Live Kubernetes API calls run on the managed host and
+# only when buzz_live_checks is true. Default false: syntax-check and offline
+# runs do not contact a cluster. Offline mode is not runtime proof.
+- name: Record chart Service name using the upstream fullname helper
+  ansible.builtin.set_fact:
+    buzz_service_name: "{{ buzz_release_name if 'buzz' in buzz_release_name else (buzz_release_name ~ '-buzz') }}"
+
+- name: Record that offline mode is not runtime proof
+  ansible.builtin.debug:
+    msg: >-
+      NOT RUN: buzz_live_checks is false. Offline mode is not runtime proof
+      of a Buzz install, upgrade, backup, or restore.
+  when: not (buzz_live_checks | bool)
+
+- name: Read release metadata without printing values
+  kubernetes.core.helm_info:
+    binary_path: "{{ buzz_helm_binary_path }}"
+    kubeconfig: "{{ buzz_kubeconfig_path }}"
+    context: "{{ buzz_kube_context }}"
+    release_name: "{{ buzz_release_name }}"
+    release_namespace: "{{ buzz_namespace }}"
+    release_state:
+      - deployed
+    get_all_values: false
+  register: buzz_release_info
+  no_log: true
+  when: buzz_live_checks | bool
+
+- name: Assert release is deployed at the pinned chart version
+  ansible.builtin.assert:
+    that:
+      - buzz_release_info.status is defined
+      - buzz_release_info.status.status | default('') | lower == 'deployed'
+      - buzz_chart_version in (buzz_release_info.status.chart | default(''))
+      - (buzz_release_info.status.chart | default('')) is match('^buzz-')
+    fail_msg: >-
+      Release {{ buzz_release_name }} is not deployed at pinned chart
+      {{ buzz_chart_version }}. Values were not printed.
+  when: buzz_live_checks | bool
+
+- name: Read Service exposure without printing the object
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ buzz_kubeconfig_path }}"
+    context: "{{ buzz_kube_context }}"
+    api_version: v1
+    kind: Service
+    name: "{{ buzz_service_name }}"
+    namespace: "{{ buzz_namespace }}"
+  register: buzz_service_info
+  no_log: true
+  when: buzz_live_checks | bool
+
+- name: Assert Service stays ClusterIP unless exposure was explicitly enabled
+  ansible.builtin.assert:
+    that:
+      - buzz_service_info.resources | default([]) | length == 1
+      - buzz_service_info.resources[0].spec.type == 'ClusterIP'
+    fail_msg: >-
+      Service {{ buzz_service_name }} is not ClusterIP. This role's default
+      does not publish NodePort or LoadBalancer.
+  when:
+    - buzz_live_checks | bool
+    - not (buzz_exposure_enabled | bool)
+
+- name: Read Ingress objects for this release without printing them
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ buzz_kubeconfig_path }}"
+    context: "{{ buzz_kube_context }}"
+    api_version: networking.k8s.io/v1
+    kind: Ingress
+    namespace: "{{ buzz_namespace }}"
+    label_selectors:
+      - "app.kubernetes.io/instance={{ buzz_release_name }}"
+  register: buzz_ingress_info
+  no_log: true
+  when:
+    - buzz_live_checks | bool
+    - not (buzz_exposure_enabled | bool)
+
+- name: Assert no Ingress was created for the safe default
+  ansible.builtin.assert:
+    that:
+      - buzz_ingress_info.resources | default([]) | length == 0
+    fail_msg: >-
+      Ingress objects exist for {{ buzz_release_name }} while exposure is
+      disabled. This role did not intend to publish the relay.
+  when:
+    - buzz_live_checks | bool
+    - not (buzz_exposure_enabled | bool)

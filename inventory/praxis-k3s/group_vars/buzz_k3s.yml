@@ -1,0 +1,72 @@
+---
+# group_vars for the Buzz deploy on the praxis-k3s host.
+# Non-secret values only. Secret material lives in Bitwarden Secrets Manager
+# project noosphere (72974d0e-81af-4678-bab7-b46000985859) and is applied to
+# the cluster by playbooks/buzz-secret.yml. Never put DATABASE_URL, REDIS_URL,
+# or S3 keys in this file.
+#
+# Profile: production shape (external Postgres/Redis/S3) where Postgres and
+# Redis are in-cluster Bitnami releases installed by playbooks/buzz-deps.yml
+# and S3 is Cloudflare R2.
+
+buzz_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+buzz_kube_context: "default"
+buzz_release_name: buzz
+buzz_namespace: buzz
+
+# Chart pin is enforced by the role (buzz_chart_version 0.1.11).
+buzz_profile: production
+
+# Relay image pin. The chart's appVersion 0.1.0 (only upstream release tag,
+# built 2026-06-14) predates the relay's startup auto-migrate flow that
+# chart 0.1.11 documents (BUZZ_AUTO_MIGRATE): the 0.1.0 binary dies on
+# missing relations before migrating. Pin the image by digest instead.
+# Digest = ghcr.io/block/buzz main rev 6e6173acd580, verified 2026-10-20 on
+# the praxis cluster: applies sqlx migrations, bootstraps relay owner,
+# passes all startup phases. Digest is immutable even though the tag is not.
+buzz_image_tag: ""
+buzz_image_digest: "sha256:55574cb818f7f809e8d38b1d9ae883d2d6103a7a139f84615b9c55840b6bb956"
+
+# Tailnet exposure via the Tailscale Kubernetes operator IngressClass.
+# The operator provisions a dedicated proxy device named 'buzz' with its own
+# tailnet IP and TLS; the relay is reached at https://buzz.tailf99a0.ts.net
+# (wss:// for the relay protocol). buzz.tailf99a0.ts.net is also the default
+# ingress host because it is derived from relayUrl.
+buzz_exposure_enabled: true
+buzz_service_type: ClusterIP
+buzz_ingress_enabled: true
+buzz_ingress_class_name: tailscale
+buzz_ingress_tls_hosts:
+  - buzz.tailf99a0.ts.net
+# Deliberately empty: the ts-operator terminates TLS with its own certificate.
+buzz_ingress_tls_secret_name: ""
+buzz_httproute_enabled: false
+buzz_pairing_relay_enabled: false
+
+# Relay identity. Owner keypair was generated 2026-10-20; private key is in
+# Bitwarden Secrets Manager (BUZZ_OWNER_NOSTR_PRIVATE_KEY). Rotating the
+# owner key is a new relay identity from the membership perspective.
+buzz_relay_url: "wss://buzz.tailf99a0.ts.net"
+buzz_owner_pubkey: "9c1470ebac831e7dcc3054de06a0aa8745c517122ae73270e8d0db3560eda152"
+buzz_require_relay_membership: true
+
+# Name only. Applied by playbooks/buzz-secret.yml from Bitwarden Secrets
+# Manager; keys: BUZZ_RELAY_PRIVATE_KEY, BUZZ_GIT_HOOK_HMAC_SECRET,
+# DATABASE_URL, REDIS_URL, BUZZ_S3_ACCESS_KEY, BUZZ_S3_SECRET_KEY.
+buzz_existing_secret: buzz-secrets
+
+# Cloudflare R2 (S3-compatible). R2 requires virtual-hosted addressing.
+# Endpoint is account-scoped and non-secret; keys live in Bitwarden Secrets
+# Manager (R2_ADMIN_ACCESS_KEY_ID / R2_ADMIN_SECRET_ACCESS_KEY).
+buzz_s3_endpoint: "https://e6537b26b3f9444de8e670aa4442fd6e.r2.cloudflarestorage.com"
+buzz_s3_bucket: "buzz-media"
+buzz_s3_region: "auto"
+buzz_s3_addressing_style: virtual
+
+# k3s ships the local-path provisioner as the default storage class.
+buzz_storage_class: local-path
+
+buzz_git_persistence_enabled: true
+buzz_git_persistence_size: 10Gi
+buzz_live_checks: false
+buzz_destroy_data: false

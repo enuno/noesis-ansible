@@ -1,0 +1,51 @@
+---
+# group_vars for the praxis-k3s single-node k3s server.
+# Version pins are deliberately exact: k3s is the cluster control plane,
+# and upgrades are runbook material (see docs/praxis-k3s/k3s.md), never
+# implicit. Bump these only together with the documented rollback plan.
+
+# Pinned k3s release. Source of truth:
+#   curl -s https://api.github.com/repos/k3s-io/k3s/releases
+# Latest stable (non-prerelease, non-draft) at authoring time:
+#   v1.37.1+k3s1 (published 2026-09-30T16:10:38Z).
+k3s_version: "v1.37.1+k3s1"
+
+# SHA-256 of the release asset "k3s" (amd64) from
+# https://github.com/k3s-io/k3s/releases/download/v1.37.1%2Bk3s1/sha256sum-amd64.txt
+# Verified against the GitHub release checksum file at authoring time.
+k3s_binary_sha256: "92b94582eb7b34a8cf532e6006842b9ed215a6783cf56a3dd6271fd35243b2c0"
+
+# Install location for the k3s binary.
+k3s_install_dir: "/usr/local/bin"
+
+# k3s server config (roles/k3s/templates/config.yaml.j2).
+# Disabled: traefik, servicelb. Kept: coredns, local-path-provisioner,
+# metrics-server (k3s defaults).
+k3s_disable_components:
+  - traefik
+  - servicelb
+
+# --- Hermes dashboard / Tailscale Serve (empirically confirmed 2026-10-19) ---
+# Tailscale Serve proxies host->ClusterIP and kube-proxy SNATs node-originated
+# traffic to the flannel gateway, so the Hermes pod observes 10.42.0.1 (this
+# node's pod-network gateway) as the dashboard request source. Confirmed live
+# via /proc/net/tcp inside the pod during a Serve request. Both the Serve
+# validator and the Hermes trustedProxies must cover it as a narrow /32.
+tailscale_serve_confirmed_backend_source_ip: "10.42.0.1"
+tailscale_serve_dashboard_trusted_proxies:
+  - 127.0.0.1/32
+  - 100.64.0.0/10
+  - 10.42.0.1/32
+
+# POST-MIGRATION (tailscale_k8s): the live tailnet path is the
+# operator-managed proxy pod in ns tailscale, not host Serve. The proxy
+# connects pod-to-pod (no node SNAT), so the dashboard observes the proxy pod
+# IP (10.42.0.0/24 — this node's flannel pod CIDR). NetworkPolicy admits the
+# tailscale namespace (namespaceSelector, not ipBlock); trustedProxies cover
+# the pod CIDR /24. Empirical confirmation of the observed source IP is
+# pending first live run — see roles/tailscale_k8s/README.md.
+hermes_agent_dashboard_trusted_pod_cidr: "10.42.0.0/24"
+hermes_agent_dashboard_trusted_proxies:
+  - 31.97.209.57/32
+  - 10.42.0.1/32
+  - 10.42.0.0/24

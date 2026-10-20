@@ -1,0 +1,114 @@
+---
+# Deterministic non-secret values for the pinned Buzz chart.
+# No lookups, timestamps, random values, or secret material.
+# Keys are limited to Chart values.yaml / values.schema.json, plus
+# postgresql.persistence.storageClass and redis.persistence.storageClass
+# which exist on the lock-pinned subcharts (see docs/buzz.md).
+quickstart: {{ (buzz_profile == 'quickstart') | tojson }}
+relayUrl: {{ buzz_relay_url | tojson }}
+{% if buzz_media_base_url | length > 0 %}
+mediaBaseUrl: {{ buzz_media_base_url | tojson }}
+{% endif %}
+ownerPubkey: {{ buzz_owner_pubkey | tojson }}
+replicaCount: {{ buzz_replica_count | int }}
+image:
+  repository: {{ buzz_image_repository | tojson }}
+  tag: {{ buzz_image_tag | tojson }}
+  digest: {{ buzz_image_digest | tojson }}
+  pullPolicy: {{ buzz_image_pull_policy | tojson }}
+service:
+  type: {{ (buzz_service_type if (buzz_exposure_enabled | bool) else 'ClusterIP') | tojson }}
+  port: 3000
+  healthPort: 8080
+  metricsPort: 9102
+ingress:
+  enabled: {{ ((buzz_ingress_enabled | bool) and (buzz_exposure_enabled | bool)) | tojson }}
+{% if buzz_ingress_enabled | bool and buzz_exposure_enabled | bool %}
+  className: {{ buzz_ingress_class_name | tojson }}
+{% if buzz_ingress_tls_hosts | length > 0 %}
+{# Tailscale Ingress (class tailscale) provisions its own TLS and requires no
+   secretName; other classes may need one. Render hosts without a secretName
+   when the operator supplies certificates (ts-operator terminates TLS). #}
+  tls:
+    - hosts: {{ buzz_ingress_tls_hosts | tojson }}
+{% if buzz_ingress_tls_secret_name | length > 0 %}
+      secretName: {{ buzz_ingress_tls_secret_name | tojson }}
+{% endif %}
+{% endif %}
+{% endif %}
+httproute:
+  enabled: {{ ((buzz_httproute_enabled | bool) and (buzz_exposure_enabled | bool)) | tojson }}
+pairingRelay:
+  enabled: {{ ((buzz_pairing_relay_enabled | bool) and (buzz_exposure_enabled | bool)) | tojson }}
+  service:
+    type: ClusterIP
+secrets:
+  existingSecret: {{ buzz_existing_secret | tojson }}
+  relayPrivateKey: ""
+  gitHookHmacSecret: ""
+externalPostgresql:
+  url: ""
+externalRedis:
+  url: ""
+s3:
+  endpoint: {{ buzz_s3_endpoint | tojson }}
+  bucket: {{ buzz_s3_bucket | tojson }}
+  region: {{ buzz_s3_region | tojson }}
+  addressingStyle: {{ buzz_s3_addressing_style | tojson }}
+  accessKey: ""
+  secretKey: ""
+persistence:
+  git:
+    enabled: {{ buzz_git_persistence_enabled | tojson }}
+    mountPath: {{ buzz_git_persistence_mount_path | tojson }}
+    storageClass: {{ buzz_storage_class | tojson }}
+    accessMode: {{ buzz_git_persistence_access_mode | tojson }}
+    size: {{ buzz_git_persistence_size | tojson }}
+    existingClaim: {{ buzz_git_existing_claim | tojson }}
+{% if buzz_profile == 'quickstart' %}
+postgresql:
+  enabled: true
+  persistence:
+    enabled: {{ buzz_postgresql_persistence_enabled | tojson }}
+    size: {{ buzz_postgresql_persistence_size | tojson }}
+    storageClass: {{ buzz_storage_class | tojson }}
+redis:
+  enabled: true
+  persistence:
+    enabled: {{ buzz_redis_persistence_enabled | tojson }}
+    size: {{ buzz_redis_persistence_size | tojson }}
+    storageClass: {{ buzz_storage_class | tojson }}
+minio:
+  enabled: true
+  persistence:
+    enabled: {{ buzz_minio_persistence_enabled | tojson }}
+    size: {{ buzz_minio_persistence_size | tojson }}
+{% else %}
+postgresql:
+  enabled: false
+redis:
+  enabled: false
+minio:
+  enabled: false
+{% endif %}
+relay:
+  requireRelayMembership: {{ buzz_require_relay_membership | tojson }}
+  requireAuthToken: true
+  resources:
+    requests:
+      cpu: {{ buzz_relay_cpu_request | tojson }}
+      memory: {{ buzz_relay_memory_request | tojson }}
+    limits:
+      cpu: {{ buzz_relay_cpu_limit | tojson }}
+      memory: {{ buzz_relay_memory_limit | tojson }}
+autoscaling:
+  enabled: false
+serviceMonitor:
+  enabled: false
+operatorJobs:
+  deletionDrain:
+    enabled: false
+storageAccounting:
+  enabled: false
+migrate:
+  autoMigrate: true

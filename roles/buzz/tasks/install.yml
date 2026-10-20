@@ -1,0 +1,49 @@
+---
+# Runs on the managed host. kubernetes.core.helm (collection 5.2.0) executes
+# here and calls the Kubernetes API using the kubeconfig path and context.
+# The kubeconfig file is not copied and is not printed.
+# dependency_update stays false so Helm cannot refresh Chart.lock versions.
+- name: Assert Helm is already installed on the kubeconfig host
+  ansible.builtin.stat:
+    path: "{{ buzz_helm_binary_path }}"
+  register: buzz_helm_binary
+
+- name: Fail when the Helm binary is missing
+  ansible.builtin.assert:
+    that:
+      - buzz_helm_binary.stat.exists
+      - buzz_helm_binary.stat.isreg or buzz_helm_binary.stat.islnk
+    fail_msg: >-
+      Helm is not at {{ buzz_helm_binary_path }}. This role does not install
+      Helm and does not include roles/helm.
+
+- name: Refuse Helm until this run checked release ownership
+  ansible.builtin.assert:
+    that:
+      - buzz_release_ownership_checked | default(false) | bool
+    fail_msg: >-
+      Refusing to install or upgrade. The unrelated-release guard did not
+      pass in this run. deploy_buzz.yml forces buzz_live_checks so that
+      guard runs before Helm. A same-name release that is not chart buzz-
+      must not be overwritten.
+
+- name: Install or upgrade the pinned Buzz release
+  kubernetes.core.helm:
+    binary_path: "{{ buzz_helm_binary_path }}"
+    kubeconfig: "{{ buzz_kubeconfig_path }}"
+    context: "{{ buzz_kube_context }}"
+    chart_ref: "{{ buzz_chart_path }}"
+    release_name: "{{ buzz_release_name }}"
+    release_namespace: "{{ buzz_namespace }}"
+    release_state: present
+    values_files:
+      - "{{ buzz_stage_dir }}/values-buzz.yml"
+    create_namespace: "{{ buzz_helm_create_namespace | bool }}"
+    wait: "{{ buzz_helm_wait | bool }}"
+    timeout: "{{ buzz_helm_timeout }}"
+    atomic: "{{ buzz_helm_atomic | bool }}"
+    reset_values: "{{ buzz_helm_reset_values | bool }}"
+    reuse_values: "{{ buzz_helm_reuse_values | bool }}"
+    dependency_update: false
+    history_max: "{{ buzz_helm_history_max | int }}"
+  register: buzz_helm_result

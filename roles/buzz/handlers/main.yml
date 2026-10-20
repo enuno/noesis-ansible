@@ -1,0 +1,3 @@
+---
+# No out-of-band handlers. kubernetes.core.helm applies the release.
+# This role does not restart, uninstall, or delete data from a handler.

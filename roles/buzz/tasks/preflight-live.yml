@@ -1,0 +1,107 @@
+---
+# Live preflight. Runs on the managed host. Every task is gated by
+# buzz_live_checks (default false). Offline mode does not contact the API.
+# This file does not print kubeconfig or Secret data.
+- name: Stat kubeconfig on the managed host without reading or copying it
+  ansible.builtin.stat:
+    path: "{{ buzz_kubeconfig_path }}"
+  register: buzz_kubeconfig_stat
+  when: buzz_live_checks | bool
+
+- name: Assert kubeconfig is present and not world-readable
+  ansible.builtin.assert:
+    that:
+      - buzz_kubeconfig_stat.stat.exists
+      - buzz_kubeconfig_stat.stat.isreg
+      - not (buzz_kubeconfig_stat.stat.roth | bool)
+      - not (buzz_kubeconfig_stat.stat.woth | bool)
+    fail_msg: >-
+      kubeconfig must already exist on the managed host and must not be
+      world-readable. This role will not copy it, print it, or chmod it.
+  when: buzz_live_checks | bool
+
+- name: Read existing release metadata without printing values
+  kubernetes.core.helm_info:
+    binary_path: "{{ buzz_helm_binary_path }}"
+    kubeconfig: "{{ buzz_kubeconfig_path }}"
+    context: "{{ buzz_kube_context }}"
+    release_name: "{{ buzz_release_name }}"
+    release_namespace: "{{ buzz_namespace }}"
+    release_state:
+      - all
+    get_all_values: false
+  register: buzz_existing_release
+  no_log: true
+  failed_when: false
+  when: buzz_live_checks | bool
+
+- name: Refuse to adopt an unrelated release
+  ansible.builtin.assert:
+    that:
+      - not (buzz_existing_release.failed | default(false) | bool)
+      - buzz_existing_release.status is not defined or (
+          buzz_existing_release.status.chart is defined and
+          buzz_existing_release.status.chart is match('^buzz-')
+        )
+    fail_msg: >-
+      Refusing to adopt release {{ buzz_release_name }} because it is missing
+      a buzz- chart name or the Helm read failed. Secret values were not printed.
+  when: buzz_live_checks | bool
+
+- name: Record that release ownership was checked in this run
+  ansible.builtin.set_fact:
+    buzz_release_ownership_checked: true
+  when: buzz_live_checks | bool
+
+- name: Confirm referenced Secret exists without printing data
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ buzz_kubeconfig_path }}"
+    context: "{{ buzz_kube_context }}"
+    api_version: v1
+    kind: Secret
+    name: "{{ buzz_existing_secret }}"
+    namespace: "{{ buzz_namespace }}"
+  register: buzz_secret_info
+  no_log: true
+  when:
+    - buzz_live_checks | bool
+    - buzz_existing_secret | length > 0
+
+- name: Assert referenced Secret name is present
+  ansible.builtin.assert:
+    that:
+      - buzz_secret_info.resources | default([]) | length == 1
+    fail_msg: >-
+      Secret {{ buzz_existing_secret }} was not found in namespace
+      {{ buzz_namespace }}. Create it out of band. This role does not print
+      Secret data and does not create secret values.
+  when:
+    - buzz_live_checks | bool
+    - buzz_existing_secret | length > 0
+
+- name: Confirm StorageClass exists when a chart PVC needs it
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ buzz_kubeconfig_path }}"
+    context: "{{ buzz_kube_context }}"
+    api_version: storage.k8s.io/v1
+    kind: StorageClass
+    name: "{{ buzz_storage_class }}"
+  register: buzz_storage_class_info
+  when:
+    - buzz_live_checks | bool
+    - buzz_storage_class | length > 0
+    - buzz_git_persistence_enabled | bool
+    - buzz_git_existing_claim | length == 0
+
+- name: Assert StorageClass name is present
+  ansible.builtin.assert:
+    that:
+      - buzz_storage_class_info.resources | default([]) | length == 1
+    fail_msg: >-
+      StorageClass {{ buzz_storage_class }} was not found. Extra nodes do not
+      create this class or replicate its volumes.
+  when:
+    - buzz_live_checks | bool
+    - buzz_storage_class | length > 0
+    - buzz_git_persistence_enabled | bool
+    - buzz_git_existing_claim | length == 0

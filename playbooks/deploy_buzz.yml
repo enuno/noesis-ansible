@@ -1,0 +1,67 @@
+---
+# Deploy the pinned official Buzz chart onto the inventory host that holds
+# kubeconfig. Helm runs on that host. The kubeconfig file is not copied to the
+# controller and is not printed.
+#
+# Where tasks run:
+#   controller: reads charts/buzz/<version> and the values template
+#   managed host (group buzz_k3s): copy/template destinations, existing helm CLI,
+#     kubernetes.core.helm / helm_info / k8s_info
+#   Kubernetes API: contacted only by helm and kubernetes.core on that host
+#
+# Helm must already be installed at buzz_helm_binary_path. This play does not
+# include roles/helm and does not install Helm.
+# This play does not delegate to localhost. It does not uninstall or delete data.
+#
+# Usage (does not use the placeholder example inventory):
+#   ansible-playbook -i inventory/<your-inventory> playbooks/deploy_buzz.yml
+#
+# inventory/example is placeholders only. A real run rejects that host before
+# Helm starts. This play forces buzz_live_checks so the unrelated-release guard
+# runs before kubernetes.core.helm. Inventory cannot turn that guard off.
+# --syntax-check does not execute it and is not runtime proof.
+
+- name: Deploy pinned Buzz Helm release on the kubeconfig host
+  hosts: buzz_k3s
+  gather_facts: true
+  become: true
+  become_method: sudo
+  tags: [buzz]
+  vars:
+    buzz_live_checks: true
+    # Pinned target-side Python environment for the role's kubernetes.core
+    # tasks. See docs/praxis-k3s/pins.md.
+    hermes_kubernetes_python_version: "34.1.0"
+    hermes_kubernetes_venv: /opt/ansible-kubernetes
+
+  pre_tasks:
+    - name: Assert this play is not pointed at the placeholder example host
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname != 'buzz-k3s.example.invalid'
+          - ansible_host | default('') != 'buzz-k3s.example.invalid'
+        fail_msg: inventory/example is not a deploy target.
+
+    - name: Install Python venv support for target-side kubernetes.core modules
+      ansible.builtin.apt:
+        name: python3-venv
+        state: present
+
+    - name: Create dedicated target-side Kubernetes Python environment
+      ansible.builtin.command:
+        cmd: "python3 -m venv {{ hermes_kubernetes_venv }}"
+        creates: "{{ hermes_kubernetes_venv }}/bin/python"
+
+    - name: Install exact Python kubernetes client pin in target venv
+      ansible.builtin.pip:
+        name: "kubernetes=={{ hermes_kubernetes_python_version }}"
+        virtualenv: "{{ hermes_kubernetes_venv }}"
+        state: present
+
+    - name: Select pinned target-side Kubernetes Python environment
+      ansible.builtin.set_fact:
+        ansible_python_interpreter: "{{ hermes_kubernetes_venv }}/bin/python"
+
+  roles:
+    - role: buzz
+      tags: [buzz]

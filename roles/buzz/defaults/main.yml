@@ -1,0 +1,129 @@
+---
+# roles/buzz/defaults/main.yml
+# Deploy the official Block Buzz chart vendored from git.
+# Provenance: charts/buzz/0.1.11/PROVENANCE.md and docs/buzz.md.
+# This role never inlines secret values and never uninstalls data.
+
+# --- Execution model -------------------------------------------------------
+# The play targets the inventory host that already holds kubeconfig.
+# kubernetes.core.helm runs on that managed host and talks to the Kubernetes
+# API from there. The controller only supplies the vendored chart and the
+# rendered values file via Ansible's copy/template actions. There is no
+# delegate_to: localhost and the kubeconfig file is never copied.
+
+buzz_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+# Required. Empty fails preflight. Never a kubeconfig document.
+buzz_kube_context: ""
+buzz_helm_binary_path: /usr/local/bin/helm
+
+# --- Release topology ------------------------------------------------------
+buzz_release_name: buzz
+buzz_namespace: buzz
+
+# --- Immutable chart pin ---------------------------------------------------
+buzz_chart_repo_url: https://github.com/block/buzz
+buzz_chart_upstream_path: deploy/charts/buzz
+buzz_chart_version: "0.1.11"
+buzz_chart_app_version: "0.1.0"
+buzz_chart_git_revision: 30ca980b49a7479dd89cb1ced0871af05ff1e12e
+buzz_chart_lock_digest: sha256:9c0df32008f782064104ecec8552f348841f120852d49ace66966a56ba904348
+buzz_chart_lock_sha256: dfd65d937800b91a7334412d51da9efbe4525e37ff1981958d507ae0b63d4ae2
+# Controller path. copy src is read on the controller; dest is the managed host.
+buzz_chart_source: "{{ playbook_dir | dirname }}/charts/buzz/{{ buzz_chart_version }}"
+buzz_chart_path: "/opt/buzz-chart/{{ buzz_chart_version }}"
+buzz_stage_dir: /opt/buzz-stage
+
+# Lock-pinned subcharts fetched at these exact versions. See PROVENANCE.md.
+buzz_chart_postgres_version: "0.19.5"
+buzz_chart_postgres_layer_sha256: sha256:3dfab3d33c3c4cd311201eee4dc350c2386f3b42152df984f87b499d71bf62a2
+buzz_chart_redis_version: "0.30.3"
+buzz_chart_redis_layer_sha256: sha256:da82f755fc32348755a2b49adc29a0caca4c1b89abd90067073a9835dae98534
+
+# --- Profile ---------------------------------------------------------------
+# production (default): external Postgres/Redis/S3, existingSecret name only.
+# quickstart: upstream eval profile. Explicit opt-in. Chart may autogenerate
+# secrets on first helm install/upgrade. Not GitOps-safe. Not the default.
+buzz_profile: production
+
+# --- Exposure (safe default: no public exposure) ---------------------------
+# Chart-supported exposure knobs stay off unless buzz_exposure_enabled is true.
+# The chart has no hostNetwork, hostPort, privileged, or Tailscale Funnel key.
+buzz_exposure_enabled: false
+buzz_service_type: ClusterIP
+buzz_ingress_enabled: false
+buzz_httproute_enabled: false
+buzz_ingress_class_name: ""
+# TLS secret name reference only. Never a certificate body.
+buzz_ingress_tls_secret_name: ""
+buzz_ingress_tls_hosts: []
+buzz_pairing_relay_enabled: false
+
+# --- Required non-secret identity ------------------------------------------
+# Chart requires relayUrl. ownerPubkey is required while membership is required.
+buzz_relay_url: ""
+buzz_media_base_url: ""
+buzz_owner_pubkey: ""
+buzz_require_relay_membership: true
+
+# --- Secret name reference (never a secret value) --------------------------
+buzz_existing_secret: ""
+
+# --- Object storage settings (credentials stay in the Secret) --------------
+buzz_s3_endpoint: ""
+buzz_s3_bucket: buzz-media
+buzz_s3_region: us-east-1
+buzz_s3_addressing_style: path
+
+# --- Replicas and resources (chart defaults) -------------------------------
+buzz_replica_count: 1
+buzz_relay_cpu_request: "500m"
+buzz_relay_memory_request: "512Mi"
+buzz_relay_cpu_limit: "2"
+buzz_relay_memory_limit: "2Gi"
+
+# Image tag/digest stay empty unless the operator sets a verified digest.
+# Empty means the chart uses Chart.appVersion. This revision does not pin one.
+buzz_image_repository: ghcr.io/block/buzz
+buzz_image_tag: ""
+buzz_image_digest: ""
+buzz_image_pull_policy: IfNotPresent
+
+# --- Persistence -----------------------------------------------------------
+# Git scratch PVC. Upstream values say object storage plus Postgres are the
+# source of truth; NOTES.txt still lists this PVC as a backup item.
+buzz_git_persistence_enabled: true
+buzz_git_persistence_size: 10Gi
+buzz_git_persistence_access_mode: ReadWriteOnce
+buzz_git_persistence_mount_path: /var/lib/buzz/git
+buzz_git_existing_claim: ""
+# Required when git persistence creates a PVC. Not defaulted to a real class.
+buzz_storage_class: ""
+
+# Quickstart-only sizes. Parent chart values.yaml documents these sizes.
+# storageClass for bundled Postgres/Redis is a verified subchart key
+# (cloudpirates postgres 0.19.5 and redis 0.30.3 persistence.storageClass),
+# passed through the parent alias. The bundled MinIO PVC template has no
+# storageClassName field; this role cannot set one.
+buzz_postgresql_persistence_enabled: true
+buzz_postgresql_persistence_size: 10Gi
+buzz_redis_persistence_enabled: true
+buzz_redis_persistence_size: 4Gi
+buzz_minio_persistence_enabled: true
+buzz_minio_persistence_size: 10Gi
+
+# --- Helm module flags verified on kubernetes.core 5.2.0 -------------------
+buzz_helm_wait: true
+buzz_helm_timeout: 10m0s
+buzz_helm_atomic: true
+buzz_helm_create_namespace: true
+buzz_helm_reset_values: true
+buzz_helm_reuse_values: false
+buzz_helm_dependency_update: false
+buzz_helm_history_max: 10
+
+# Live API checks. Default false so syntax-check and offline runs do not
+# contact a cluster. Offline mode is not runtime proof.
+buzz_live_checks: false
+
+# The role refuses this flag. Data removal is a manual procedure in docs/buzz.md.
+buzz_destroy_data: false

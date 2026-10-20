@@ -1,0 +1,174 @@
+---
+# Install the Buzz backing services on the praxis-k3s cluster: in-cluster
+# Bitnami PostgreSQL and Redis releases in the buzz namespace. S3 is external
+# (Cloudflare R2) and is not touched here.
+#
+# Secret values are read at runtime from Bitwarden Secrets Manager (project
+# noosphere) by the controller via `bws` lookups; they are never written to
+# inventory, never committed, and task output is suppressed with no_log.
+# Prerequisites on the controller: `bws` CLI authenticated (BWS_ACCESS_TOKEN).
+# Prerequisites on the managed host: Helm at /usr/local/bin/helm, kubeconfig at
+# /etc/rancher/k3s/k3s.yaml (installed by playbooks/k3s-install.yml).
+#
+# Usage:
+#   ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/buzz-deps.yml
+
+- name: Install in-cluster Postgres and Redis for Buzz
+  hosts: buzz_k3s
+  gather_facts: false
+  become: true
+  become_method: sudo
+  tags: [buzz, deps]
+
+  vars:
+    buzz_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+    buzz_kube_context: "default"
+    buzz_helm_binary_path: /usr/local/bin/helm
+    buzz_namespace: buzz
+    buzz_storage_class: local-path
+    # Bitwarden Secrets Manager project noosphere. IDs are non-secret.
+    bws_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+
+    # Pinned target-side Python environment for kubernetes.core modules.
+    # See docs/praxis-k3s/pins.md.
+    hermes_kubernetes_python_version: "34.1.0"
+    hermes_kubernetes_venv: /opt/ansible-kubernetes
+
+    # Pinned Bitnami chart versions (bitnamicharts OCI, verified 2026-10-20).
+    buzz_postgres_chart: "oci://registry-1.docker.io/bitnamicharts/postgresql"
+    buzz_postgres_chart_version: "18.12.4"
+    buzz_redis_chart: "oci://registry-1.docker.io/bitnamicharts/redis"
+    buzz_redis_chart_version: "28.3.1"
+
+  pre_tasks:
+    - name: Assert this play is not pointed at the placeholder example host
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname != 'buzz-k3s.example.invalid'
+          - ansible_host | default('') != 'buzz-k3s.example.invalid'
+        fail_msg: inventory/example is not a deploy target.
+
+    - name: Install Python venv support for target-side kubernetes.core modules
+      ansible.builtin.apt:
+        name: python3-venv
+        state: present
+
+    - name: Create dedicated target-side Kubernetes Python environment
+      ansible.builtin.command:
+        cmd: "python3 -m venv {{ hermes_kubernetes_venv }}"
+        creates: "{{ hermes_kubernetes_venv }}/bin/python"
+
+    - name: Install exact Python kubernetes client pin in target venv
+      ansible.builtin.pip:
+        name: "kubernetes=={{ hermes_kubernetes_python_version }}"
+        virtualenv: "{{ hermes_kubernetes_venv }}"
+        state: present
+
+    - name: Select pinned target-side Kubernetes Python environment
+      ansible.builtin.set_fact:
+        ansible_python_interpreter: "{{ hermes_kubernetes_venv }}/bin/python"
+
+    - name: Read dependency secrets from Bitwarden Secrets Manager (controller-side)
+      ansible.builtin.command: "bws secret list {{ bws_project_id }} -o json"
+      delegate_to: localhost
+      run_once: true
+      become: false
+      register: _bws_secret_list
+      retries: 5
+      delay: 5
+      until: _bws_secret_list.rc == 0
+      changed_when: false
+      no_log: true
+
+    - name: Resolve Postgres admin, Postgres, and Redis secrets
+      ansible.builtin.set_fact:
+        _buzz_pg_admin_password: "{{ (_bws_secret_list.stdout | from_json | items2dict(key_name='key', value_name='value'))['BUZZ_POSTGRES_ADMIN_PASSWORD'] }}"
+        _buzz_pg_password: "{{ (_bws_secret_list.stdout | from_json | items2dict(key_name='key', value_name='value'))['BUZZ_POSTGRES_PASSWORD'] }}"
+        _buzz_redis_password: "{{ (_bws_secret_list.stdout | from_json | items2dict(key_name='key', value_name='value'))['BUZZ_REDIS_PASSWORD'] }}"
+      no_log: true
+
+    - name: Ensure the buzz namespace exists
+      kubernetes.core.k8s:
+        kubeconfig: "{{ buzz_kubeconfig_path }}"
+        context: "{{ buzz_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ buzz_namespace }}"
+            labels:
+              app.kubernetes.io/managed-by: ansible-buzz-deps
+
+  tasks:
+    - name: Install pinned Bitnami PostgreSQL release for Buzz
+      kubernetes.core.helm:
+        binary_path: "{{ buzz_helm_binary_path }}"
+        kubeconfig: "{{ buzz_kubeconfig_path }}"
+        context: "{{ buzz_kube_context }}"
+        chart_ref: "{{ buzz_postgres_chart }}"
+        chart_version: "{{ buzz_postgres_chart_version }}"
+        release_name: buzz-postgres
+        release_namespace: "{{ buzz_namespace }}"
+        release_state: present
+        create_namespace: false
+        wait: true
+        timeout: 10m0s
+        atomic: true
+        values:
+          auth:
+            postgresPassword: "{{ _buzz_pg_admin_password }}"
+            username: buzz
+            password: "{{ _buzz_pg_password }}"
+            database: buzz
+          primary:
+            persistence:
+              enabled: true
+              storageClass: "{{ buzz_storage_class }}"
+              size: 10Gi
+      no_log: true
+
+    - name: Install pinned Bitnami Redis release for Buzz
+      kubernetes.core.helm:
+        binary_path: "{{ buzz_helm_binary_path }}"
+        kubeconfig: "{{ buzz_kubeconfig_path }}"
+        context: "{{ buzz_kube_context }}"
+        chart_ref: "{{ buzz_redis_chart }}"
+        chart_version: "{{ buzz_redis_chart_version }}"
+        release_name: buzz-redis
+        release_namespace: "{{ buzz_namespace }}"
+        release_state: present
+        create_namespace: false
+        wait: true
+        timeout: 10m0s
+        atomic: true
+        values:
+          architecture: standalone
+          auth:
+            enabled: true
+            password: "{{ _buzz_redis_password }}"
+          master:
+            persistence:
+              enabled: false
+      no_log: true
+
+  post_tasks:
+    - name: Report installed dependency releases
+      kubernetes.core.helm_info:
+        binary_path: "{{ buzz_helm_binary_path }}"
+        kubeconfig: "{{ buzz_kubeconfig_path }}"
+        context: "{{ buzz_kube_context }}"
+        release_name: "{{ item }}"
+        release_namespace: "{{ buzz_namespace }}"
+        release_state:
+          - deployed
+      loop:
+        - buzz-postgres
+        - buzz-redis
+      register: _buzz_deps_info
+      failed_when: _buzz_deps_info.status is not defined
+
+    - name: Show dependency release status
+      ansible.builtin.debug:
+        msg: "{{ item.status.chart }} {{ item.status.status | default('unknown') }}"
+      loop: "{{ _buzz_deps_info.results }}"

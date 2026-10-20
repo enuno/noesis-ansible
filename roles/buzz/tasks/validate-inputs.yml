@@ -1,0 +1,121 @@
+---
+# Controller-side assertions only. These tasks run on the managed host but do
+# not read kubeconfig, do not call Helm, and do not call the Kubernetes API.
+# Live checks are in validate.yml and are skipped unless buzz_live_checks is true.
+- name: Refuse to destroy data from this role
+  ansible.builtin.assert:
+    that:
+      - not (buzz_destroy_data | bool)
+    fail_msg: >-
+      buzz_destroy_data is not implemented. This role does not uninstall Buzz
+      and does not delete PVCs, Secrets, databases, or object storage.
+      Follow the separate manual procedure in docs/buzz.md.
+
+- name: Assert execution and pin inputs
+  ansible.builtin.assert:
+    that:
+      - buzz_kubeconfig_path is match('^/')
+      - "'\n' not in buzz_kubeconfig_path"
+      - "'apiVersion:' not in buzz_kubeconfig_path"
+      - buzz_kube_context | length > 0
+      - "' ' not in buzz_kube_context"
+      - buzz_kube_context != 'CHANGE_ME'
+      - "'CHANGE_ME' not in buzz_kube_context"
+      - buzz_helm_binary_path is match('^/')
+      - buzz_release_name is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - buzz_release_name | length <= 53
+      - buzz_namespace is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - buzz_namespace | length <= 63
+      - buzz_chart_version == '0.1.11'
+      - buzz_chart_app_version == '0.1.0'
+      - buzz_chart_git_revision is match('^[0-9a-f]{40}$')
+      - buzz_chart_git_revision == '30ca980b49a7479dd89cb1ced0871af05ff1e12e'
+      - buzz_chart_lock_digest == 'sha256:9c0df32008f782064104ecec8552f348841f120852d49ace66966a56ba904348'
+      - buzz_chart_repo_url == 'https://github.com/block/buzz'
+      - buzz_profile in ['production', 'quickstart']
+      - buzz_replica_count | int >= 1
+      - buzz_replica_count | int <= 50
+      - buzz_helm_timeout is match('^([0-9]+(\\.[0-9]+)?(h|m|s|ms|us|ns))+$')
+      - not (buzz_helm_dependency_update | bool)
+      - buzz_helm_history_max | int >= 1
+      - buzz_image_pull_policy in ['IfNotPresent', 'Always', 'Never']
+      - buzz_s3_addressing_style in ['path', 'virtual']
+      - buzz_s3_bucket is match('^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$')
+      - buzz_git_persistence_access_mode in ['ReadWriteOnce', 'ReadWriteMany', 'ReadOnlyMany', 'ReadWriteOncePod']
+      - buzz_git_persistence_size is match('^[0-9]+(\\.[0-9]+)?(E|P|T|G|M|K|Ei|Pi|Ti|Gi|Mi|Ki)?$')
+    fail_msg: >-
+      Buzz inputs failed offline preflight. Refusing to continue.
+      Placeholder CHANGE_ME context values are rejected. Offline mode is not
+      runtime proof.
+
+- name: Assert relay URL and owner pubkey match the chart schema
+  ansible.builtin.assert:
+    that:
+      - buzz_relay_url is match('^wss://.+')
+      - "'example.invalid' not in buzz_relay_url"
+      - buzz_owner_pubkey is match('^[0-9a-f]{64}$')
+      - buzz_owner_pubkey != '0000000000000000000000000000000000000000000000000000000000000000'
+      - buzz_require_relay_membership | bool
+    fail_msg: >-
+      relayUrl must be a non-placeholder wss:// URL and ownerPubkey must be the
+      operator's real 64-character lowercase hex Nostr pubkey. This role does
+      not generate that keypair. See docs/buzz.md.
+
+- name: Assert the safe exposure default unless explicitly opted in
+  ansible.builtin.assert:
+    that:
+      - buzz_service_type in ['ClusterIP', 'NodePort', 'LoadBalancer']
+      - buzz_exposure_enabled | bool or buzz_service_type == 'ClusterIP'
+      - buzz_exposure_enabled | bool or not (buzz_ingress_enabled | bool)
+      - buzz_exposure_enabled | bool or not (buzz_httproute_enabled | bool)
+      - buzz_exposure_enabled | bool or not (buzz_pairing_relay_enabled | bool)
+      - not ((buzz_ingress_enabled | bool) and (buzz_httproute_enabled | bool))
+      - (not (buzz_ingress_enabled | bool)) or (buzz_ingress_class_name | length > 0)
+      - (buzz_ingress_tls_secret_name | length == 0) or (buzz_ingress_enabled | bool)
+      - (buzz_ingress_tls_secret_name | length == 0) or (buzz_ingress_tls_hosts | length > 0)
+    fail_msg: >-
+      Refusing non-ClusterIP, Ingress, HTTPRoute, or pairing-relay exposure
+      without buzz_exposure_enabled. Ingress and HTTPRoute are mutually
+      exclusive. This role does not set cert issuers, hostNetwork, hostPort,
+      privileged pods, or Tailscale Funnel. The chart has no such keys.
+
+- name: Assert production profile uses secret names and non-secret endpoints only
+  when: buzz_profile == 'production'
+  ansible.builtin.assert:
+    that:
+      - buzz_existing_secret is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - "'change-me' not in buzz_existing_secret"
+      - "'CHANGE_ME' not in buzz_existing_secret"
+      - buzz_s3_endpoint is match('^https://.+')
+      - "'example.invalid' not in buzz_s3_endpoint"
+      - buzz_storage_class | length > 0 or not (buzz_git_persistence_enabled | bool) or (buzz_git_existing_claim | length > 0)
+      - "'CHANGE_ME' not in buzz_storage_class"
+    fail_msg: >-
+      Production profile requires an existing Secret name, an https S3 endpoint,
+      and a storage class when the git PVC is created. Do not put DATABASE_URL,
+      REDIS_URL, or S3 keys in Ansible variables.
+
+- name: Assert quickstart profile does not carry production credential URLs
+  when: buzz_profile == 'quickstart'
+  ansible.builtin.assert:
+    that:
+      - buzz_existing_secret | length == 0 or buzz_existing_secret is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - buzz_s3_endpoint | length == 0 or buzz_s3_endpoint is match('^https?://.+')
+      - buzz_storage_class | length > 0
+      - "'CHANGE_ME' not in buzz_storage_class"
+      - buzz_postgresql_persistence_enabled | bool
+      - buzz_redis_persistence_enabled | bool
+      - buzz_minio_persistence_enabled | bool
+    fail_msg: >-
+      Quickstart is eval-only. It still requires a storage class for the git PVC
+      and the bundled Postgres and Redis PVCs. The MinIO PVC template cannot set
+      a storage class. Do not pass inline secret values.
+
+- name: Assert optional image digest is an immutable sha256 pin
+  when: buzz_image_digest | length > 0
+  ansible.builtin.assert:
+    that:
+      - buzz_image_digest is match('^sha256:[0-9a-f]{64}$')
+    fail_msg: >-
+      buzz_image_digest must be a sha256 digest of 64 lowercase hex characters.
+      This role does not invent one.

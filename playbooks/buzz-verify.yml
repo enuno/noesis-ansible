@@ -1,0 +1,61 @@
+---
+# Read-only verification for a Buzz release. Does not install, upgrade,
+# uninstall, or delete data. Same execution model as playbooks/deploy_buzz.yml:
+# tasks run on the inventory host that holds kubeconfig. No delegate_to.
+#
+# buzz_live_checks defaults false via role defaults. Offline mode prints
+# NOT RUN and is not runtime proof.
+#
+# Usage:
+#   ansible-playbook -i inventory/<your-inventory> playbooks/buzz-verify.yml
+
+- name: Verify pinned Buzz release without installing it
+  hosts: buzz_k3s
+  gather_facts: true
+  become: true
+  become_method: sudo
+  tags: [buzz, verify]
+
+  vars:
+    # Pinned target-side Python environment for kubernetes.core modules.
+    # See docs/praxis-k3s/pins.md.
+    hermes_kubernetes_python_version: "34.1.0"
+    hermes_kubernetes_venv: /opt/ansible-kubernetes
+
+  pre_tasks:
+    - name: Create dedicated target-side Kubernetes Python environment
+      ansible.builtin.command:
+        cmd: "python3 -m venv {{ hermes_kubernetes_venv }}"
+        creates: "{{ hermes_kubernetes_venv }}/bin/python"
+
+    - name: Install exact Python kubernetes client pin in target venv
+      ansible.builtin.pip:
+        name: "kubernetes=={{ hermes_kubernetes_python_version }}"
+        virtualenv: "{{ hermes_kubernetes_venv }}"
+        state: present
+
+    - name: Select pinned target-side Kubernetes Python environment
+      ansible.builtin.set_fact:
+        ansible_python_interpreter: "{{ hermes_kubernetes_venv }}/bin/python"
+
+  tasks:
+    - name: Assert this play is not pointed at the placeholder example host
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname != 'buzz-k3s.example.invalid'
+        fail_msg: inventory/example is not a verify target.
+
+    - name: Run offline input checks
+      ansible.builtin.include_role:
+        name: buzz
+        tasks_from: validate-inputs.yml
+
+    - name: Run live preflight when explicitly enabled
+      ansible.builtin.include_role:
+        name: buzz
+        tasks_from: preflight-live.yml
+
+    - name: Run live release checks when explicitly enabled
+      ansible.builtin.include_role:
+        name: buzz
+        tasks_from: validate.yml

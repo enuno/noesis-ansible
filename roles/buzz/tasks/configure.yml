@@ -1,0 +1,47 @@
+---
+# Runs on the managed host. Ansible's copy and template actions read sources
+# on the controller and write destinations on this host. No kubeconfig is read.
+- name: Ensure managed-host staging directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+    owner: root
+    group: root
+  loop:
+    - "{{ buzz_stage_dir }}"
+    - "{{ buzz_chart_path }}"
+
+- name: Copy pinned vendored chart to the managed host
+  ansible.builtin.copy:
+    src: "{{ buzz_chart_source }}/"
+    dest: "{{ buzz_chart_path }}/"
+    mode: preserve
+    directory_mode: "0700"
+
+- name: Read copied chart metadata on the managed host
+  ansible.builtin.slurp:
+    src: "{{ buzz_chart_path }}/Chart.yaml"
+  register: buzz_chart_yaml
+
+- name: Read copied chart provenance on the managed host
+  ansible.builtin.slurp:
+    src: "{{ buzz_chart_path }}/PROVENANCE.md"
+  register: buzz_chart_provenance
+
+- name: Assert copied chart matches the immutable pin
+  ansible.builtin.assert:
+    that:
+      - "'version: 0.1.11' in (buzz_chart_yaml.content | b64decode)"
+      - buzz_chart_git_revision in (buzz_chart_provenance.content | b64decode)
+      - buzz_chart_lock_digest in (buzz_chart_provenance.content | b64decode)
+    fail_msg: Copied chart does not match the pinned git revision or Chart.yaml version.
+
+- name: Render non-secret deploy values on the managed host
+  ansible.builtin.template:
+    src: values-buzz.yml.j2
+    dest: "{{ buzz_stage_dir }}/values-buzz.yml"
+    mode: "0600"
+    owner: root
+    group: root
+  diff: false

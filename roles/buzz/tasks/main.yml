@@ -1,0 +1,19 @@
+---
+# roles/buzz/tasks/main.yml
+# Execution model: every task runs on the play's inventory host (the host that
+# holds kubeconfig). Helm then calls the Kubernetes API from that host.
+# The controller does not receive kubeconfig contents. No delegate_to.
+- name: Validate inputs without contacting the Kubernetes API
+  ansible.builtin.include_tasks: validate-inputs.yml
+
+- name: Live preflight on the managed host when buzz_live_checks is true
+  ansible.builtin.include_tasks: preflight-live.yml
+
+- name: Stage the pinned chart and render non-secret values on the managed host
+  ansible.builtin.include_tasks: configure.yml
+
+- name: Install or upgrade the pinned Buzz release from the managed host
+  ansible.builtin.include_tasks: install.yml
+
+- name: Validate the release when live checks are explicitly enabled
+  ansible.builtin.include_tasks: validate.yml
