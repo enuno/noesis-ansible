@@ -1,0 +1,124 @@
+---
+- name: Check tailscaled is active before configuring Serve
+  ansible.builtin.command:
+    argv: [systemctl, is-active, tailscaled]
+  register: tailscale_serve_daemon_active
+  changed_when: false
+  failed_when: tailscale_serve_daemon_active.stdout | trim != 'active'
+
+- name: Read Tailscale enrollment status
+  ansible.builtin.command:
+    argv: ["{{ tailscale_serve_command }}", status, --json]
+  register: tailscale_serve_node_status_raw
+  changed_when: false
+  failed_when: false
+  timeout: "{{ tailscale_serve_timeout_seconds }}"
+  no_log: true
+
+- name: Assert this host is already enrolled in Tailscale
+  ansible.builtin.assert:
+    that:
+      - tailscale_serve_node_status_raw.rc == 0
+      - (tailscale_serve_node_status_raw.stdout | default('{}') | from_json).BackendState | default('') == 'Running'
+      - ((tailscale_serve_node_status_raw.stdout | default('{}') | from_json).Self.DNSName | default('') | length) > 0
+    fail_msg: >-
+      Tailscale is not enrolled (BackendState must be Running and Self.DNSName
+      must be assigned). Run roles/tailscale first with vault-backed
+      tailscale_authkey. This role never logs out or re-enrolls an identity.
+
+- name: Read Hermes dashboard ClusterIP Service
+  ansible.builtin.command:
+    argv:
+      - "{{ tailscale_serve_k3s_binary }}"
+      - kubectl
+      - -n
+      - "{{ tailscale_serve_namespace }}"
+      - get
+      - service
+      - "{{ tailscale_serve_service_name }}"
+      - -o
+      - json
+      - --request-timeout=15s
+  register: tailscale_serve_service_raw
+  changed_when: false
+  timeout: "{{ tailscale_serve_timeout_seconds }}"
+  retries: "{{ tailscale_serve_retries }}"
+  delay: "{{ tailscale_serve_delay_seconds }}"
+  until: tailscale_serve_service_raw.rc == 0
+
+- name: Derive the private Serve backend and tailnet URL
+  ansible.builtin.set_fact:
+    tailscale_serve_cluster_ip: "{{ (tailscale_serve_service_raw.stdout | from_json).spec.clusterIP }}"
+    tailscale_serve_dns_name: "{{ (tailscale_serve_node_status_raw.stdout | from_json).Self.DNSName | regex_replace('\\.$', '') }}"
+    tailscale_serve_backend: >-
+      http://{{ (tailscale_serve_service_raw.stdout | from_json).spec.clusterIP }}:{{ tailscale_serve_service_port }}
+  changed_when: false
+
+- name: Assert the Service is a routable ClusterIP on the dashboard port
+  ansible.builtin.assert:
+    that:
+      - (tailscale_serve_service_raw.stdout | from_json).spec.type == 'ClusterIP'
+      - tailscale_serve_cluster_ip not in ['None', '']
+      - tailscale_serve_service_port | int in ((tailscale_serve_service_raw.stdout | from_json).spec.ports | map(attribute='port') | map('int') | list)
+    fail_msg: >-
+      {{ tailscale_serve_namespace }}/{{ tailscale_serve_service_name }} must be
+      a non-headless ClusterIP Service exposing port {{ tailscale_serve_service_port }}.
+
+- name: Read current Tailscale Serve configuration
+  ansible.builtin.command:
+    argv: ["{{ tailscale_serve_command }}", serve, status, --json]
+  register: tailscale_serve_status_before_raw
+  changed_when: false
+  failed_when: tailscale_serve_status_before_raw.rc not in [0, 1]
+  timeout: "{{ tailscale_serve_timeout_seconds }}"
+
+- name: Parse current Serve configuration
+  ansible.builtin.set_fact:
+    tailscale_serve_status_before: >-
+      {{ (tailscale_serve_status_before_raw.stdout | default('') | trim
+          | default('{}', true)) | from_json }}
+  changed_when: false
+
+- name: Determine whether the managed HTTPS endpoint has drifted
+  ansible.builtin.set_fact:
+    tailscale_serve_endpoint_converged: >-
+      {{ (tailscale_serve_status_before.TCP[tailscale_serve_https_port | string].HTTPS | default(false) | bool)
+         and (tailscale_serve_status_before.Web[tailscale_serve_dns_name ~ ':' ~ (tailscale_serve_https_port | string)].Handlers['/'].Proxy
+              | default('') == tailscale_serve_backend) }}
+  changed_when: false
+
+- name: Reconcile only HTTPS port 443 to the Hermes ClusterIP backend
+  ansible.builtin.command:
+    argv:
+      - "{{ tailscale_serve_command }}"
+      - serve
+      - --bg
+      - "--https={{ tailscale_serve_https_port }}"
+      - "{{ tailscale_serve_backend }}"
+  register: tailscale_serve_apply
+  changed_when: true
+  timeout: "{{ tailscale_serve_timeout_seconds }}"
+  when: not tailscale_serve_endpoint_converged | bool
+
+- name: Read reconciled Tailscale Serve configuration
+  ansible.builtin.command:
+    argv: ["{{ tailscale_serve_command }}", serve, status, --json]
+  register: tailscale_serve_status_after_raw
+  changed_when: false
+  timeout: "{{ tailscale_serve_timeout_seconds }}"
+  retries: "{{ tailscale_serve_retries }}"
+  delay: "{{ tailscale_serve_delay_seconds }}"
+  until: tailscale_serve_status_after_raw.rc == 0
+
+- name: Assert managed endpoint is private Serve and Funnel is off
+  vars:
+    tailscale_serve_status_after: "{{ tailscale_serve_status_after_raw.stdout | from_json }}"
+    tailscale_serve_web_key: "{{ tailscale_serve_dns_name }}:{{ tailscale_serve_https_port }}"
+  ansible.builtin.assert:
+    that:
+      - tailscale_serve_status_after.TCP[tailscale_serve_https_port | string].HTTPS | default(false) | bool
+      - tailscale_serve_status_after.Web[tailscale_serve_web_key].Handlers['/'].Proxy | default('') == tailscale_serve_backend
+      - not (tailscale_serve_status_after.AllowFunnel[tailscale_serve_web_key] | default(false) | bool)
+    fail_msg: >-
+      Serve did not converge to {{ tailscale_serve_backend }} on private
+      https:{{ tailscale_serve_https_port }}, or Funnel is enabled. Funnel is forbidden.

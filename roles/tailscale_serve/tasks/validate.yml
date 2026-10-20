@@ -1,0 +1,51 @@
+---
+- name: Verify host can open the Hermes ClusterIP dashboard port
+  ansible.builtin.wait_for:
+    host: "{{ tailscale_serve_cluster_ip }}"
+    port: "{{ tailscale_serve_service_port }}"
+    state: started
+    connect_timeout: 3
+    timeout: "{{ tailscale_serve_timeout_seconds }}"
+  changed_when: false
+
+- name: Discover the kernel-selected source address for the ClusterIP route
+  ansible.builtin.command:
+    argv: [ip, -json, route, get, "{{ tailscale_serve_cluster_ip }}"]
+  register: tailscale_serve_route_raw
+  changed_when: false
+  timeout: "{{ tailscale_serve_timeout_seconds }}"
+
+- name: Record the route source candidate
+  ansible.builtin.set_fact:
+    tailscale_serve_route_source_ip: "{{ (tailscale_serve_route_raw.stdout | from_json | first).prefsrc | default((tailscale_serve_route_raw.stdout | from_json | first).src | default('')) }}"
+  changed_when: false
+
+- name: Require deploy-time confirmation of the source observed by Hermes
+  ansible.builtin.assert:
+    that:
+      - tailscale_serve_confirmed_backend_source_ip | length > 0
+    fail_msg: >-
+      Confirm the actual proxy source in Hermes pod request logs/headers, then
+      set tailscale_serve_confirmed_backend_source_ip to that address and add
+      <address>/32 to dashboard.trustedProxies. Kernel route candidate:
+      {{ tailscale_serve_route_source_ip | default('unknown') }}. Never use
+      0.0.0.0/0; Hermes rejects it upstream.
+
+- name: Check confirmed source is covered by a configured trusted proxy CIDR
+  ansible.builtin.command:
+    argv: >-
+      {{ ['python3', '-c',
+          'import ipaddress,sys; ip=ipaddress.ip_address(sys.argv[1]); sys.exit(0 if any(ip in ipaddress.ip_network(n) for n in sys.argv[2:]) else 1)',
+          tailscale_serve_confirmed_backend_source_ip]
+         + tailscale_serve_dashboard_trusted_proxies }}
+  register: tailscale_serve_proxy_trust_check
+  changed_when: false
+  failed_when: false
+
+- name: Assert confirmed backend source is trusted by Hermes
+  ansible.builtin.assert:
+    that: tailscale_serve_proxy_trust_check.rc == 0
+    fail_msg: >-
+      Confirmed source {{ tailscale_serve_confirmed_backend_source_ip }} is not
+      covered by tailscale_serve_dashboard_trusted_proxies. Add the narrow /32
+      and redeploy Hermes with bootstrap.overwrite=true if config was seeded.

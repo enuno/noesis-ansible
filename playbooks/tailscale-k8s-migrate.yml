@@ -1,0 +1,52 @@
+---
+# Migrate noesis-praxis Tailscale from host tailscaled+Serve to the in-cluster
+# official Tailscale Operator + tailscale Ingress (operator pivot).
+#
+# Order matters:
+#   install      — operator must exist before the dashboard Ingress is applied
+#   remove-host  — frees the noesis-praxis MagicDNS name (brief dashboard outage)
+#   expose       — proxy enrolls as noesis-praxis.<tailnet> and serves the
+#                  Hermes dashboard with operator-provisioned TLS
+#   validate     — read-only post-conditions
+#
+# Prerequisites (see roles/tailscale_k8s/README.md): OAuth client id+secret in
+# the encrypted vault, ACL tagOwners for tag:k8s-operator. The role fails
+# fast with operator-actionable messages if these are missing.
+#
+# Usage:
+#   ANSIBLE_VAULT_PASSWORD_FILE=... ansible-playbook -i inventory/praxis-k3s/hosts.ini \
+#     playbooks/tailscale-k8s-migrate.yml -f 1 -e @<encrypted-vault>.yml
+# Reruns are idempotent (helm atomic upgrade, apply-based manifests).
+
+- name: Migrate Tailscale to the in-cluster operator
+  hosts: k3s_server
+  become: true
+  gather_facts: true
+  tags: [tailscale, k8s, migrate]
+  vars:
+    # Shared with playbooks/hermes-{deploy,verify}.yml — the same target-side
+    # venv is reused (idempotent; `creates:` skips an existing venv).
+    hermes_kubernetes_python_version: "34.1.0"
+    hermes_kubernetes_venv: /opt/ansible-kubernetes
+  pre_tasks:
+    - name: Install Python venv support for target-side kubernetes.core modules
+      ansible.builtin.apt:
+        name: python3-venv
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+    - name: Create dedicated target-side Kubernetes Python environment
+      ansible.builtin.command:
+        cmd: "python3 -m venv {{ hermes_kubernetes_venv }}"
+        creates: "{{ hermes_kubernetes_venv }}/bin/python"
+    - name: Install exact Python kubernetes client pin in target venv
+      ansible.builtin.pip:
+        name: "kubernetes=={{ hermes_kubernetes_python_version }}"
+        virtualenv: "{{ hermes_kubernetes_venv }}"
+        state: present
+    - name: Select pinned target-side Kubernetes Python environment
+      ansible.builtin.set_fact:
+        ansible_python_interpreter: "{{ hermes_kubernetes_venv }}/bin/python"
+  roles:
+    - role: tailscale_k8s
+      tailscale_k8s_actions: [install, remove-host, expose, validate]

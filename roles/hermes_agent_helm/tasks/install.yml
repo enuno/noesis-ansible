@@ -1,0 +1,87 @@
+---
+# Render the non-secret values file on the target, copy the vendored chart
+# there, then install/upgrade it. No cluster credentials or rendered secret
+# values are copied back to the controller.
+- name: Ensure target staging directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+    owner: root
+    group: root
+  loop:
+    - "{{ hermes_agent_stage_dir }}"
+    - "{{ hermes_agent_chart_path }}"
+
+- name: Copy pinned vendored chart to target
+  ansible.builtin.copy:
+    src: "{{ hermes_agent_chart_source }}/"
+    dest: "{{ hermes_agent_chart_path }}/"
+    mode: preserve
+    directory_mode: "0700"
+
+- name: Read copied chart metadata on target
+  ansible.builtin.slurp:
+    src: "{{ hermes_agent_chart_path }}/Chart.yaml"
+  register: hermes_agent_chart_metadata
+
+- name: Assert copied chart version matches pin
+  ansible.builtin.assert:
+    that:
+      - "'version: ' ~ hermes_agent_chart_version in (hermes_agent_chart_metadata.content | b64decode)"
+    fail_msg: "Copied chart does not match pinned {{ hermes_agent_chart_version }}."
+
+- name: Render non-secret deploy values on target
+  ansible.builtin.template:
+    src: values-hermes-agent.yml.j2
+    dest: "{{ hermes_agent_stage_dir }}/values-hermes-agent.yml"
+    mode: "0600"
+    owner: root
+    group: root
+  diff: false
+
+- name: Resolve anonymous Docker Hub pull token for pinned image
+  ansible.builtin.uri:
+    url: >-
+      https://auth.docker.io/token?service=registry.docker.io&scope=repository:nousresearch/hermes-agent:pull
+    method: GET
+    return_content: true
+    status_code: 200
+  register: hermes_agent_registry_token
+  no_log: true
+
+- name: Resolve configured image tag digest before Helm apply
+  ansible.builtin.uri:
+    url: >-
+      https://registry-1.docker.io/v2/nousresearch/hermes-agent/manifests/{{ hermes_agent_image_tag }}
+    method: HEAD
+    headers:
+      Authorization: "Bearer {{ hermes_agent_registry_token.json.token }}"
+      Accept: >-
+        application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json
+    return_content: false
+    status_code: 200
+  register: hermes_agent_registry_manifest
+  no_log: true
+
+- name: Assert configured image tag resolves to pinned immutable digest
+  ansible.builtin.assert:
+    that:
+      - hermes_agent_registry_manifest.docker_content_digest is defined
+      - hermes_agent_registry_manifest.docker_content_digest == hermes_agent_image_digest
+    fail_msg: >-
+      Configured image tag does not resolve to hermes_agent_image_digest;
+      refusing Helm apply because the chart has no image.digest key.
+
+- name: Install or upgrade hermes-agent release (atomic, bounded wait)
+  kubernetes.core.helm:
+    chart_ref: "{{ hermes_agent_chart_path }}"
+    release_name: "{{ hermes_agent_release_name }}"
+    release_namespace: "{{ hermes_agent_namespace }}"
+    release_state: present
+    values_files:
+      - "{{ hermes_agent_stage_dir }}/values-hermes-agent.yml"
+    wait: true
+    timeout: "{{ hermes_agent_helm_wait_timeout }}s"
+    atomic: true
+  register: hermes_agent_helm_result

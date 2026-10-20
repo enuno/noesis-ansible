@@ -8,8 +8,13 @@ collections:
   - name: community.general
     version: ">=7.0.0"
 
-# macOS-specific helpers (launchd, defaults, pkgutil)
-  - name: community.general
-    version: ">=7.0.0"
+# Kubernetes/Helm deploy + verify (roles/hermes_agent_helm, playbooks/hermes-{deploy,verify}.yml)
+# >=6.6.0 required: helm v4 removed `helm list --all`; only 6.6.0+ guards it.
+  - name: kubernetes.core
+    version: ">=6.6.0"
+
+# Linux kernel sysctl management used by playbooks/k3s-install.yml
+  - name: ansible.posix
+    version: ">=1.5.4,<3.0.0"
 
 roles: []

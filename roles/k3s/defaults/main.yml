@@ -1,0 +1,26 @@
+---
+# defaults file for k3s role — NoesisPraxis single-node server.
+# Pins here mirror inventory/praxis-k3s/group_vars/k3s_server.yml; group_vars
+# wins. Keep both in sync when bumping versions.
+
+k3s_version: "v1.37.1+k3s1"
+k3s_binary_sha256: "92b94582eb7b34a8cf532e6006842b9ed215a6783cf56a3dd6271fd35243b2c0"
+k3s_install_dir: "/usr/local/bin"
+
+k3s_config_dir: "/etc/rancher/k3s"
+k3s_config_file: "{{ k3s_config_dir }}/config.yaml"
+k3s_kubeconfig_file: "{{ k3s_config_dir }}/k3s.yaml"
+
+k3s_service_name: "k3s"
+k3s_systemd_unit: "/etc/systemd/system/k3s.service"
+
+# GitHub release asset URL for the pinned version (amd64).
+k3s_binary_url: "https://github.com/k3s-io/k3s/releases/download/{{ k3s_version | urlencode }}/k3s"
+
+# Components disabled in the declarative k3s config.
+k3s_disable_components:
+  - traefik
+  - servicelb
+
+# Rollout / readiness bounds (seconds) used by the role's validate split.
+k3s_node_ready_timeout: 180

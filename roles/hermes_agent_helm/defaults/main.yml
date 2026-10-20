@@ -1,0 +1,93 @@
+---
+# roles/hermes_agent_helm/defaults/main.yml
+# Reusable deployment of the jyje community hermes-agent Helm chart
+# (pinned in charts/vendor/hermes-agent — see docs/praxis-k3s/pins.md).
+# This role deploys a SEPARATE MINIMAL Hermes instance: no NoesisPraxis
+# identity, no memory/profile imports.
+
+# --- Pinning (must match docs/praxis-k3s/pins.md) -------------------------
+hermes_agent_chart_version: "1.21.0"
+hermes_agent_image_tag: "v0.22.2"
+# Resolved from registry-1.docker.io at pin time (multi-arch manifest list).
+# The chart has NO image.digest key. Before every Helm apply, the role resolves
+# the configured tag through the anonymous registry API and fails unless it
+# equals this digest; runtime verification separately checks imageID.
+hermes_agent_image_digest: "sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919"
+hermes_agent_image_digest_amd64: "sha256:a11574b7fe8e1631d7d88d556677dac693bc058abf558cdeb899155688c1bf05"
+
+# --- Release topology ------------------------------------------------------
+hermes_agent_release_name: hermes-agent
+hermes_agent_namespace: hermes-agent
+# Cluster-admin credentials remain on the target and are used in place.
+k3s_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+hermes_agent_helm_wait: true
+hermes_agent_helm_wait_timeout: 300
+# Source is resolved by Ansible's copy action on the controller; destination
+# is a target-host directory consumed by target-side Helm.
+hermes_agent_chart_source: "{{ playbook_dir | dirname }}/charts/vendor/hermes-agent"
+hermes_agent_chart_path: /opt/hermes-agent-chart
+
+# --- Workload (single-writer) ---------------------------------------------
+# controller.type: deployment — the chart forces strategy: Recreate when
+# persistence is enabled. replicaCount is hard-pinned to 1 in the values
+# template (chart documents >1 as unsupported).
+
+# --- Persistence (HERMES_HOME) --------------------------------------------
+hermes_agent_persistence_storageclass: local-path
+hermes_agent_persistence_size: 5Gi
+# HERMES_HOME mount path is pinned by the chart at /opt/data
+# (persistence.mountPath). Changing it would void verify checks.
+hermes_agent_persistence_existing_claim: ""
+# PVC retention: the chart-created PVC is DELETED by `helm uninstall' (no
+# retention annotation). Set existing_claim to a pre-created PVC for
+# retention-safe operation. This role never uninstalls and never deletes PVCs.
+
+# --- Dashboard (management UI, in-cluster only) ----------------------------
+hermes_agent_dashboard_enabled: true
+hermes_agent_dashboard_port: 9119
+hermes_agent_dashboard_username: hermes-admin
+# REQUIRED — vault-injected. Asserted non-empty and not the placeholder.
+hermes_agent_dashboard_password: ""
+# REQUIRED when the dashboard is enabled for Tailscale Serve. Use the exact
+# tailnet HTTPS origin and only observed, narrow proxy CIDRs (/32 or /128).
+hermes_agent_dashboard_public_url: ""
+hermes_agent_dashboard_trusted_proxies: []
+# REQUIRED when the dashboard is enabled. NetworkPolicy ingress source for the
+# dashboard port. Host-originated Tailscale Serve traffic keeps the k3s node's
+# primary IP after kube-proxy DNAT, so a single /32 on the node IP is the
+# narrowest working rule. Never 0.0.0.0/0.
+hermes_agent_dashboard_ingress_cidr: "31.97.209.57/32"
+# Namespace holding the Tailscale operator's proxy pods — the live tailnet
+# dashboard path after the tailscale_k8s migration. The NetworkPolicy admits
+# this namespace rather than a pod-CIDR ipBlock so proxy pod labels cannot
+# break admission.
+hermes_agent_dashboard_tailscale_namespace: tailscale
+# Optional pod CIDR allowed in dashboard trustedProxies to cover the
+# operator proxy's source IP. Empty = only /32 and /128 entries allowed.
+hermes_agent_dashboard_trusted_pod_cidr: ""
+# One-time config reseed switch. Set true for one approved deploy, then false.
+hermes_agent_bootstrap_overwrite: false
+
+# --- Provider credentials (vault-injected) ---------------------------------
+# Dict of env keys for the externally managed provider Secret, e.g.
+#   hermes_agent_provider_env:
+#     OPENAI_API_KEY: "{{ vault_openai_key }}"
+# Injected via the chart's extraEnvFrom mechanism (dashboard auth uses
+# HERMES_DASHBOARD_BASIC_AUTH_* keys rendered from the vars above).
+hermes_agent_provider_env: {}
+hermes_agent_model_provider: openai-api
+hermes_agent_model_default: gpt-4o-mini
+
+# --- Namespace Pod Security Admission --------------------------------------
+# The rendered pod is PSS "restricted"-compliant (chart values-hardened.yaml
+# profile). Set to "" to skip PSA labelling.
+hermes_agent_psa_enforce: restricted
+
+# --- Chart test rendering --------------------------------------------------
+# Keep the chart's helm-test Job rendered (it uses its own emptyDir home —
+# never the live PVC, so no second-writer risk). RUNNING it is gated in
+# playbooks/hermes-verify.yml by hermes_chart_test_authorized.
+hermes_agent_tests_rendered: true
+
+# --- Stage dir for the rendered values file on the target ------------------
+hermes_agent_stage_dir: /opt/hermes-agent-stage

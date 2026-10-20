@@ -1,0 +1,63 @@
+---
+# roles/helm/tasks/main.yml
+# Install the pinned Helm CLI on the target host. Idempotent: when the
+# installed version already equals helm_version, the download/install block
+# is skipped. Checksum-verified download (get_url checksum == pin recorded
+# from get.helm.sh's official .sha256sum file).
+#
+# Requires become (root) — installs to /usr/local/bin.
+- name: Assert helm role supports this target architecture
+  ansible.builtin.assert:
+    that:
+      - ansible_system == 'Linux'
+      - ansible_architecture in ['x86_64', 'amd64']
+    fail_msg: "roles/helm supports only Linux x86_64 targets."
+
+- name: Check installed helm version
+  ansible.builtin.command: "{{ helm_install_dir }}/helm version --short"
+  register: helm_installed
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Record installed helm version
+  ansible.builtin.set_fact:
+    helm_installed_version: "{{ helm_installed.stdout | regex_replace('^([vV]?[0-9]+\\.[0-9]+\\.[0-9]+).*', '\\1') | regex_replace('^V', 'v') | regex_replace('^([0-9])', 'v\\1') }}"
+  when: helm_installed.rc == 0
+
+- name: Install pinned helm {{ helm_version }} (skipped when already at pin)
+  when: helm_installed.rc != 0 or helm_installed_version != helm_version
+  block:
+    - name: Download pinned helm tarball (sha256-enforced)
+      ansible.builtin.get_url:
+        url: "{{ helm_download_url }}"
+        dest: "{{ helm_download_dir }}/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        checksum: "sha256:{{ helm_sha256 }}"
+        mode: "0644"
+
+    - name: Unpack helm tarball on target
+      ansible.builtin.unarchive:
+        src: "{{ helm_download_dir }}/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        dest: "{{ helm_download_dir }}"
+        remote_src: true
+
+    - name: Install helm binary to {{ helm_install_dir }}
+      ansible.builtin.copy:
+        src: "{{ helm_download_dir }}/linux-amd64/helm"
+        dest: "{{ helm_install_dir }}/helm"
+        mode: "0755"
+        owner: root
+        group: root
+        remote_src: true
+
+- name: Verify helm CLI is functional at the pinned version
+  ansible.builtin.command: "{{ helm_install_dir }}/helm version --short"
+  register: helm_verify
+  changed_when: false
+  check_mode: false
+
+- name: Assert installed helm version matches the pin
+  ansible.builtin.assert:
+    that:
+      - helm_verify.stdout is match('^v?' ~ helm_version[1:] ~ '(\+|$)')
+    fail_msg: "helm on target is {{ helm_verify.stdout }}, expected pinned {{ helm_version }}"

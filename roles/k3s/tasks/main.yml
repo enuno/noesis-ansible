@@ -1,0 +1,12 @@
+---
+# k3s role — NoesisPraxis conventions: install/configure/validate split,
+# FQCN modules, idempotent, never destroys an existing cluster.
+
+- name: Install k3s binary (pinned release, sha256-verified)
+  ansible.builtin.include_tasks: install.yml
+
+- name: Configure k3s (declarative config, systemd unit, kubeconfig perms)
+  ansible.builtin.include_tasks: configure.yml
+
+- name: Validate k3s installation
+  ansible.builtin.include_tasks: validate.yml

@@ -1,0 +1,12 @@
+---
+# handlers for k3s role.
+
+# Conditional restart: only restarts when (a) notified — i.e. the config or
+# systemd unit actually changed, and (b) the service was already active.
+# A first-time install never triggers this (the configure split starts the
+# service explicitly), and an unchanged re-run never triggers it either.
+- name: Restart k3s
+  ansible.builtin.systemd_service:
+    name: "{{ k3s_service_name }}"
+    state: restarted
+  when: k3s_service_was_active | default(false)

@@ -1,0 +1,28 @@
+---
+# validate split — post-config sanity checks. Bounded waits only; these run
+# at the end of every role execution (including re-runs).
+
+- name: Wait for k3s node to report Ready
+  ansible.builtin.command:
+    argv:
+      - "{{ k3s_install_dir }}/k3s"
+      - kubectl
+      - get
+      - nodes
+      - --request-timeout=10s
+  register: k3s_nodes
+  changed_when: false
+  until: k3s_nodes.rc == 0 and k3s_nodes.stdout.find(" Ready") != -1
+  retries: 30
+  delay: 6
+
+- name: Assert k3s service is enabled and active
+  ansible.builtin.systemd_service:
+    name: "{{ k3s_service_name }}"
+    enabled: true
+    state: started
+  check_mode: true
+  register: k3s_service_validate
+  failed_when:
+    - k3s_service_validate.changed
+    - not k3s_service_validate.state

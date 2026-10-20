@@ -1,0 +1,57 @@
+---
+# configure split — declarative k3s config, systemd unit, service state,
+# kubeconfig ownership. All changes notify the conditional restart handler;
+# an unchanged re-run touches nothing.
+
+- name: Ensure k3s config directory exists
+  ansible.builtin.file:
+    path: "{{ k3s_config_dir }}"
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+
+- name: Record whether k3s service was already active (restart-handler guard)
+  ansible.builtin.command: systemctl is-active {{ k3s_service_name }}
+  register: k3s_service_active_check
+  changed_when: false
+  failed_when: false
+
+- name: Set restart-handler guard fact
+  ansible.builtin.set_fact:
+    k3s_service_was_active: "{{ k3s_service_active_check.rc == 0 }}"
+
+- name: Install declarative k3s config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ k3s_config_file }}"
+    mode: "0600"
+    owner: root
+    group: root
+  notify: Restart k3s
+
+- name: Install k3s systemd unit
+  ansible.builtin.template:
+    src: k3s.service.j2
+    dest: "{{ k3s_systemd_unit }}"
+    mode: "0644"
+    owner: root
+    group: root
+  notify: Restart k3s
+
+- name: Enable and start k3s service
+  ansible.builtin.systemd_service:
+    name: "{{ k3s_service_name }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# k3s writes /etc/rancher/k3s/k3s.yaml root-owned 0600 by default; enforce
+# explicitly so an out-of-band change is corrected on re-run.
+- name: Enforce kubeconfig ownership and permissions
+  ansible.builtin.file:
+    path: "{{ k3s_kubeconfig_file }}"
+    state: file
+    owner: root
+    group: root
+    mode: "0600"

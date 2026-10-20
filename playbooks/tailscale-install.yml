@@ -1,0 +1,127 @@
+---
+# DEPRECATED (2026-10-19, operator pivot): the tailnet identity moved in-cluster
+# via the official tailscale-operator Helm chart — see
+# playbooks/tailscale-k8s-migrate.yml and roles/tailscale_k8s. This playbook is
+# retained ONLY as a manual rollback path for the host-package design.
+#
+# Install Tailscale directly on the k3s server and enroll only when the host
+# has no healthy existing identity. The existing tailscale role owns the
+# repository, package, service, and identity-preserving enrollment logic.
+#
+# Package policy: state=present installs the official stable-repository
+# candidate only when absent and never auto-upgrades it on a rerun. Exact
+# numeric pinning is deferred until approved preflight reads target apt
+# metadata; the role has no separate exact-version input.
+
+- name: Install and safely enroll Tailscale on noesis-praxis
+  hosts: k3s_server
+  gather_facts: true
+  become: true
+  become_method: sudo
+  tags: [tailscale, install]
+
+  pre_tasks:
+    - name: Detect Tailscale binary before installation
+      ansible.builtin.stat:
+        path: /usr/bin/tailscale
+      register: tailscale_install_binary
+
+    - name: Detect durable Tailscale identity state without reading it
+      ansible.builtin.stat:
+        path: /var/lib/tailscale/tailscaled.state
+      register: tailscale_install_identity_state
+      no_log: true
+
+    - name: Detect an existing enrolled Tailscale identity
+      ansible.builtin.command:
+        argv: [/usr/bin/tailscale, status, --json]
+      register: tailscale_install_existing_status_raw
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      no_log: true
+      timeout: 20
+      when: tailscale_install_binary.stat.exists
+
+    - name: Preserve durable identity and skip tailscale up when recovery is possible
+      ansible.builtin.set_fact:
+        tailscale_install_skip_up: >-
+          {{ (tailscale_up_skip | default(false) | bool) or
+             tailscale_install_identity_state.stat.exists or
+             (tailscale_install_binary.stat.exists and
+              (tailscale_install_existing_status_raw.rc | default(1)) == 0 and
+              (tailscale_install_existing_status_raw.stdout | default('{}') | from_json).BackendState
+              | default('') == 'Running') }}
+      no_log: true
+
+    - name: Require the vault-backed enrollment key unless enrollment is skipped
+      ansible.builtin.assert:
+        that:
+          - tailscale_install_skip_up | bool or
+            (vault_tailscale_auth_key | default('') | string | length > 0)
+        fail_msg: >-
+          vault_tailscale_auth_key must be injected as tailscale_authkey for a
+          new enrollment, or tailscale_up_skip=true must be set explicitly.
+      no_log: true
+      diff: false
+
+  tasks:
+    - name: Install Tailscale and preserve an existing enrolled identity
+      ansible.builtin.include_role:
+        name: tailscale
+        apply:
+          no_log: true
+      vars:
+        state: present
+        tailscale_authkey: "{{ vault_tailscale_auth_key | default('') }}"
+        tailscale_up_skip: "{{ tailscale_install_skip_up }}"
+        tailscale_ssh: false
+        tailscale_advertise_routes: []
+        tailscale_args: ""
+        insecurely_log_authkey: false
+      no_log: true
+
+  post_tasks:
+    - name: Assert tailscaled is active and enabled without changing it
+      ansible.builtin.systemd_service:
+        name: tailscaled
+        state: started
+        enabled: true
+      check_mode: true
+      register: tailscale_install_service
+      failed_when: tailscale_install_service.changed
+
+    - name: Read redacted Tailscale node status
+      ansible.builtin.command:
+        argv: [tailscale, status, --json]
+      register: tailscale_install_status_raw
+      changed_when: false
+      no_log: true
+      timeout: 20
+
+    - name: Read redacted Tailscale preferences
+      ansible.builtin.command:
+        argv: [tailscale, debug, prefs]
+      register: tailscale_install_prefs_raw
+      changed_when: false
+      no_log: true
+      timeout: 20
+
+    - name: Assert healthy enrollment and prohibited features remain disabled
+      vars:
+        tailscale_install_status: "{{ tailscale_install_status_raw.stdout | from_json }}"
+        tailscale_install_prefs: "{{ tailscale_install_prefs_raw.stdout | from_json }}"
+        tailscale_install_advertised_routes: >-
+          {{ tailscale_install_prefs.AdvertiseRoutes | default([], true) }}
+      ansible.builtin.assert:
+        that:
+          - tailscale_install_status.BackendState == 'Running'
+          - not (tailscale_install_prefs.RunSSH | default(false, true) | bool)
+          - tailscale_install_advertised_routes | length == 0
+          - "'0.0.0.0/0' not in tailscale_install_advertised_routes"
+          - "'::/0' not in tailscale_install_advertised_routes"
+        fail_msg: >-
+          Tailscale must be Running with SSH, subnet-route advertising, and
+          exit-node advertising disabled. Redacted command output is withheld.
+      no_log: true
+      diff: false

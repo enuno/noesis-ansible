@@ -1,0 +1,42 @@
+---
+# Input validation for tailscale_k8s. Fails fast with operator-actionable
+# messages — the OAuth client secret cannot be self-served from BSM; it is
+# created in the Tailscale admin console and added to the vault by hand.
+
+- name: Assert OAuth client id is configured
+  ansible.builtin.assert:
+    that:
+      - tailscale_k8s_oauth_client_id is string
+      - tailscale_k8s_oauth_client_id | length > 0
+    fail_msg: >-
+      tailscale_k8s_oauth_client_id is empty. Create an OAuth client in the
+      Tailscale admin console (scopes: devices:core, devices:write; suggested
+      tags: tag:k8s-operator) and set tailscale_k8s_oauth_client_id plus
+      tailscale_k8s_oauth_client_secret in the encrypted vault file.
+
+- name: Assert OAuth client secret is configured
+  ansible.builtin.assert:
+    that:
+      - tailscale_k8s_oauth_client_secret is string
+      - tailscale_k8s_oauth_client_secret | length > 0
+    fail_msg: >-
+      tailscale_k8s_oauth_client_secret is empty. The chart hard-requires
+      OAuth client credentials (mounted as client_id/client_secret); there is
+      no authKey deployment path. Client secrets are shown only once at
+      creation in the Tailscale admin console — if lost, mint a new OAuth
+      client and store both values in the vault file.
+
+- name: Assert dashboard hostname is DNS-label safe
+  ansible.builtin.assert:
+    that:
+      - tailscale_k8s_dashboard_hostname is match('^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$')
+    fail_msg: "tailscale_k8s_dashboard_hostname must be a valid RFC-1123 DNS label."
+  when: "'expose' in tailscale_k8s_actions"
+
+- name: Assert tailnet domain is not empty
+  ansible.builtin.assert:
+    that:
+      - tailscale_k8s_tailnet_domain | length > 0
+      - "'/' not in tailscale_k8s_tailnet_domain"
+    fail_msg: "tailscale_k8s_tailnet_domain must be the bare tailnet domain (e.g. tailf99a0.ts.net)."
+  when: "'expose' in tailscale_k8s_actions"

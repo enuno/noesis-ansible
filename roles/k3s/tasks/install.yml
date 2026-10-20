@@ -1,0 +1,76 @@
+---
+# install split — download the pinned k3s release binary and verify it
+# against the GitHub-published sha256. NEVER pipes an installer into a shell:
+# get_url fetches the release asset directly and validates the checksum.
+
+- name: Check for existing k3s binary
+  ansible.builtin.stat:
+    path: "{{ k3s_install_dir }}/k3s"
+  register: k3s_binary_stat
+
+- name: Detect installed k3s version (if binary present)
+  ansible.builtin.command:
+    argv:
+      - "{{ k3s_install_dir }}/k3s"
+      - "--version"
+  register: k3s_installed_version
+  changed_when: false
+  failed_when: false
+  when: k3s_binary_stat.stat.exists
+
+- name: Record whether the installed binary matches the pinned checksum
+  ansible.builtin.set_fact:
+    k3s_binary_checksum_matches: >-
+      {{ k3s_binary_stat.stat.exists and
+         (k3s_binary_stat.stat.checksum | default('')) == k3s_binary_sha256 }}
+
+- name: Fail if an existing k3s binary cannot report its version
+  ansible.builtin.assert:
+    that:
+      - k3s_installed_version.rc == 0
+      - k3s_installed_version.stdout | length > 0
+    fail_msg: Existing k3s binary is not executable or returned no version.
+  when: k3s_binary_stat.stat.exists
+
+# Existing cluster protection: re-running against a host whose installed
+# version differs from the pinned version is a stop-the-line failure.
+# Upgrades/downgrades are runbook material (docs/praxis-k3s/k3s.md), not an
+# implicit side effect of this role.
+- name: Fail if installed version differs from pinned version
+  ansible.builtin.fail:
+    msg: >-
+      k3s is already installed at version
+      {{ k3s_installed_version.stdout | default('unknown') | regex_replace('^k3s version (\\S+).*$', '\\1') }},
+      but this role pins {{ k3s_version }}.
+      This role never upgrades or wipes an existing cluster. Follow the
+      upgrade runbook in docs/praxis-k3s/k3s.md, or uninstall deliberately
+      before re-running.
+  when:
+    - k3s_binary_stat.stat.exists
+    - k3s_version not in (k3s_installed_version.stdout | default(''))
+
+# Replace an absent or modified binary even when it prints the pinned version.
+# get_url validates the downloaded bytes before replacing the destination.
+- name: Download pinned k3s release binary (sha256-verified)
+  ansible.builtin.get_url:
+    url: "{{ k3s_binary_url }}"
+    dest: "{{ k3s_install_dir }}/k3s"
+    mode: "0755"
+    owner: root
+    group: root
+    checksum: "sha256:{{ k3s_binary_sha256 }}"
+    timeout: 120
+  when: not (k3s_binary_checksum_matches | bool)
+
+- name: Re-read installed k3s binary checksum
+  ansible.builtin.stat:
+    path: "{{ k3s_install_dir }}/k3s"
+    checksum_algorithm: sha256
+  register: k3s_binary_post_install
+
+- name: Assert installed k3s binary matches the pinned checksum
+  ansible.builtin.assert:
+    that:
+      - k3s_binary_post_install.stat.exists
+      - k3s_binary_post_install.stat.checksum == k3s_binary_sha256
+    fail_msg: Installed k3s binary does not match k3s_binary_sha256.

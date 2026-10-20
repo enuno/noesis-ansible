@@ -1,0 +1,240 @@
+---
+# DEPRECATED (2026-10-19, operator pivot): verifies the retired host-Serve
+# design. Post-migration verification lives in
+# playbooks/tailscale-k8s-verify.yml. Retained ONLY for rollback validation.
+#
+# End-to-end host-side verification. The pod deletion is the only intentional
+# remote write and is tagged remote-write; use --skip-tags remote-write until
+# that controlled restart has explicit operator approval.
+
+- name: Verify private Tailscale Serve dashboard exposure
+  hosts: k3s_server
+  gather_facts: true
+  become: true
+  become_method: sudo
+  tags: [tailscale, tailscale-serve, verify]
+
+  vars:
+    tailscale_serve_k3s_binary: /usr/local/bin/k3s
+    tailscale_serve_namespace: hermes-agent
+    tailscale_serve_service_name: hermes-agent
+    tailscale_serve_service_port: 9119
+    tailscale_serve_https_port: 443
+    tailscale_serve_timeout_seconds: 20
+    tailscale_serve_retries: 12
+    tailscale_serve_delay_seconds: 5
+
+  tasks:
+    - name: Assert tailscaled is active and enabled without changing it
+      ansible.builtin.systemd_service:
+        name: tailscaled
+        state: started
+        enabled: true
+      check_mode: true
+      register: tailscale_serve_verify_daemon
+      failed_when: tailscale_serve_verify_daemon.changed
+
+    - name: Read enrolled Tailscale node status
+      ansible.builtin.command:
+        argv: [tailscale, status, --json]
+      register: tailscale_serve_verify_node_raw
+      changed_when: false
+      failed_when: false
+      timeout: "{{ tailscale_serve_timeout_seconds }}"
+      no_log: true
+
+    - name: Record assigned Tailscale addresses and MagicDNS name
+      ansible.builtin.set_fact:
+        tailscale_serve_verify_ipv4: >-
+          {{ ((tailscale_serve_verify_node_raw.stdout | from_json).TailscaleIPs
+              | select('match', '^[0-9]+\.') | list | first) | default('') }}
+        tailscale_serve_verify_ipv6: >-
+          {{ ((tailscale_serve_verify_node_raw.stdout | from_json).TailscaleIPs
+              | select('search', ':') | list | first) | default('') }}
+        tailscale_serve_verify_dns_name: >-
+          {{ (tailscale_serve_verify_node_raw.stdout | from_json).Self.DNSName
+             | default('') | regex_replace('\.$', '') }}
+      changed_when: false
+      when: tailscale_serve_verify_node_raw.rc == 0
+
+    - name: Assert enrolled identity has IPv4, IPv6, and MagicDNS assignments
+      ansible.builtin.assert:
+        that:
+          - tailscale_serve_verify_node_raw.rc == 0
+          - (tailscale_serve_verify_node_raw.stdout | from_json).BackendState == 'Running'
+          - tailscale_serve_verify_ipv4 | length > 0
+          - tailscale_serve_verify_ipv6 | length > 0
+          - tailscale_serve_verify_dns_name | length > 0
+        fail_msg: Tailscale must be enrolled with IPv4, IPv6, and MagicDNS assigned.
+
+    - name: Read Hermes Service
+      ansible.builtin.command:
+        argv: ["{{ tailscale_serve_k3s_binary }}", kubectl, -n,
+               "{{ tailscale_serve_namespace }}", get, service,
+               "{{ tailscale_serve_service_name }}", -o, json,
+               --request-timeout=15s]
+      register: tailscale_serve_verify_service_raw
+      changed_when: false
+      timeout: "{{ tailscale_serve_timeout_seconds }}"
+
+    - name: Record expected ClusterIP backend
+      ansible.builtin.set_fact:
+        tailscale_serve_verify_cluster_ip: "{{ (tailscale_serve_verify_service_raw.stdout | from_json).spec.clusterIP }}"
+        tailscale_serve_verify_backend: >-
+          http://{{ (tailscale_serve_verify_service_raw.stdout | from_json).spec.clusterIP }}:{{ tailscale_serve_service_port }}
+        tailscale_serve_verify_web_key: "{{ tailscale_serve_verify_dns_name }}:{{ tailscale_serve_https_port }}"
+      changed_when: false
+
+    - name: Read Serve status
+      ansible.builtin.command:
+        argv: [tailscale, serve, status, --json]
+      register: tailscale_serve_verify_status_raw
+      changed_when: false
+      timeout: "{{ tailscale_serve_timeout_seconds }}"
+
+    - name: Assert HTTPS 443 targets ClusterIP 9119 and Funnel is off
+      vars:
+        serve_status: "{{ tailscale_serve_verify_status_raw.stdout | from_json }}"
+      ansible.builtin.assert:
+        that:
+          - serve_status.TCP[tailscale_serve_https_port | string].HTTPS | default(false) | bool
+          - serve_status.Web[tailscale_serve_verify_web_key].Handlers['/'].Proxy | default('') == tailscale_serve_verify_backend
+          - not (serve_status.AllowFunnel[tailscale_serve_verify_web_key] | default(false) | bool)
+        fail_msg: Private Serve https:443 is not converged, or Funnel is enabled.
+
+    - name: Wait for host connectivity to ClusterIP dashboard
+      ansible.builtin.wait_for:
+        host: "{{ tailscale_serve_verify_cluster_ip }}"
+        port: "{{ tailscale_serve_service_port }}"
+        connect_timeout: 3
+        timeout: "{{ tailscale_serve_timeout_seconds }}"
+      changed_when: false
+
+    - name: Exercise unauthenticated dashboard through tailnet HTTPS
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --silent
+          - --show-error
+          - --output
+          - /dev/null
+          - --write-out
+          - "%{http_code}"
+          - --max-time
+          - "{{ tailscale_serve_timeout_seconds }}"
+          # Page routes (/, /settings) redirect 302 to /login; protected API
+          # routes answer 401. The 401 contract is checked on an API route.
+          - "https://{{ tailscale_serve_verify_dns_name }}/api/sessions"
+      register: tailscale_serve_verify_auth
+      changed_when: false
+      retries: "{{ tailscale_serve_retries }}"
+      delay: "{{ tailscale_serve_delay_seconds }}"
+      until: tailscale_serve_verify_auth.rc == 0 and tailscale_serve_verify_auth.stdout == '401'
+      failed_when: tailscale_serve_verify_auth.rc != 0 or tailscale_serve_verify_auth.stdout != '401'
+
+    - name: Discover public-interface source address
+      ansible.builtin.command:
+        argv: [ip, -json, route, get, 1.1.1.1]
+      register: tailscale_serve_verify_public_route_raw
+      changed_when: false
+
+    - name: Record public-interface address
+      ansible.builtin.set_fact:
+        tailscale_serve_verify_public_ip: >-
+          {{ (tailscale_serve_verify_public_route_raw.stdout | from_json | first).prefsrc
+             | default((tailscale_serve_verify_public_route_raw.stdout | from_json | first).src | default('')) }}
+      changed_when: false
+
+    - name: Read TCP listeners on dashboard-related ports
+      ansible.builtin.command:
+        argv: [ss, -H, -ltn, "( sport = :443 or sport = :9119 )"]
+      register: tailscale_serve_verify_listeners
+      changed_when: false
+
+    - name: Assert no wildcard or public-interface listener exposes 443 or 9119
+      ansible.builtin.assert:
+        that:
+          - tailscale_serve_verify_listeners.stdout is not regex('(?m)\b0\.0\.0\.0:(443|9119)\b')
+          - tailscale_serve_verify_listeners.stdout is not regex('(?m)\[::\]:(443|9119)\b')
+          - tailscale_serve_verify_listeners.stdout is not regex('(?m)\*:(443|9119)\b')
+          - tailscale_serve_verify_public_ip | length == 0 or
+            (tailscale_serve_verify_listeners.stdout is not search(tailscale_serve_verify_public_ip ~ ':443') and
+             tailscale_serve_verify_listeners.stdout is not search(tailscale_serve_verify_public_ip ~ ':9119'))
+        fail_msg: A dashboard-related port is listening on wildcard or public-interface addresses.
+
+    - name: Read namespace Ingress resources
+      ansible.builtin.command:
+        argv: ["{{ tailscale_serve_k3s_binary }}", kubectl, -n,
+               "{{ tailscale_serve_namespace }}", get, ingress, -o, json,
+               --request-timeout=15s]
+      register: tailscale_serve_verify_ingress_raw
+      changed_when: false
+      timeout: "{{ tailscale_serve_timeout_seconds }}"
+
+    - name: Read namespace Services
+      ansible.builtin.command:
+        argv: ["{{ tailscale_serve_k3s_binary }}", kubectl, -n,
+               "{{ tailscale_serve_namespace }}", get, service, -o, json,
+               --request-timeout=15s]
+      register: tailscale_serve_verify_services_raw
+      changed_when: false
+      timeout: "{{ tailscale_serve_timeout_seconds }}"
+
+    - name: Assert namespace has no Ingress, NodePort, or LoadBalancer exposure
+      ansible.builtin.assert:
+        that:
+          - (tailscale_serve_verify_ingress_raw.stdout | from_json)['items'] | length == 0
+          - >-
+            ((tailscale_serve_verify_services_raw.stdout | from_json)['items']
+             | map(attribute='spec.type') | reject('equalto', 'ClusterIP')
+             | reject('equalto', 'ExternalName') | list | length) == 0
+        fail_msg: hermes-agent namespace contains forbidden public exposure resources.
+
+    - name: Delete the Hermes pod for controlled recovery verification
+      ansible.builtin.command:
+        argv: ["{{ tailscale_serve_k3s_binary }}", kubectl, -n,
+               "{{ tailscale_serve_namespace }}", delete, pod, -l,
+               app.kubernetes.io/instance=hermes-agent, --wait=true,
+               --timeout=120s]
+      register: tailscale_serve_verify_restart
+      changed_when: tailscale_serve_verify_restart.rc == 0
+      tags: [remote-write]
+
+    - name: Wait for Hermes deployment recovery
+      ansible.builtin.command:
+        argv: ["{{ tailscale_serve_k3s_binary }}", kubectl, -n,
+               "{{ tailscale_serve_namespace }}", rollout, status,
+               deployment/hermes-agent, --timeout=180s]
+      register: tailscale_serve_verify_rollout
+      changed_when: false
+      retries: 2
+      delay: 5
+      until: tailscale_serve_verify_rollout.rc == 0
+      tags: [remote-write]
+
+    - name: Confirm Serve target remains converged after pod recovery
+      ansible.builtin.command:
+        argv: [tailscale, serve, status, --json]
+      register: tailscale_serve_verify_recovery_status_raw
+      changed_when: false
+      retries: "{{ tailscale_serve_retries }}"
+      delay: "{{ tailscale_serve_delay_seconds }}"
+      until: >-
+        (tailscale_serve_verify_recovery_status_raw.stdout | from_json).Web[tailscale_serve_verify_web_key].Handlers['/'].Proxy
+        | default('') == tailscale_serve_verify_backend
+      tags: [remote-write]
+
+    - name: Confirm basic auth remains enforced after pod recovery
+      ansible.builtin.command:
+        argv: [curl, --silent, --show-error, --output, /dev/null,
+               --write-out, "%{http_code}", --max-time,
+               "{{ tailscale_serve_timeout_seconds }}",
+               # See the pre-restart check: API routes are the 401 contract.
+               "https://{{ tailscale_serve_verify_dns_name }}/api/sessions"]
+      register: tailscale_serve_verify_recovery_auth
+      changed_when: false
+      retries: "{{ tailscale_serve_retries }}"
+      delay: "{{ tailscale_serve_delay_seconds }}"
+      until: tailscale_serve_verify_recovery_auth.stdout == '401'
+      failed_when: tailscale_serve_verify_recovery_auth.stdout != '401'
+      tags: [remote-write]

@@ -1,0 +1,54 @@
+---
+# roles/tailscale_k8s — Tailscale Kubernetes Operator (official vendored Helm
+# chart) + tailnet-only dashboard exposure via a tailscale Ingress.
+#
+# Replaces the host-level tailscaled + Serve design per the operator pivot:
+# in-cluster tailscaled (operator-managed proxy) owns the `noesis-praxis`
+# tailnet identity and serves https://noesis-praxis.<tailnet>.ts.net →
+# hermes-agent ClusterIP. The host apt tailscaled is removed by the
+# remove-host action — never run host tailscaled and this role concurrently.
+
+tailscale_k8s_actions:
+  - install
+  - remove-host
+  - expose
+  - validate
+
+# Chart pins (vendored; see charts/vendor/tailscale-operator/VENDOR.md)
+tailscale_k8s_chart_version: "1.104.1"
+tailscale_k8s_chart_source: "{{ playbook_dir }}/../charts/vendor/tailscale-operator"
+tailscale_k8s_chart_path: /opt/tailscale-operator-chart
+tailscale_k8s_values_stage_dir: /opt/tailscale-operator-stage
+
+tailscale_k8s_release_name: tailscale-operator
+tailscale_k8s_namespace: tailscale
+tailscale_k8s_helm_wait_timeout: 300
+tailscale_k8s_k3s_binary: /usr/local/bin/k3s
+tailscale_k8s_helm_binary: /usr/local/bin/helm
+tailscale_k8s_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+
+# OAuth client credentials for the operator. REQUIRED — the chart has no
+# authKey deployment path. Populate ONLY via the encrypted vault file; never
+# via -e (command-line vars leak into process lists).
+tailscale_k8s_oauth_client_id: ""
+tailscale_k8s_oauth_client_secret: ""
+tailscale_k8s_oauth_secret_name: tailscale-operator-oauth
+
+# Dashboard exposure (tailscale Ingress). The proxy enrolls with this exact
+# MagicDNS name — it must be free, so remove-host runs BEFORE expose.
+tailscale_k8s_tailnet_domain: tailf99a0.ts.net
+tailscale_k8s_dashboard_hostname: noesis-praxis
+tailscale_k8s_dashboard_backend_namespace: hermes-agent
+tailscale_k8s_dashboard_backend_service: hermes-agent
+tailscale_k8s_dashboard_backend_port: 9119
+
+# Tags for the operator's own tailnet identity. MUST equal the tags borne by
+# the OAuth client — an OAuth client can only mint authkeys for tags it
+# carries (verified: our client carries tag:k3s). ACL tagOwners must
+# self-own each tag (see tailscale-lab-acl repo).
+tailscale_k8s_operator_tags:
+  - "tag:k3s"
+
+tailscale_k8s_timeout_seconds: 300
+tailscale_k8s_retries: 30
+tailscale_k8s_delay_seconds: 10

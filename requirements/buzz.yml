@@ -1,0 +1,18 @@
+---
+# Collection interface used by roles/buzz and playbooks/deploy_buzz.yml.
+# Verified against the installed collection
+# ~/.ansible/collections/ansible_collections/kubernetes/core
+# MANIFEST.json collection_info.version 5.2.0.
+# kubernetes.core.helm options used, and only these, were read from that
+# copy's plugins/modules/helm.py and plugins/doc_fragments/helm_common_options.py:
+#   chart_ref, release_name, release_namespace, release_state, values_files,
+#   wait, timeout, atomic, create_namespace, reset_values, reuse_values,
+#   dependency_update, history_max, binary_path, context, kubeconfig.
+# kubernetes.core.helm_info options used: release_name, release_namespace,
+# release_state, get_all_values, plus binary_path, context, kubeconfig.
+# kubernetes.core.k8s_info options used: api_version, kind, name, namespace,
+# kubeconfig, context (k8s_name_options.py and k8s_auth_options.py).
+# The root requirements.yml is intentionally not modified.
+collections:
+  - name: kubernetes.core
+    version: "5.2.0"

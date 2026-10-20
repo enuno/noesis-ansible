@@ -1,0 +1,49 @@
+---
+# Namespace (with PSA labels) + namespace-scoped provider Secret.
+# Secret contents are never logged and diffs are suppressed.
+- name: Compute non-secret rollout checksum for operator-managed Secret
+  ansible.builtin.set_fact:
+    hermes_agent_operator_secret_checksum: >-
+      {{ {'provider': hermes_agent_provider_env,
+          'dashboard_username': hermes_agent_dashboard_username,
+          'dashboard_password': hermes_agent_dashboard_password}
+         | to_json | hash('sha256') }}
+  no_log: true
+
+- name: Ensure namespace exists
+  kubernetes.core.k8s:
+    kubeconfig: "{{ k3s_kubeconfig_path }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ hermes_agent_namespace }}"
+        labels:
+          app.kubernetes.io/part-of: hermes-agent
+          pod-security.kubernetes.io/enforce: "{{ hermes_agent_psa_enforce }}"
+          pod-security.kubernetes.io/audit: "{{ hermes_agent_psa_enforce }}"
+          pod-security.kubernetes.io/warn: "{{ hermes_agent_psa_enforce }}"
+  when: hermes_agent_psa_enforce | length > 0
+
+- name: Ensure namespace exists (no PSA labelling)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ k3s_kubeconfig_path }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ hermes_agent_namespace }}"
+        labels:
+          app.kubernetes.io/part-of: hermes-agent
+  when: hermes_agent_psa_enforce | length == 0
+
+- name: Apply provider Secret (vault-injected, externally managed)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ k3s_kubeconfig_path }}"
+    state: present
+    definition: "{{ lookup('ansible.builtin.template', role_path + '/templates/secret-provider.yml.j2') }}"
+    apply: true
+  no_log: true
+  diff: false

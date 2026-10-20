@@ -1,0 +1,264 @@
+---
+# k3s-verify.yml — verification ONLY for the single-node k3s server.
+# Separate from k3s-install.yml so smoke tests never contaminate install
+# idempotence. Creates a temporary namespace praxis-smoke-<epoch>, runs
+# scheduling/DNS/HTTP/PVC smoke tests, and ALWAYS deletes it again.
+#
+# Usage:
+#   ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/k3s-verify.yml
+#
+# kubectl invocations use the command module because no k8s Python client is
+# guaranteed on the target; every invocation is bounded (--request-timeout or
+# --timeout flags, ansible retries) and every read-only call sets
+# changed_when: false.
+
+- name: Verify single-node k3s server on noesis-praxis
+  hosts: k3s_server
+  gather_facts: true
+  become: true
+  become_method: sudo
+  tags: [k3s, verify]
+
+  vars:
+    k3s_smoke_ns: "praxis-smoke-{{ ansible_date_time.epoch }}"
+    k3s_kubectl:
+      - "{{ k3s_install_dir | default('/usr/local/bin') }}/k3s"
+      - kubectl
+    k3s_smoke_image: "nginx:1.27-alpine"      # pinned tag, never :latest
+    k3s_smoke_util_image: "busybox:1.36.1"    # pinned tag, never :latest
+    k3s_smoke_manifests: "/tmp/praxis-k3s-smoke"
+
+  tasks:
+    # ----------------------------- cluster state -----------------------------
+    - name: Assert k3s systemd service is active and enabled
+      ansible.builtin.systemd_service:
+        name: k3s
+        state: started
+        enabled: true
+      check_mode: true
+      register: k3s_verify_service
+      failed_when: k3s_verify_service.changed
+
+    - name: Confirm installed version matches pinned version
+      ansible.builtin.command:
+        argv: ["{{ k3s_install_dir | default('/usr/local/bin') }}/k3s", "--version"]
+      register: k3s_verify_version
+      changed_when: false
+      failed_when: k3s_version not in k3s_verify_version.stdout
+
+    - name: Check Kubernetes API readiness
+      ansible.builtin.command:
+        argv: "{{ k3s_kubectl + ['get', '--raw=/readyz?verbose', '--request-timeout=15s'] }}"
+      register: k3s_verify_readyz
+      changed_when: false
+      until: k3s_verify_readyz.rc == 0
+      retries: 12
+      delay: 5
+      failed_when: >-
+        k3s_verify_readyz.rc != 0 or
+        k3s_verify_readyz.stdout is not search('readyz check passed')
+
+    - name: Get cluster nodes
+      ansible.builtin.command:
+        argv: "{{ k3s_kubectl + ['get', 'nodes', '-o', 'json', '--request-timeout=15s'] }}"
+      register: k3s_verify_nodes
+      changed_when: false
+      failed_when: >-
+        k3s_verify_nodes.rc != 0 or
+        k3s_verify_nodes.stdout | trim | length == 0
+
+    - name: Assert exactly one node, Ready and schedulable
+      ansible.builtin.assert:
+        that:
+          - k3s_verify_nodes.stdout | from_json | json_query('items') | length == 1
+          - (k3s_verify_nodes.stdout | from_json | json_query('items[*].status.conditions[?type==`Ready`].status') | flatten | unique) == ["True"]
+          - not (k3s_verify_nodes.stdout | from_json | json_query('items[*].spec.unschedulable') | select('defined') | list | length > 0)
+        fail_msg: >-
+          Cluster must have exactly one Ready, schedulable node. Got:
+          {{ k3s_verify_nodes.stdout | from_json | json_query('items[*].metadata.name') }}
+
+    - name: Wait for expected kube-system workloads to be ready
+      ansible.builtin.command:
+        argv: >-
+          {{ k3s_kubectl + ['-n', 'kube-system', 'rollout', 'status',
+          'deployment/' + item, '--timeout=120s'] }}
+      loop:
+        - coredns
+        - local-path-provisioner
+        - metrics-server
+      register: k3s_verify_rollouts
+      changed_when: false
+      failed_when: k3s_verify_rollouts.rc != 0
+
+    - name: Detect unexplained Pending/Failed/CrashLoopBackOff pods
+      ansible.builtin.command:
+        argv: >-
+          {{ k3s_kubectl + ['get', 'pods', '-A', '--field-selector',
+          'status.phase!=Running,status.phase!=Succeeded',
+          '-o', 'json', '--request-timeout=15s'] }}
+      register: k3s_verify_bad_pods
+      changed_when: false
+      failed_when: >-
+        k3s_verify_bad_pods.rc != 0 or
+        k3s_verify_bad_pods.stdout | trim | length == 0
+
+    - name: Fail on unexplained abnormal pod phases
+      ansible.builtin.fail:
+        msg: >-
+          Pods in abnormal phases:
+          {{ k3s_verify_bad_pods.stdout | from_json | json_query('items[*].metadata.name') }}
+      when: k3s_verify_bad_pods.stdout | from_json | json_query('items') | length > 0
+
+    - name: Assert no LoadBalancer or NodePort services (ClusterIP-only policy)
+      ansible.builtin.command:
+        argv: >-
+          {{ k3s_kubectl + ['get', 'svc', '-A', '--field-selector',
+          'spec.type!=ClusterIP,spec.type!=ExternalName',
+          '-o', 'json', '--request-timeout=15s'] }}
+      register: k3s_verify_svc_types
+      changed_when: false
+      failed_when: >-
+        k3s_verify_svc_types.rc != 0 or
+        k3s_verify_svc_types.stdout | trim | length == 0
+
+    - name: Fail if any public-facing service type exists
+      ansible.builtin.fail:
+        msg: >-
+          Public-facing service types present (LoadBalancer/NodePort are
+          forbidden on this host):
+          {{ k3s_verify_svc_types.stdout | from_json | json_query('items[*].metadata.name') }}
+      when: k3s_verify_svc_types.stdout | from_json | json_query('items') | length > 0
+
+    - name: Run complete smoke lifecycle with unconditional cleanup
+      block:
+        # ------------------------- smoke namespace setup --------------------------
+        - name: Create temporary smoke-test manifests directory
+          ansible.builtin.file:
+            path: "{{ k3s_smoke_manifests }}"
+            state: directory
+            mode: "0755"
+
+        - name: Render smoke-test manifests
+          ansible.builtin.template:
+            src: templates/praxis-k3s-smoke.yml.j2
+            dest: "{{ k3s_smoke_manifests }}/smoke.yml"
+            mode: "0644"
+
+        - name: Apply smoke-test manifests
+          ansible.builtin.command:
+            argv: "{{ k3s_kubectl + ['apply', '-f', k3s_smoke_manifests + '/smoke.yml'] }}"
+          register: k3s_smoke_apply
+          changed_when: k3s_smoke_apply.rc == 0
+
+        # --------------------------- smoke test body ------------------------------
+        - name: Wait for smoke web deployment to roll out
+          ansible.builtin.command:
+            argv: >-
+              {{ k3s_kubectl + ['-n', k3s_smoke_ns, 'rollout', 'status',
+              'deployment/praxis-smoke-web', '--timeout=180s'] }}
+          register: k3s_smoke_rollout
+          changed_when: false
+          failed_when: k3s_smoke_rollout.rc != 0
+
+        - name: Wait for smoke PVC to bind via local-path
+          ansible.builtin.command:
+            argv: >-
+              {{ k3s_kubectl + ['-n', k3s_smoke_ns, 'wait',
+              'pvc/praxis-smoke-pvc', '--for=jsonpath={.status.phase}=Bound',
+              '--timeout=120s'] }}
+          register: k3s_smoke_pvc
+          changed_when: false
+          failed_when: k3s_smoke_pvc.rc != 0
+
+        - name: Wait for smoke writer deployment to roll out (PVC write side)
+          ansible.builtin.command:
+            argv: >-
+              {{ k3s_kubectl + ['-n', k3s_smoke_ns, 'rollout', 'status',
+              'deployment/praxis-smoke-writer', '--timeout=180s'] }}
+          register: k3s_smoke_writer_rollout
+          changed_when: false
+          failed_when: k3s_smoke_writer_rollout.rc != 0
+
+        - name: Wait for smoke reader deployment to roll out (PVC read side)
+          ansible.builtin.command:
+            argv: >-
+              {{ k3s_kubectl + ['-n', k3s_smoke_ns, 'rollout', 'status',
+              'deployment/praxis-smoke-reader', '--timeout=180s'] }}
+          register: k3s_smoke_reader_rollout
+          changed_when: false
+          failed_when: k3s_smoke_reader_rollout.rc != 0
+
+        # Writer container writes the marker into the local-path PVC then
+        # idles; log polling is the bounded readiness check for the write.
+        - name: Verify PVC write via writer pod logs
+          ansible.builtin.command:
+            argv: "{{ k3s_kubectl + ['-n', k3s_smoke_ns, 'logs',
+              'deployment/praxis-smoke-writer', '--tail=5'] }}"
+          register: k3s_smoke_write
+          changed_when: false
+          until: "'praxis-smoke-ok' in k3s_smoke_write.stdout"
+          retries: 20
+          delay: 3
+          failed_when: "'praxis-smoke-ok' not in k3s_smoke_write.stdout"
+
+        # Reader container cats the same PVC-mounted file; proves dynamic
+        # provisioning plus cross-pod volume read on the single node.
+        - name: Verify PVC read from second pod via reader logs
+          ansible.builtin.command:
+            argv: "{{ k3s_kubectl + ['-n', k3s_smoke_ns, 'logs',
+              'deployment/praxis-smoke-reader', '--tail=5'] }}"
+          register: k3s_smoke_read
+          changed_when: false
+          until: "'praxis-smoke-ok' in k3s_smoke_read.stdout"
+          retries: 20
+          delay: 3
+          failed_when: "'praxis-smoke-ok' not in k3s_smoke_read.stdout"
+
+        - name: Verify cluster DNS resolves the smoke Service
+          ansible.builtin.command:
+            argv: "{{ k3s_kubectl + ['-n', k3s_smoke_ns, 'run', 'praxis-smoke-dns',
+              '--image=' + k3s_smoke_util_image, '--restart=Never', '--rm', '-i',
+              '--command', '--', 'nslookup',
+              'praxis-smoke-svc.' + k3s_smoke_ns + '.svc.cluster.local.'] }}"
+          register: k3s_smoke_dns
+          changed_when: true
+          failed_when: k3s_smoke_dns.rc != 0
+
+        - name: Verify HTTP through the smoke ClusterIP Service
+          ansible.builtin.command:
+            argv: "{{ k3s_kubectl + ['-n', k3s_smoke_ns, 'run', 'praxis-smoke-http',
+              '--image=' + k3s_smoke_util_image, '--restart=Never', '--rm', '-i',
+              '--command', '--', 'wget', '-qO-', 'http://praxis-smoke-svc:80/'] }}"
+          register: k3s_smoke_http
+          changed_when: true
+          failed_when: k3s_smoke_http.rc != 0
+
+      # --------------------------- always cleanup -----------------------------
+      always:
+        - name: Delete temporary smoke namespace
+          ansible.builtin.command:
+            argv: "{{ k3s_kubectl + ['delete', 'namespace', k3s_smoke_ns,
+              '--request-timeout=30s', '--ignore-not-found=true'] }}"
+          register: k3s_smoke_cleanup
+          changed_when: k3s_smoke_cleanup.rc == 0
+          failed_when: false
+
+        - name: Confirm smoke namespace deletion completed
+          ansible.builtin.command:
+            argv: "{{ k3s_kubectl + ['get', 'namespace', k3s_smoke_ns,
+              '--request-timeout=15s', '--ignore-not-found=true'] }}"
+          register: k3s_smoke_ns_gone
+          changed_when: false
+          until: k3s_smoke_ns_gone.rc == 0 and k3s_smoke_ns_gone.stdout == ""
+          retries: 20
+          delay: 6
+
+        - name: Remove smoke manifests from target
+          ansible.builtin.file:
+            path: "{{ k3s_smoke_manifests }}"
+            state: absent
+
+        - name: Fail if smoke namespace still exists after cleanup
+          ansible.builtin.fail:
+            msg: "Smoke namespace {{ k3s_smoke_ns }} was not deleted within bounds."
+          when: k3s_smoke_ns_gone.stdout != ""

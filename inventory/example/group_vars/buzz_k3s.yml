@@ -1,0 +1,28 @@
+---
+# Placeholder values for syntax-check and offline template tests.
+# Do not point a real play at this inventory. deploy_buzz.yml rejects
+# buzz-k3s.example.invalid. validate-inputs.yml rejects CHANGE_ME,
+# example.invalid, the all-zero owner pubkey, and change-me secret names.
+
+buzz_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+buzz_kube_context: CHANGE_ME_CONTEXT
+buzz_release_name: buzz
+buzz_namespace: buzz
+buzz_profile: production
+buzz_exposure_enabled: false
+buzz_service_type: ClusterIP
+buzz_ingress_enabled: false
+buzz_httproute_enabled: false
+buzz_pairing_relay_enabled: false
+buzz_relay_url: wss://buzz.example.invalid
+buzz_owner_pubkey: "0000000000000000000000000000000000000000000000000000000000000000"
+buzz_existing_secret: change-me-buzz-secret
+buzz_s3_endpoint: https://s3.example.invalid
+buzz_s3_bucket: buzz-media
+buzz_s3_region: us-east-1
+buzz_s3_addressing_style: path
+buzz_storage_class: CHANGE_ME_STORAGE_CLASS
+buzz_git_persistence_enabled: true
+buzz_git_persistence_size: 10Gi
+buzz_live_checks: false
+buzz_destroy_data: false

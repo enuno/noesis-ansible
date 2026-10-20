@@ -1,0 +1,13 @@
+---
+# roles/hermes_agent_helm/tasks/main.yml
+- name: Validate inputs and target prerequisites
+  ansible.builtin.include_tasks: validate-inputs.yml
+
+- name: Configure namespace and provider Secret
+  ansible.builtin.include_tasks: configure.yml
+
+- name: Render values and install/upgrade release
+  ansible.builtin.include_tasks: install.yml
+
+- name: Validate deployed release
+  ansible.builtin.include_tasks: validate.yml

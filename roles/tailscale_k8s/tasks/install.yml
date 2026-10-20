@@ -1,0 +1,124 @@
+---
+# Install the vendored tailscale-operator chart. Secrets stay off the command
+# line: we pre-create the operator-oauth Secret from vaulted vars and point
+# the chart's oauthSecretVolume at it (values stay secret-free and diffable).
+
+- name: Ensure target staging directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+    owner: root
+    group: root
+  loop:
+    - "{{ tailscale_k8s_chart_path }}"
+    - "{{ tailscale_k8s_values_stage_dir }}"
+
+- name: Copy pinned vendored chart to target
+  ansible.builtin.copy:
+    src: "{{ tailscale_k8s_chart_source }}/"
+    dest: "{{ tailscale_k8s_chart_path }}/"
+    mode: preserve
+    directory_mode: "0700"
+
+- name: Read copied chart metadata on target
+  ansible.builtin.slurp:
+    src: "{{ tailscale_k8s_chart_path }}/Chart.yaml"
+  register: tailscale_k8s_chart_metadata
+
+- name: Assert copied chart version matches pin
+  ansible.builtin.assert:
+    that:
+      - "'version: ' ~ tailscale_k8s_chart_version in (tailscale_k8s_chart_metadata.content | b64decode)"
+    fail_msg: "Copied chart does not match pinned {{ tailscale_k8s_chart_version }}."
+
+- name: Create operator namespace
+  kubernetes.core.k8s:
+    state: present
+    kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ tailscale_k8s_namespace }}"
+        labels:
+          # baseline admits both the operator Deployment and the
+          # operator-spawned proxy pods (which need NET_ADMIN); restricted
+          # would reject them (chart ships no restricted-compatible
+          # securityContext by default). Restricted stays on AUDIT so
+          # violations are visible without blocking admission.
+          pod-security.kubernetes.io/enforce: baseline
+          pod-security.kubernetes.io/audit: restricted
+
+- name: Render operator OAuth Secret from vaulted values
+  kubernetes.core.k8s:
+    kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+    state: present
+    definition: "{{ lookup('ansible.builtin.template', role_path + '/templates/oauth-secret.yml.j2') }}"
+    apply: true
+  no_log: true
+
+- name: Render non-secret operator values on target
+  ansible.builtin.template:
+    src: values-tailscale-operator.yml.j2
+    dest: "{{ tailscale_k8s_values_stage_dir }}/values-tailscale-operator.yml"
+    mode: "0600"
+    owner: root
+    group: root
+
+- name: Install or upgrade tailscale-operator release (atomic, bounded wait)
+  kubernetes.core.helm:
+    kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+    chart_ref: "{{ tailscale_k8s_chart_path }}"
+    release_name: "{{ tailscale_k8s_release_name }}"
+    release_namespace: "{{ tailscale_k8s_namespace }}"
+    release_state: present
+    create_namespace: false
+    values_files:
+      - "{{ tailscale_k8s_values_stage_dir }}/values-tailscale-operator.yml"
+    wait: true
+    timeout: "{{ tailscale_k8s_helm_wait_timeout }}s"
+    atomic: true
+  register: tailscale_k8s_helm_result
+
+- name: Wait for operator Deployment to become ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ tailscale_k8s_release_name }}"
+    namespace: "{{ tailscale_k8s_namespace }}"
+  register: tailscale_k8s_operator_deploy
+  retries: "{{ tailscale_k8s_retries }}"
+  delay: "{{ tailscale_k8s_delay_seconds }}"
+  until:
+    - tailscale_k8s_operator_deploy.resources | length == 1
+    - tailscale_k8s_operator_deploy.resources[0].status.readyReplicas | default(0) >= 1
+
+- name: Assert operator CRDs are established
+  ansible.builtin.command:
+    argv:
+      - "{{ tailscale_k8s_k3s_binary }}"
+      - kubectl
+      - get
+      - crd
+      - "{{ item }}"
+      - --request-timeout=15s
+  loop:
+    - proxyclasses.tailscale.com
+    - connectors.tailscale.com
+  changed_when: false
+  register: tailscale_k8s_crd_check
+  failed_when: tailscale_k8s_crd_check.rc != 0
+
+# The operator exposes standard networking.k8s.io/v1 Ingress resources with
+# ingressClassName=<ingressClass.name> (default "tailscale") — there is no
+# ingresses.tailscale.com CRD. Verify the chart's IngressClass exists.
+- name: Assert tailscale IngressClass exists
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+    api_version: networking.k8s.io/v1
+    kind: IngressClass
+    name: tailscale
+  register: tailscale_k8s_ingress_class
+  failed_when: tailscale_k8s_ingress_class.resources | length != 1

@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: "{{ tailscale_k8s_dashboard_hostname }}"
+  namespace: "{{ tailscale_k8s_dashboard_backend_namespace }}"
+  labels:
+    app.kubernetes.io/managed-by: ansible-tailscale-k8s
+spec:
+  ingressClassName: tailscale
+  rules:
+    # Bare hostname: the operator appends the tailnet domain and provisions
+    # TLS for it. Setting it explicitly (vs name-derived default) keeps the
+    # MagicDNS name deterministic.
+    - host: "{{ tailscale_k8s_dashboard_hostname }}"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: "{{ tailscale_k8s_dashboard_backend_service }}"
+                port:
+                  number: {{ tailscale_k8s_dashboard_backend_port | int }}

@@ -1,0 +1,8 @@
+---
+- name: Configure Tailscale Serve
+  ansible.builtin.include_tasks: configure.yml
+  when: "'configure' in (tailscale_serve_actions | default(['configure', 'validate']))"
+
+- name: Validate Tailscale Serve
+  ansible.builtin.include_tasks: validate.yml
+  when: "'validate' in (tailscale_serve_actions | default(['configure', 'validate']))"

@@ -1,0 +1,24 @@
+---
+# Dispatch on tailscale_k8s_actions. Default order matches the migration
+# playbook: install operator → remove host tailscaled → expose dashboard →
+# validate. Each phase asserts its own preconditions so reruns are safe.
+
+- name: Validate tailscale_k8s inputs
+  ansible.builtin.include_tasks: validate-inputs.yml
+  when: "'install' in tailscale_k8s_actions or 'expose' in tailscale_k8s_actions"
+
+- name: Install Tailscale Kubernetes Operator
+  ansible.builtin.include_tasks: install.yml
+  when: "'install' in tailscale_k8s_actions"
+
+- name: Remove host-level tailscaled
+  ansible.builtin.include_tasks: remove-host.yml
+  when: "'remove-host' in tailscale_k8s_actions"
+
+- name: Expose Hermes dashboard via tailscale Ingress
+  ansible.builtin.include_tasks: expose.yml
+  when: "'expose' in tailscale_k8s_actions"
+
+- name: Validate tailscale_k8s deployment
+  ansible.builtin.include_tasks: validate.yml
+  when: "'validate' in tailscale_k8s_actions"

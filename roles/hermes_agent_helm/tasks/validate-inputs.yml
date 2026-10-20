@@ -1,0 +1,64 @@
+---
+# Input validation — fail before touching the cluster. Credential asserts are
+# evaluated against vault-injected variables only; no secret value is logged.
+- name: Check target-side helm CLI
+  ansible.builtin.command: /usr/local/bin/helm version --short
+  changed_when: false
+
+- name: Assert dashboard password is supplied from vault
+  ansible.builtin.assert:
+    that:
+      - hermes_agent_dashboard_password | length > 0
+      - hermes_agent_dashboard_password not in ['CHANGEME', 'changeme', '«redacted:sk-…»']
+    fail_msg: "hermes_agent_dashboard_password must be set (vault-injected). Never hardcode it."
+  no_log: true
+
+- name: Assert dashboard password meets minimum strength
+  ansible.builtin.assert:
+    that:
+      - hermes_agent_dashboard_password | length >= 16
+    fail_msg: "hermes_agent_dashboard_password must be at least 16 characters."
+  no_log: true
+
+- name: Assert provider credentials map is supplied and provider-only
+  ansible.builtin.assert:
+    that:
+      - hermes_agent_provider_env is mapping
+      - hermes_agent_provider_env | length > 0
+      - hermes_agent_provider_env.keys() | intersect(['HERMES_DASHBOARD_BASIC_AUTH_USERNAME', 'HERMES_DASHBOARD_BASIC_AUTH_PASSWORD', 'HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH']) | length == 0
+    fail_msg: >-
+      hermes_agent_provider_env must be a non-empty vault-injected dict containing
+      provider env keys only; dashboard credentials use their dedicated vars.
+  no_log: true
+
+- name: Assert Tailscale Serve dashboard origin and proxy trust are explicit and narrow
+  ansible.builtin.assert:
+    that:
+      - hermes_agent_dashboard_public_url is match('^https://[^/]+(?:/)?$')
+      - hermes_agent_dashboard_trusted_proxies is sequence
+      - hermes_agent_dashboard_trusted_proxies is not string
+      - hermes_agent_dashboard_trusted_proxies | length > 0
+      - hermes_agent_dashboard_trusted_proxies | select('in', ['0.0.0.0/0', '::/0']) | list | length == 0
+      - hermes_agent_dashboard_trusted_proxies | reject('match', '^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/32$|^[0-9A-Fa-f:]+/128$')
+          | reject('equalto', hermes_agent_dashboard_trusted_pod_cidr)
+          | list | length == 0
+    fail_msg: >-
+      Dashboard Serve requires an https public URL and only observed narrow
+      trusted proxy CIDRs (/32 or /128; plus the single declared
+      hermes_agent_dashboard_trusted_pod_cidr, default none);
+      0.0.0.0/0 and ::/0 are forbidden.
+  when: hermes_agent_dashboard_enabled | bool
+
+- name: Assert dashboard NetworkPolicy ingress source is a single narrow CIDR
+  ansible.builtin.assert:
+    that:
+      - hermes_agent_dashboard_ingress_cidr is match('^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/32$|^[0-9A-Fa-f:]+/128$')
+    fail_msg: "hermes_agent_dashboard_ingress_cidr must be a single /32 (or /128) host CIDR; broad ranges are forbidden."
+  when: hermes_agent_dashboard_enabled | bool
+
+- name: Assert single-writer invariants
+  ansible.builtin.assert:
+    that:
+      - hermes_agent_release_name | length > 0
+      - hermes_agent_namespace | length > 0
+    fail_msg: "Release name and namespace must be non-empty."

@@ -1,0 +1,150 @@
+---
+# Post-migration verification for the in-cluster Tailscale operator path.
+# Read-only except a controlled dashboard HTTP probe. Complements (does not
+# replace) playbooks/hermes-verify.yml.
+
+- name: Verify Tailscale k8s migration
+  hosts: k3s_server
+  become: true
+  gather_facts: false
+  tags: [tailscale, k8s, verify]
+  vars:
+    hermes_kubernetes_python_version: "34.1.0"
+    hermes_kubernetes_venv: /opt/ansible-kubernetes
+  pre_tasks:
+    - name: Select pinned target-side Kubernetes Python environment
+      ansible.builtin.set_fact:
+        ansible_python_interpreter: "{{ hermes_kubernetes_venv }}/bin/python"
+  tasks:
+    - name: Load role defaults
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../roles/tailscale_k8s/defaults/main.yml"
+
+    # ---------------- operator state ----------------
+    - name: Read operator Deployment
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+        api_version: apps/v1
+        kind: Deployment
+        name: "{{ tailscale_k8s_release_name }}"
+        namespace: "{{ tailscale_k8s_namespace }}"
+      register: tsk_verify_operator
+
+    - name: Assert operator ready
+      ansible.builtin.assert:
+        that:
+          - tsk_verify_operator.resources | length == 1
+          - tsk_verify_operator.resources[0].status.readyReplicas | default(0) >= 1
+
+    # ---------------- dashboard exposure ----------------
+    - name: Read dashboard Ingress
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+        api_version: networking.k8s.io/v1
+        kind: Ingress
+        name: "{{ tailscale_k8s_dashboard_hostname }}"
+        namespace: "{{ tailscale_k8s_dashboard_backend_namespace }}"
+      register: tsk_verify_ingress
+
+    - name: Assert tailnet hostname assigned
+      ansible.builtin.assert:
+        that:
+          - tsk_verify_ingress.resources | length == 1
+          - tsk_verify_ingress.resources[0].status.loadBalancer.ingress | default([]) | length > 0
+          - tsk_verify_ingress.resources[0].status.loadBalancer.ingress[0].hostname | default('')
+            == tailscale_k8s_dashboard_hostname ~ '.' ~ tailscale_k8s_tailnet_domain
+
+    - name: Assert tailscale IngressClass and no default public class
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+        api_version: networking.k8s.io/v1
+        kind: IngressClass
+      register: tsk_verify_classes
+
+    - name: Collect IngressClasses marked default
+      ansible.builtin.set_fact:
+        tsk_default_classes: "{{ tsk_default_classes | default([]) + [item.metadata.name] }}"
+      loop: "{{ tsk_verify_classes.resources }}"
+      when: (item.metadata.annotations | default({})).get('ingressclass.kubernetes.io/is-default-class', 'false') | string == 'true'
+
+    - name: Assert no IngressClass is marked default
+      ansible.builtin.assert:
+        that:
+          - tsk_default_classes | default([]) | length == 0
+        fail_msg: >-
+          Default IngressClass(es) present: {{ tsk_default_classes | join(', ') }}.
+          A default class means an unclassed Ingress could expose workloads
+          publicly. Remove the default annotation.
+
+    - name: Read proxy pods
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+        api_version: v1
+        kind: Pod
+        namespace: "{{ tailscale_k8s_namespace }}"
+      register: tsk_verify_pods
+
+    - name: Assert at least one Running proxy pod in tailscale namespace
+      ansible.builtin.assert:
+        that:
+          - tsk_verify_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length > 0
+
+    # ---------------- host decommission ----------------
+    - name: Check host tailscale binary absent
+      ansible.builtin.stat:
+        path: /usr/bin/tailscale
+      register: tsk_verify_host_binary
+
+    - name: Assert host tailscaled removed
+      ansible.builtin.assert:
+        that:
+          - not tsk_verify_host_binary.stat.exists
+        fail_msg: "Host tailscale still installed — migration incomplete."
+
+    # ---------------- privacy: no public listeners ----------------
+    - name: Read all Services in cluster
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+        api_version: v1
+        kind: Service
+      register: tsk_verify_services
+
+    - name: Assert no NodePort/LoadBalancer services
+      ansible.builtin.assert:
+        that:
+          - tsk_verify_services.resources | selectattr('spec.type', 'in', ['NodePort', 'LoadBalancer']) | list | length == 0
+        fail_msg: >-
+          Found NodePort/LoadBalancer services: {{ tsk_verify_services.resources
+            | selectattr('spec.type', 'in', ['NodePort', 'LoadBalancer'])
+            | map(attribute='metadata.name') | list | join(', ') }}.
+          The dashboard must be reachable only via the tailscale Ingress.
+
+    - name: Assert hermes-agent Service is ClusterIP
+      ansible.builtin.assert:
+        that:
+          - tsk_verify_services.resources | selectattr('metadata.name', 'equalto', tailscale_k8s_dashboard_backend_service)
+              | selectattr('metadata.namespace', 'equalto', tailscale_k8s_dashboard_backend_namespace)
+              | selectattr('spec.type', 'equalto', 'ClusterIP') | list | length == 1
+
+    # ---------------- end-to-end tailnet probe ----------------
+    # The controller must be on the tailnet for this check (macOS IS).
+    - name: Probe dashboard over tailnet (unauthenticated contract)
+      ansible.builtin.uri:
+        url: >-
+          https://{{ tailscale_k8s_dashboard_hostname }}.{{ tailscale_k8s_tailnet_domain }}/api/sessions
+        method: GET
+        status_code: 401
+        validate_certs: true
+        timeout: 20
+      delegate_to: localhost
+      become: false
+      register: tsk_verify_probe
+      failed_when: tsk_verify_probe.status != 401
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: >-
+          Tailscale k8s migration verified: operator ready, dashboard at
+          https://{{ tailscale_k8s_dashboard_hostname }}.{{ tailscale_k8s_tailnet_domain }}
+          (tailnet-only, 401 contract holds), host tailscaled purged, no
+          NodePort/LoadBalancer services.

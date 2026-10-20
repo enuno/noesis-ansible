@@ -1,0 +1,156 @@
+---
+# Rendered deploy values for the pinned jyje/hermes-agent chart.
+# Every key here exists in chart 1.21.0's values.schema.json — see
+# docs/praxis-k3s/hermes-chart.md for the verified key map.
+image:
+  repository: nousresearch/hermes-agent
+  tag: "{{ hermes_agent_image_tag }}"
+  pullPolicy: IfNotPresent
+
+controller:
+  type: deployment
+
+replicaCount: 1
+
+serviceAccount:
+  create: true
+  automountServiceAccountToken: false
+
+bootstrap:
+  enabled: true
+  overwrite: {{ hermes_agent_bootstrap_overwrite | bool | lower }}
+
+# Non-secret hash of the operator-managed Secret payload. The chart merges
+# podAnnotations into the pod template, causing credential rotations to roll.
+podAnnotations:
+  checksum/operator-secret: "{{ hermes_agent_operator_secret_checksum }}"
+
+config:
+  model:
+    provider: "{{ hermes_agent_model_provider }}"
+    default: "{{ hermes_agent_model_default }}"
+  terminal:
+    backend: local
+
+# The chart REQUIRES the env key (values.schema.json) but the chart-managed
+# Secret must stay empty: real credentials arrive via extraEnvFrom below.
+env: {}
+
+# Externally managed, namespace-scoped Secret (the role applies it before
+# Helm). Provider credentials use envFrom. Dashboard credentials are explicit
+# secretKeyRef entries so the chart's render-time basic-auth guard can verify
+# that both required variable names are configured without putting secret
+# values into Helm release values.
+extraEnvFrom:
+  - secretRef:
+      name: "{{ hermes_agent_release_name }}-provider"
+extraEnv:
+  - name: HERMES_DASHBOARD_BASIC_AUTH_USERNAME
+    valueFrom:
+      secretKeyRef:
+        name: "{{ hermes_agent_release_name }}-provider"
+        key: HERMES_DASHBOARD_BASIC_AUTH_USERNAME
+  - name: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: "{{ hermes_agent_release_name }}-provider"
+        key: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
+
+dashboard:
+  enabled: {{ hermes_agent_dashboard_enabled | bool | lower }}
+  publicUrl: {{ hermes_agent_dashboard_public_url | string | to_json }}
+  trustedProxies: {{ hermes_agent_dashboard_trusted_proxies | to_json }}
+  # Tailscale Serve is transport/access control, not an identity-aware proxy.
+  # Use the application's own supported basic authentication; never select
+  # `external` unless a separately approved proxy supplies verified identity.
+  auth:
+    provider: basic
+  readinessProbe:
+    enabled: true
+    periodSeconds: 10
+
+service:
+  enabled: {{ hermes_agent_dashboard_enabled | bool | lower }}
+  type: ClusterIP
+  ports:
+    - name: dashboard
+      port: {{ hermes_agent_dashboard_port }}
+      targetPort: {{ hermes_agent_dashboard_port }}
+      protocol: TCP
+
+persistence:
+  enabled: true
+  storageClass: "{{ hermes_agent_persistence_storageclass }}"
+  accessModes:
+    - ReadWriteOnce
+  size: "{{ hermes_agent_persistence_size }}"
+  mountPath: /opt/data
+  existingClaim: "{{ hermes_agent_persistence_existing_claim }}"
+
+# PSS "restricted"-compliant profile (CI-verified by upstream as
+# values-hardened.yaml against the pinned image).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10000
+  runAsGroup: 10000
+  fsGroup: 10000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+# s6-overlay needs a writable+executable /run; agent tooling needs /tmp.
+# Rootfs is read-only. Memory-backed and size-bounded.
+extraVolumes:
+  - name: run-tmpfs
+    emptyDir:
+      medium: Memory
+      sizeLimit: 16Mi
+  - name: tmp-tmpfs
+    emptyDir:
+      medium: Memory
+      sizeLimit: 64Mi
+
+extraVolumeMounts:
+  - name: run-tmpfs
+    mountPath: /run
+  - name: tmp-tmpfs
+    mountPath: /tmp
+
+# Ingress: dashboard port from the k3s node IP only (Tailscale Serve path);
+# everything else denied. Egress: DNS + public-internet only; cloud metadata
+# endpoint blocked. Enforced by k3s's embedded flannel NetworkPolicy controller
+# (k3s >= v1.30) — verify enforcement live, don't assume it from the render.
+networkPolicy:
+  enabled: true
+  allowDns: true
+  blockPrivateEgress: true
+  # Dashboard ingress sources:
+  #  1. the k3s node /32 (legacy host-Serve path — inert after the
+  #     tailscale_k8s migration but kept as belt-and-braces);
+  #  2. pods in the tailscale namespace — the operator-managed proxy pod is
+  #     the live tailnet path after migration. Namespace-scoped (not
+  #     pod-CIDR ipBlock) so proxy pod labels cannot break admission.
+  extraIngress:
+    - from:
+        - ipBlock:
+            cidr: "{{ hermes_agent_dashboard_ingress_cidr }}"
+      ports:
+        - protocol: TCP
+          port: {{ hermes_agent_dashboard_port }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: "{{ hermes_agent_dashboard_tailscale_namespace }}"
+      ports:
+        - protocol: TCP
+          port: {{ hermes_agent_dashboard_port }}
+
+tests:
+  enabled: {{ hermes_agent_tests_rendered | bool | lower }}
+  chat:
+    enabled: false

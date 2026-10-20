@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+# Declarative k3s server configuration (single node).
+#
+# Component matrix (NoesisPraxis decision, docs/praxis-k3s/k3s.md):
+#   DISABLED:
+#     - traefik     : ingress controller deferred to the application layer;
+#                     nothing on this host may expose public HTTP(S) listeners.
+#     - servicelb   : klipper-lb LoadBalancer emulator unneeded on a single
+#                     node; services are ClusterIP-only by policy.
+#   ENABLED (k3s defaults, intentionally kept):
+#     - coredns                 : cluster DNS
+#     - local-path-provisioner  : dynamic hostPath PVCs (smoke-tested)
+#     - metrics-server          : kubectl top / HPA baseline
+disable:
+{% for component in k3s_disable_components %}
+  - {{ component }}
+{% endfor %}
+write-kubeconfig-mode: "0600"

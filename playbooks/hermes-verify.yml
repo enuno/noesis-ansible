@@ -1,0 +1,484 @@
+---
+# hermes-verify.yml — target-side verification for the pinned hermes-agent.
+# Every Kubernetes/Helm read executes on the k3s host as root using
+# /etc/rancher/k3s/k3s.yaml in place; cluster-admin credentials never leave
+# that host. Read-only except for one marker file and one controlled pod
+# deletion (the Deployment recreates it); the PVC is never deleted.
+#
+# Gates (default false → reported NOT RUN, never silently skipped):
+#   hermes_chart_test_authorized    run the chart's doctor-style test Job
+#   hermes_provider_test_authorized run a real, quota-consuming round-trip
+#
+# Usage:
+#   ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/hermes-verify.yml
+
+- name: Verify pinned hermes-agent release on target k3s server
+  hosts: k3s_server
+  gather_facts: true
+  become: true
+  become_method: sudo
+  tags: [hermes_agent, verify]
+
+  vars_files:
+    - "{{ playbook_dir | dirname }}/roles/hermes_agent_helm/defaults/main.yml"
+
+  vars:
+    k3s_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+    hermes_agent_helm_wait_timeout: 300
+    hermes_kubernetes_python_version: "34.1.0"
+    hermes_kubernetes_venv: /opt/ansible-kubernetes
+    # The runtime imageID may resolve to the manifest-list digest or its
+    # linux/amd64 child digest; both immutable pins are accepted.
+    hermes_verify_accepted_digests:
+      - "{{ hermes_agent_image_digest }}"
+      - "{{ hermes_agent_image_digest_amd64 }}"
+    hermes_verify_restart_threshold: 3
+    hermes_verify_persistence_test: true
+    hermes_chart_test_authorized: false
+    hermes_provider_test_authorized: false
+    hermes_verify_marker: "{{ 99999999999999999999 | random | to_uuid }}"
+
+  module_defaults:
+    group/kubernetes.core.helm:
+      kubeconfig: "{{ k3s_kubeconfig_path }}"
+      binary_path: /usr/local/bin/helm
+    group/kubernetes.core.k8s:
+      kubeconfig: "{{ k3s_kubeconfig_path }}"
+
+  pre_tasks:
+    # Play vars are re-templated on every reference; the `random` filter would
+    # otherwise mint a different marker between the write and the assert.
+    - name: Pin persistence marker once for the whole play
+      ansible.builtin.set_fact:
+        hermes_verify_marker: "{{ 99999999999999999999 | random | to_uuid }}"
+
+    - name: Assert target is Ubuntu x86_64
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Ubuntu'
+          - ansible_architecture in ['x86_64', 'amd64']
+
+    - name: Install Python venv support for target-side kubernetes.core modules
+      ansible.builtin.apt:
+        name: python3-venv
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    # Exact pip pin in a dedicated venv avoids changing Ubuntu's managed
+    # Python while guaranteeing the client is available on the execution host.
+    - name: Create dedicated target-side Kubernetes Python environment
+      ansible.builtin.command:
+        cmd: "python3 -m venv {{ hermes_kubernetes_venv }}"
+        creates: "{{ hermes_kubernetes_venv }}/bin/python"
+
+    - name: Install exact Python kubernetes client pin in target venv
+      ansible.builtin.pip:
+        name: "kubernetes=={{ hermes_kubernetes_python_version }}"
+        virtualenv: "{{ hermes_kubernetes_venv }}"
+        state: present
+
+    - name: Select pinned target-side Kubernetes Python environment
+      ansible.builtin.set_fact:
+        ansible_python_interpreter: "{{ hermes_kubernetes_venv }}/bin/python"
+
+  roles:
+    - role: helm
+      tags: [hermes_agent, helm]
+
+  tasks:
+    # ------------------------------------------------------------------
+    # 1. Release status at the pinned chart version
+    # ------------------------------------------------------------------
+    - name: Read helm release status
+      kubernetes.core.helm_info:
+        release_name: "{{ hermes_agent_release_name }}"
+        release_namespace: "{{ hermes_agent_namespace }}"
+      register: hermes_verify_release
+
+    - name: Assert release deployed at pinned chart version
+      ansible.builtin.assert:
+        that:
+          - hermes_verify_release.status is defined
+          - hermes_verify_release.status.status | default('') == 'deployed'
+          - "'-{{ hermes_agent_chart_version }}' in (hermes_verify_release.status.chart | default(''))"
+        fail_msg: >-
+          Release not deployed at pinned chart version
+          {{ hermes_agent_chart_version }}: {{ hermes_verify_release.status | default({}) | to_json }}
+
+    # ------------------------------------------------------------------
+    # 2. Workload spec — single-writer, security, mount, exposure
+    # ------------------------------------------------------------------
+    - name: Read Deployment
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: "{{ hermes_agent_release_name }}"
+        namespace: "{{ hermes_agent_namespace }}"
+      register: hermes_verify_deploy
+
+    - name: Assert Deployment exists
+      ansible.builtin.assert:
+        that:
+          - hermes_verify_deploy.resources | length == 1
+        fail_msg: "Deployment {{ hermes_agent_release_name }} not found in namespace {{ hermes_agent_namespace }}."
+
+    - name: Assert single-writer rollout (Recreate, one replica)
+      ansible.builtin.assert:
+        that:
+          - hermes_verify_deploy.resources[0].spec.replicas == 1
+          - hermes_verify_deploy.resources[0].spec.strategy.type == 'Recreate'
+        fail_msg: "Deployment must run exactly 1 replica with strategy Recreate (single-writer RWO volume)."
+
+    - name: Assert pod security posture from rendered spec
+      ansible.builtin.assert:
+        that:
+          - hermes_verify_deploy.resources[0].spec.template.spec.automountServiceAccountToken == false
+          - hermes_verify_deploy.resources[0].spec.template.spec.securityContext.runAsNonRoot == true
+          - hermes_verify_deploy.resources[0].spec.template.spec.securityContext.runAsUser == 10000
+          - hermes_verify_deploy.resources[0].spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation == false
+          - "'ALL' in hermes_verify_deploy.resources[0].spec.template.spec.containers[0].securityContext.capabilities.drop"
+          - hermes_verify_deploy.resources[0].spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem == true
+          - not (hermes_verify_deploy.resources[0].spec.template.spec.hostNetwork | default(false))
+        fail_msg: "Pod spec deviates from the hardened single-writer profile."
+
+    - name: Assert HERMES_HOME mounted at /opt/data from a PVC
+      ansible.builtin.assert:
+        that:
+          - hermes_verify_deploy.resources[0].spec.template.spec.containers[0].env | selectattr('name', 'eq', 'HERMES_HOME') | map(attribute='value') | list | first == '/opt/data'
+          - hermes_verify_deploy.resources[0].spec.template.spec.containers[0].volumeMounts | selectattr('mountPath', 'eq', '/opt/data') | list | length == 1
+          - hermes_verify_deploy.resources[0].spec.template.spec.volumes | selectattr('name', 'eq', 'data') | map(attribute='persistentVolumeClaim') | list | length == 1
+        fail_msg: "HERMES_HOME must be /opt/data backed by a PVC."
+
+    - name: Assert readiness is a meaningful app-level check
+      ansible.builtin.assert:
+        that:
+          - hermes_verify_deploy.resources[0].spec.template.spec.containers[0].readinessProbe is defined
+          - hermes_verify_deploy.resources[0].spec.template.spec.containers[0].readinessProbe.tcpSocket.port | int == hermes_agent_dashboard_port | int
+        fail_msg: "Expected dashboard TCP readiness probe on port {{ hermes_agent_dashboard_port }} (app-level listener, not process-exists)."
+
+    - name: Assert no inbound listeners beyond the dashboard
+      ansible.builtin.assert:
+        that:
+          - hermes_verify_deploy.resources[0].spec.template.spec.containers[0].env | selectattr('name', 'eq', 'API_SERVER_ENABLED') | list | length == 0
+          - hermes_verify_deploy.resources[0].spec.template.spec.containers[0].env | selectattr('name', 'eq', 'WEBHOOK_ENABLED') | list | length == 0
+        fail_msg: "apiServer/webhook listeners must stay disabled."
+
+    # ------------------------------------------------------------------
+    # 3. Live pod state — one pod, ready, no restart loop, pinned image
+    # ------------------------------------------------------------------
+    - name: Read pods for release
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ hermes_agent_namespace }}"
+        label_selectors:
+          - app.kubernetes.io/instance={{ hermes_agent_release_name }}
+      register: hermes_verify_pods
+
+    - name: Assert exactly one active pod
+      ansible.builtin.assert:
+        that:
+          - hermes_verify_pods.resources | length == 1
+        fail_msg: "Expected exactly one pod, got {{ hermes_verify_pods.resources | length }}."
+
+    - name: Assert pod is Ready and not crash-looping
+      ansible.builtin.assert:
+        that:
+          - hermes_verify_pods.resources[0].status.containerStatuses[0].ready == true
+          - hermes_verify_pods.resources[0].status.containerStatuses[0].restartCount | int < hermes_verify_restart_threshold | int
+        fail_msg: >-
+          Pod not Ready or restart loop suspected
+          (restartCount={{ hermes_verify_pods.resources[0].status.containerStatuses[0].restartCount }}).
+
+    - name: Assert running image matches the pinned digest
+      ansible.builtin.assert:
+        that:
+          - hermes_verify_pods.resources[0].status.containerStatuses[0].imageID is defined
+          - hermes_verify_pods.resources[0].status.containerStatuses[0].imageID | regex_replace('^.*@', '') in hermes_verify_accepted_digests
+        fail_msg: >-
+          Running image digest does not match pin. imageID={{ hermes_verify_pods.resources[0].status.containerStatuses[0].imageID | default('') }}
+
+    # ------------------------------------------------------------------
+    # 4. Exposure audit — ClusterIP only, no Ingress/NodePort/LB
+    # ------------------------------------------------------------------
+    - name: Read Services in namespace
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Service
+        namespace: "{{ hermes_agent_namespace }}"
+      register: hermes_verify_services
+
+    - name: Assert only ClusterIP services exist
+      ansible.builtin.assert:
+        that:
+          - hermes_verify_services.resources | selectattr('spec.type', 'ne', 'ClusterIP') | list | length == 0
+        fail_msg: "Non-ClusterIP Service present — NodePort/LoadBalancer not allowed."
+
+    - name: Assert no Ingress exposure
+      kubernetes.core.k8s_info:
+        api_version: networking.k8s.io/v1
+        kind: Ingress
+        namespace: "{{ hermes_agent_namespace }}"
+      register: hermes_verify_ingresses
+      failed_when: hermes_verify_ingresses.resources | length > 0
+
+    - name: Read rendered NetworkPolicy
+      kubernetes.core.k8s_info:
+        api_version: networking.k8s.io/v1
+        kind: NetworkPolicy
+        name: "{{ hermes_agent_release_name }}"
+        namespace: "{{ hermes_agent_namespace }}"
+      register: hermes_verify_network_policy
+
+    # Design: deny ALL ingress except two dashboard rules —
+    #  1. ipBlock from hermes_agent_dashboard_ingress_cidr (the k3s node
+    #     /32; legacy host-Serve path, inert after the tailscale_k8s
+    #     migration but kept as belt-and-braces);
+    #  2. namespaceSelector admitting pods in the tailscale namespace —
+    #     the operator-managed proxy pod's live tailnet path.
+    - name: Extract the namespace-selector rule's matchLabels
+      ansible.builtin.set_fact:
+        hermes_verify_np_ns_labels: >-
+          {{ hermes_verify_network_policy.resources[0].spec.ingress[1].from
+             | selectattr('namespaceSelector', 'defined')
+             | map(attribute='namespaceSelector')
+             | map(attribute='matchLabels') | list)[0]
+             | default({}) }}
+      when: hermes_verify_network_policy.resources[0].spec.ingress | length >= 2
+
+    - name: Assert NetworkPolicy denies all ingress except the two dashboard rules
+      ansible.builtin.assert:
+        that:
+          - hermes_verify_network_policy.resources | length == 1
+          - "'Ingress' in hermes_verify_network_policy.resources[0].spec.policyTypes"
+          - hermes_verify_network_policy.resources[0].spec.ingress | length == 2
+          # Rule 0: node ipBlock /32 on the dashboard port
+          - hermes_verify_network_policy.resources[0].spec.ingress[0].from
+              | selectattr('ipBlock', 'defined') | list | length == 1
+          - hermes_verify_network_policy.resources[0].spec.ingress[0].from
+              | selectattr('ipBlock', 'defined') | map(attribute='ipBlock')
+              | map(attribute='cidr') | list | first
+              == hermes_agent_dashboard_ingress_cidr
+          - hermes_verify_network_policy.resources[0].spec.ingress[0].ports
+              | list | length == 1
+          - hermes_verify_network_policy.resources[0].spec.ingress[0].ports[0].protocol == 'TCP'
+          - hermes_verify_network_policy.resources[0].spec.ingress[0].ports[0].port == hermes_agent_dashboard_port | int
+          # Rule 1: tailscale-namespace selector on the dashboard port
+          - hermes_verify_network_policy.resources[0].spec.ingress[1].from
+              | selectattr('namespaceSelector', 'defined') | list | length == 1
+          - hermes_verify_np_ns_labels | dict2items | length == 1
+          - hermes_verify_np_ns_labels.get('kubernetes.io/metadata.name') == hermes_agent_dashboard_tailscale_namespace
+          - hermes_verify_network_policy.resources[0].spec.ingress[1].ports
+              | list | length == 1
+          - hermes_verify_network_policy.resources[0].spec.ingress[1].ports[0].protocol == 'TCP'
+          - hermes_verify_network_policy.resources[0].spec.ingress[1].ports[0].port == hermes_agent_dashboard_port | int
+        fail_msg: >-
+          Expected NetworkPolicy with exactly two ingress rules: dashboard TCP
+          {{ hermes_agent_dashboard_port }} from {{ hermes_agent_dashboard_ingress_cidr }}
+          and from namespace {{ hermes_agent_dashboard_tailscale_namespace }}.
+          (Enforcement depends on the CNI; verify live reachability separately.)
+
+    # ------------------------------------------------------------------
+    # 5. PVC Bound
+    # ------------------------------------------------------------------
+    - name: Read PVC
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: PersistentVolumeClaim
+        # Single register: two same-named register tasks would let the
+        # skipped one's result overwrite the real read.
+        name: "{{ (hermes_agent_persistence_existing_claim | length > 0) | ternary(hermes_agent_persistence_existing_claim, hermes_agent_release_name) }}"
+        namespace: "{{ hermes_agent_namespace }}"
+      register: hermes_verify_pvc
+
+    - name: Assert PVC is Bound
+      ansible.builtin.assert:
+        that:
+          - hermes_verify_pvc.resources | length == 1
+          - hermes_verify_pvc.resources[0].status.phase == 'Bound'
+        fail_msg: "PVC not Bound."
+
+    # ------------------------------------------------------------------
+    # 6. Running UID can write the state dir (in-pod, read-only command)
+    # ------------------------------------------------------------------
+    - name: Check runtime UID and state-dir writability
+      kubernetes.core.k8s_exec:
+        namespace: "{{ hermes_agent_namespace }}"
+        pod: "{{ hermes_verify_pods.resources[0].metadata.name }}"
+        container: hermes-agent
+        command: >
+          sh -c 'test "$(id -u)" = "10000" &&
+          touch /opt/data/.hermes-write-check &&
+          rm /opt/data/.hermes-write-check &&
+          echo WRITE-OK'
+      register: hermes_verify_write
+      changed_when: false
+
+    - name: Assert write check passed
+      ansible.builtin.assert:
+        that:
+          - "'WRITE-OK' in hermes_verify_write.stdout"
+        fail_msg: "Runtime uid is not 10000 or /opt/data is not writable."
+
+    # ------------------------------------------------------------------
+    # 7. Marker-file persistence across ONE controlled restart
+    #    (PVC is never deleted; marker is always removed)
+    # ------------------------------------------------------------------
+    - name: Persistence test — verify restart while always cleaning marker
+      when: hermes_verify_persistence_test | bool
+      block:
+        - name: Persistence test — write unique marker into HERMES_HOME
+          kubernetes.core.k8s_exec:
+            namespace: "{{ hermes_agent_namespace }}"
+            pod: "{{ hermes_verify_pods.resources[0].metadata.name }}"
+            container: hermes-agent
+            command: >
+              sh -c 'echo {{ hermes_verify_marker }} > /opt/data/.hermes-persistence-marker'
+          no_log: true
+          when: hermes_verify_persistence_test | bool
+
+        - name: Persistence test — delete exactly one pod (Deployment recreates it)
+          kubernetes.core.k8s:
+            api_version: v1
+            kind: Pod
+            name: "{{ hermes_verify_pods.resources[0].metadata.name }}"
+            namespace: "{{ hermes_agent_namespace }}"
+            state: absent
+            wait: true
+            wait_timeout: "{{ hermes_agent_helm_wait_timeout }}"
+          when: hermes_verify_persistence_test | bool
+
+        - name: Persistence test — wait for rollout to settle
+          kubernetes.core.k8s_info:
+            api_version: apps/v1
+            kind: Deployment
+            name: "{{ hermes_agent_release_name }}"
+            namespace: "{{ hermes_agent_namespace }}"
+          register: hermes_verify_rollout
+          until:
+            - hermes_verify_rollout.resources[0].status.readyReplicas | default(0) | int == 1
+            - hermes_verify_rollout.resources[0].status.updatedReplicas | default(0) | int == 1
+          retries: 30
+          delay: 10
+          when: hermes_verify_persistence_test | bool
+
+        - name: Persistence test — re-read pods after rollout
+          kubernetes.core.k8s_info:
+            api_version: v1
+            kind: Pod
+            namespace: "{{ hermes_agent_namespace }}"
+            label_selectors:
+              - app.kubernetes.io/instance={{ hermes_agent_release_name }}
+          register: hermes_verify_pods_after
+          until: hermes_verify_pods_after.resources | length == 1 and hermes_verify_pods_after.resources[0].status.containerStatuses[0].ready | default(false)
+          retries: 30
+          delay: 10
+          when: hermes_verify_persistence_test | bool
+
+        - name: Persistence test — read marker and remove it (PVC is never deleted)
+          kubernetes.core.k8s_exec:
+            namespace: "{{ hermes_agent_namespace }}"
+            pod: "{{ hermes_verify_pods_after.resources[0].metadata.name }}"
+            container: hermes-agent
+            command: >
+              sh -c 'cat /opt/data/.hermes-persistence-marker'
+          register: hermes_verify_marker_read
+          when: hermes_verify_persistence_test | bool
+
+        - name: Persistence test — assert marker survived intact
+          ansible.builtin.assert:
+            that:
+              - hermes_verify_marker_read.stdout | trim == hermes_verify_marker
+            fail_msg: "Marker file did not survive the controlled restart — PVC persistence broken."
+          when: hermes_verify_persistence_test | bool
+
+      always:
+        - name: Persistence cleanup — re-discover current pod
+          kubernetes.core.k8s_info:
+            api_version: v1
+            kind: Pod
+            namespace: "{{ hermes_agent_namespace }}"
+            label_selectors:
+              - app.kubernetes.io/instance={{ hermes_agent_release_name }}
+          register: hermes_verify_cleanup_pods
+          failed_when: false
+          when: hermes_verify_persistence_test | bool
+
+        - name: Persistence cleanup — remove marker best-effort without deleting PVC
+          kubernetes.core.k8s_exec:
+            namespace: "{{ hermes_agent_namespace }}"
+            pod: "{{ hermes_verify_cleanup_pods.resources[0].metadata.name }}"
+            container: hermes-agent
+            command: sh -c 'rm -f /opt/data/.hermes-persistence-marker'
+          register: hermes_verify_marker_cleanup
+          changed_when: false
+          failed_when: false
+          when:
+            - hermes_verify_persistence_test | bool
+            - hermes_verify_cleanup_pods.resources | default([]) | length == 1
+
+    # ------------------------------------------------------------------
+    # 8. Chart helm test — documented, gated
+    # ------------------------------------------------------------------
+    # What the chart's test Job proves (chart 1.21.0 templates/tests/
+    # test-hermes-doctor.yaml): the pinned image's `hermes --version` runs;
+    # chart-seeded config.yaml lands in HERMES_HOME; `hermes doctor` executes
+    # (non-fatal by default, tests.doctorStrict=false); an optional real
+    # provider round-trip exists but is OFF by default. The Job mounts its
+    # OWN emptyDir home — it never mounts the live PVC, so running it is NOT
+    # a second-writer risk.
+    - name: Chart helm test — NOT RUN (set hermes_chart_test_authorized=true)
+      ansible.builtin.debug:
+        msg: >-
+          Chart helm test NOT RUN (gated). When authorized it runs a
+          doctor-style Job in an emptyDir home (never the live PVC): proves
+          image CLI works, config seeding works, doctor executes. It does
+          NOT prove provider connectivity or persistence.
+      when: not (hermes_chart_test_authorized | bool)
+
+    - name: Chart helm test — run doctor-style Job (authorized)
+      ansible.builtin.command: >
+        /usr/local/bin/helm --kubeconfig {{ k3s_kubeconfig_path }}
+        test {{ hermes_agent_release_name }}
+        --namespace {{ hermes_agent_namespace }}
+        --timeout {{ hermes_agent_helm_wait_timeout }}s
+      changed_when: false
+      when: hermes_chart_test_authorized | bool
+
+    # ------------------------------------------------------------------
+    # 9. Provider round-trip — explicitly gated
+    # ------------------------------------------------------------------
+    - name: Provider round-trip — NOT RUN (set hermes_provider_test_authorized=true)
+      ansible.builtin.debug:
+        msg: >-
+          Provider round-trip NOT RUN (gated, default false). When
+          authorized, runs a bounded `hermes chat` in the pod against the
+          configured provider; costs real API quota and logs the exchange.
+      when: not (hermes_provider_test_authorized | bool)
+
+    - name: Provider round-trip — bounded live check (authorized)
+      kubernetes.core.k8s_exec:
+        namespace: "{{ hermes_agent_namespace }}"
+        pod: "{{ hermes_verify_pods_after.resources[0].metadata.name | default(hermes_verify_pods.resources[0].metadata.name) }}"
+        container: hermes-agent
+        command: 'timeout 180 hermes chat -q "Reply with exactly: OK" --max-turns 1'
+      register: hermes_verify_provider_trip
+      changed_when: false
+      failed_when: >-
+        (hermes_verify_provider_trip.rc | default(1) | int != 0) or
+        (hermes_verify_provider_trip.stdout | default('') | trim != 'OK')
+      when: hermes_provider_test_authorized | bool
+
+    # ------------------------------------------------------------------
+    # Summary
+    # ------------------------------------------------------------------
+    - name: Verification summary
+      ansible.builtin.debug:
+        msg: >-
+          hermes-agent verify PASSED: release={{ hermes_agent_chart_version }},
+          one Ready replica, image digest pinned, PVC Bound at /opt/data,
+          uid 10000 writable, ClusterIP-only, NetworkPolicy restricted to
+          dashboard TCP 9119 from the node /32, no restart loop. Persistence marker: {{ 'verified' if hermes_verify_persistence_test | bool else 'skipped' }}.
+          Chart helm test: {{ 'RUN' if hermes_chart_test_authorized | bool else 'NOT RUN (gated)' }}.
+          Provider round-trip: {{ 'RUN' if hermes_provider_test_authorized | bool else 'NOT RUN (gated)' }}.

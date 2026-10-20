@@ -1,0 +1,17 @@
+# Non-secret operator values. OAuth credentials are delivered via the
+# pre-created Secret {{ tailscale_k8s_oauth_secret_name }} referenced below —
+# never via these values (which are staged world-readable on the target by
+# design and must stay free of secrets).
+fullnameOverride: "{{ tailscale_k8s_release_name }}"
+oauthSecretVolume:
+  secret:
+    secretName: "{{ tailscale_k8s_oauth_secret_name }}"
+operatorConfig:
+  # The OAuth client bears EXACTLY these tags; an OAuth client may only mint
+  # authkeys for tags it bears, so this list must match the client's tags
+  # (ours carries tag:k3s — verified via token introspection). The ACL must
+  # self-own each tag here (tailscale-lab-acl repo does).
+  defaultTags:
+{% for tag in tailscale_k8s_operator_tags %}
+    - "{{ tag }}"
+{% endfor %}

@@ -1,0 +1,82 @@
+---
+# hermes-deploy.yml — deploy the pinned vendored hermes-agent chart by
+# executing Kubernetes/Helm modules ON the k3s server. The cluster-admin
+# kubeconfig stays at /etc/rancher/k3s/k3s.yaml on that host and is never
+# copied to the controller.
+#
+# Usage:
+#   ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/hermes-deploy.yml
+
+- name: Deploy pinned hermes-agent Helm release on target k3s server
+  hosts: k3s_server
+  gather_facts: true
+  become: true
+  become_method: sudo
+  tags: [hermes_agent]
+
+  vars:
+    k3s_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+    # Bounded Helm/Kubernetes wait. Atomic causes a failed INSTALL to be
+    # removed and a failed UPGRADE to roll back to the prior successful
+    # release. It never deletes an existing PVC.
+    hermes_agent_helm_wait_timeout: 300
+    # Exact target-side Python client pin. A dedicated venv avoids modifying
+    # Ubuntu's externally-managed system Python and gives deterministic
+    # kubernetes.core module dependencies unlike an unpinned distro package.
+    hermes_kubernetes_python_version: "34.1.0"
+    hermes_kubernetes_venv: /opt/ansible-kubernetes
+
+  module_defaults:
+    group/kubernetes.core.helm:
+      kubeconfig: "{{ k3s_kubeconfig_path }}"
+      binary_path: /usr/local/bin/helm
+    group/kubernetes.core.k8s:
+      kubeconfig: "{{ k3s_kubeconfig_path }}"
+
+  pre_tasks:
+    - name: Assert target is Ubuntu x86_64
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Ubuntu'
+          - ansible_architecture in ['x86_64', 'amd64']
+        fail_msg: "Hermes deployment supports only the verified Ubuntu x86_64 target."
+
+    - name: Install Python venv support for target-side kubernetes.core modules
+      ansible.builtin.apt:
+        name: python3-venv
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create dedicated target-side Kubernetes Python environment
+      ansible.builtin.command:
+        cmd: "python3 -m venv {{ hermes_kubernetes_venv }}"
+        creates: "{{ hermes_kubernetes_venv }}/bin/python"
+
+    - name: Install exact Python kubernetes client pin in target venv
+      ansible.builtin.pip:
+        name: "kubernetes=={{ hermes_kubernetes_python_version }}"
+        virtualenv: "{{ hermes_kubernetes_venv }}"
+        state: present
+
+    # Subsequent kubernetes.core module payloads execute under this target
+    # interpreter, where the pinned Kubernetes Python client is installed.
+    - name: Select pinned target-side Kubernetes Python environment
+      ansible.builtin.set_fact:
+        ansible_python_interpreter: "{{ hermes_kubernetes_venv }}/bin/python"
+
+  roles:
+    - role: helm
+      tags: [hermes_agent, helm]
+    - role: hermes_agent_helm
+      tags: [hermes_agent]
+
+  post_tasks:
+    - name: Report dashboard access (in-cluster only, no public exposure)
+      ansible.builtin.debug:
+        msg: >-
+          Dashboard: k3s kubectl --namespace {{ hermes_agent_namespace }}
+          port-forward svc/{{ hermes_agent_release_name }}
+          {{ hermes_agent_dashboard_port }}:{{ hermes_agent_dashboard_port }},
+          then http://127.0.0.1:{{ hermes_agent_dashboard_port }} (basic auth).
+          No Ingress, NodePort, or LoadBalancer is created.

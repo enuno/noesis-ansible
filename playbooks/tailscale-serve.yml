@@ -1,0 +1,27 @@
+---
+# DEPRECATED (2026-10-19, operator pivot): host-level Serve was replaced by a
+# tailscale Ingress managed by the in-cluster operator — see
+# playbooks/tailscale-k8s-migrate.yml. Retained ONLY for rollback of the
+# host-package design.
+#
+# Configure private Tailscale Serve for the Hermes ClusterIP dashboard.
+# Prerequisite: roles/tailscale has already installed and enrolled this host
+# using the vault-backed tailscale_authkey. This play never enrolls, logs out,
+# restarts tailscaled, enables Funnel, or changes k3s networking.
+#
+# Usage:
+#   ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/tailscale-serve.yml
+
+- name: Configure private Tailscale Serve for Hermes dashboard
+  hosts: k3s_server
+  gather_facts: true
+  become: true
+  become_method: sudo
+  tags: [tailscale, tailscale-serve]
+
+  tasks:
+    - name: Configure and validate the private dashboard endpoint
+      ansible.builtin.include_role:
+        name: tailscale_serve
+      vars:
+        tailscale_serve_actions: [configure, validate]

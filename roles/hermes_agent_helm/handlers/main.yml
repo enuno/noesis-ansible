@@ -1,0 +1,5 @@
+---
+# No handlers required: the chart rolls pods itself via checksum/config and
+# checksum/secret pod-template annotations whenever the rendered ConfigMap or
+# Secret changes. Restarts are therefore declarative and idempotent.
+[]

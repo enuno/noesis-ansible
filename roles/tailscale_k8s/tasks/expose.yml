@@ -1,0 +1,43 @@
+---
+# Create the tailscale Ingress exposing the Hermes dashboard tailnet-only.
+# The operator provisions a proxy pod that joins the tailnet as
+# {{ tailscale_k8s_dashboard_hostname }}.<tailnet> with automatic TLS.
+
+- name: Apply dashboard Ingress
+  kubernetes.core.k8s:
+    kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+    state: present
+    definition: "{{ lookup('ansible.builtin.template', role_path + '/templates/dashboard-ingress.yml.j2') }}"
+    apply: true
+  register: tailscale_k8s_ingress_apply
+
+- name: Wait for operator to assign the tailnet hostname
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+    api_version: networking.k8s.io/v1
+    kind: Ingress
+    name: "{{ tailscale_k8s_dashboard_hostname }}"
+    namespace: "{{ tailscale_k8s_dashboard_backend_namespace }}"
+  register: tailscale_k8s_ingress
+  retries: "{{ tailscale_k8s_retries }}"
+  delay: "{{ tailscale_k8s_delay_seconds }}"
+  until:
+    - tailscale_k8s_ingress.resources | length == 1
+    - tailscale_k8s_ingress.resources[0].status.loadBalancer.ingress | default([]) | length > 0
+    - tailscale_k8s_ingress.resources[0].status.loadBalancer.ingress[0].hostname | default('')
+      == tailscale_k8s_dashboard_hostname ~ '.' ~ tailscale_k8s_tailnet_domain
+
+- name: Wait for a ready tailscale proxy pod
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+    api_version: v1
+    kind: Pod
+    namespace: "{{ tailscale_k8s_namespace }}"
+    label_selectors:
+      - tailscale.com/proxy-for != ""
+  register: tailscale_k8s_proxy_pods
+  retries: "{{ tailscale_k8s_retries }}"
+  delay: "{{ tailscale_k8s_delay_seconds }}"
+  until:
+    - tailscale_k8s_proxy_pods.resources | default([]) | length > 0
+    - tailscale_k8s_proxy_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length > 0

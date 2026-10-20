@@ -1,0 +1,54 @@
+---
+# Decommission the host-level tailscaled so the in-cluster operator-owned
+# proxy can claim the noesis-praxis tailnet identity. Runs AFTER operator
+# install, BEFORE the dashboard Ingress is created (MagicDNS name conflict).
+# Idempotent: a host without tailscale passes through unchanged.
+
+- name: Check for host tailscale binary
+  ansible.builtin.stat:
+    path: /usr/bin/tailscale
+  register: tailscale_k8s_host_binary
+
+- name: Log out host tailscaled identity
+  ansible.builtin.command:
+    argv: [/usr/bin/tailscale, logout]
+  register: tailscale_k8s_host_logout
+  changed_when: tailscale_k8s_host_logout.rc == 0
+  failed_when:
+    - tailscale_k8s_host_logout.rc != 0
+    - tailscale_k8s_host_logout.stderr | default('') is not search('not logged in|Failed to connect')
+    - tailscale_k8s_host_logout.stdout | default('') is not search('not logged in|Logged out')
+  when: tailscale_k8s_host_binary.stat.exists
+  timeout: "{{ tailscale_k8s_timeout_seconds }}"
+
+- name: Disable and stop host tailscaled
+  ansible.builtin.service:
+    name: tailscaled
+    state: stopped
+    enabled: false
+  when: tailscale_k8s_host_binary.stat.exists
+
+- name: Purge host tailscale package
+  ansible.builtin.apt:
+    name: tailscale
+    state: absent
+    purge: true
+  # Play-wide interpreter is the kubernetes venv, which lacks python3-apt —
+  # apt bindings only exist under the system interpreter.
+  vars:
+    ansible_python_interpreter: /usr/bin/python3.14
+  when: tailscale_k8s_host_binary.stat.exists
+
+- name: Check host tailscale binary after purge
+  ansible.builtin.stat:
+    path: /usr/bin/tailscale
+  register: tailscale_k8s_host_binary_after
+
+- name: Assert host tailscale binary is gone
+  ansible.builtin.assert:
+    that:
+      - not tailscale_k8s_host_binary_after.stat.exists
+    fail_msg: >-
+      Host tailscale binary still present after purge. Resolve manually:
+      dpkg -l | grep tailscale. The in-cluster operator and a host tailscaled
+      must never share the noesis-praxis identity.

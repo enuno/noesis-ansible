@@ -1,0 +1,20 @@
+---
+# Post-deploy validation: release present at the pinned chart version and in
+# deployed state. Deep verification lives in playbooks/hermes-verify.yml.
+- name: Read release state
+  kubernetes.core.helm_info:
+    kubeconfig: "{{ k3s_kubeconfig_path }}"
+    release_name: "{{ hermes_agent_release_name }}"
+    release_namespace: "{{ hermes_agent_namespace }}"
+  register: hermes_agent_release_info
+
+- name: Assert release is deployed at the pinned chart version
+  ansible.builtin.assert:
+    that:
+      - hermes_agent_release_info.status is defined
+      - hermes_agent_release_info.status.status | default('') in ['deployed']
+      - "'-{{ hermes_agent_chart_version }}' in (hermes_agent_release_info.status.chart | default(''))"
+    fail_msg: >-
+      Release {{ hermes_agent_release_name }} not deployed at pinned chart
+      version {{ hermes_agent_chart_version }}.
+      Got: {{ hermes_agent_release_info.status | default({}) | to_json }}

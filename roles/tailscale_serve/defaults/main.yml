@@ -1,0 +1,22 @@
+---
+# Tailscale Serve publishes exactly one private HTTPS endpoint. Installation and
+# enrollment remain owned by roles/tailscale.
+tailscale_serve_namespace: hermes-agent
+tailscale_serve_service_name: hermes-agent
+tailscale_serve_service_port: 9119
+tailscale_serve_https_port: 443
+tailscale_serve_k3s_binary: /usr/local/bin/k3s
+tailscale_serve_command: /usr/bin/tailscale
+tailscale_serve_timeout_seconds: 20
+tailscale_serve_retries: 6
+tailscale_serve_delay_seconds: 5
+
+# These are chart values documentation defaults. The observed host-to-ClusterIP
+# source must be added as a /32 when it is outside these networks.
+tailscale_serve_dashboard_trusted_proxies:
+  - 127.0.0.1/32
+  - 100.64.0.0/10
+
+# Required at deploy-time validation. Obtain it using the procedure printed by
+# validate.yml and documented in docs/praxis-k3s/tailscale-serve.md.
+tailscale_serve_confirmed_backend_source_ip: ""

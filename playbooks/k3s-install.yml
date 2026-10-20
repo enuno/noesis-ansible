@@ -1,0 +1,103 @@
+---
+# k3s-install.yml — install the pinned single-node k3s server on noesis-praxis.
+#
+# Usage:
+#   ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/k3s-install.yml
+#
+# The python3 bootstrap fallback task is a REMOTE WRITE that must not run
+# without operator approval: skip it with --skip-tags bootstrap-python when
+# you only want the read-only check, or approve it explicitly when the host
+# genuinely lacks python3.
+
+- name: Install single-node k3s server on noesis-praxis
+  hosts: k3s_server
+  gather_facts: true
+  become: true
+  become_method: sudo
+  tags: [k3s, install]
+
+  pre_tasks:
+    - name: Assert target OS is Ubuntu/Debian family
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family == "Debian"
+        fail_msg: >-
+          This playbook targets Ubuntu 26.04 (preflight-verified).
+          Detected {{ ansible_os_family }} {{ ansible_distribution_version }}.
+          Refusing to install k3s on an unverified OS.
+
+    - name: Load br_netfilter kernel module
+      community.general.modprobe:
+        name: br_netfilter
+        state: present
+
+    - name: Load overlay kernel module
+      community.general.modprobe:
+        name: overlay
+        state: present
+
+    # Persistence for the modules above across reboots.
+    - name: Persist kernel modules via modules-load.d
+      ansible.builtin.template:
+        src: templates/k3s-modules.conf.j2
+        dest: /etc/modules-load.d/k3s.conf
+        mode: "0644"
+        owner: root
+        group: root
+
+    - name: Enable bridge iptables forwarding
+      ansible.posix.sysctl:
+        name: net.bridge.bridge-nf-call-iptables
+        value: "1"
+        state: present
+        reload: true
+
+    - name: Enable IPv4 forwarding
+      ansible.posix.sysctl:
+        name: net.ipv4.ip_forward
+        value: "1"
+        state: present
+        reload: true
+
+    - name: Ensure ca-certificates present (HTTPS downloads)
+      ansible.builtin.apt:
+        name: ca-certificates
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    # Read-only check: the raw module works on hosts WITHOUT python3, so this
+    # check itself is safe to run anywhere. changed_when: false — it only
+    # inspects PATH.
+    - name: Check python3 presence (raw — works without python3 on target)
+      ansible.builtin.raw: command -v python3
+      register: k3s_python3_check
+      changed_when: false
+      failed_when: false
+
+    # REMOTE WRITE REQUIRING APPROVAL:
+    #   This task installs python3 via apt on the target host. It is the ONLY
+    #   task in this playbook that mutates a host before the k3s role, and it
+    #   exists solely as a bootstrap fallback for hosts lacking python3.
+    #   The NoesisPraxis remote-write approval gate applies: run with
+    #     --skip-tags bootstrap-python
+    #   to keep this playbook check-only when python3 is already present (the
+    #   normal case on Ubuntu 26.04), and remove the skip only after explicit
+    #   operator approval. Bounded by async/retries; apt is the only suitable
+    #   mechanism here because no python module can run before python exists.
+    - name: Bootstrap python3 via raw apt (APPROVAL-GATED remote write)
+      ansible.builtin.raw: >-
+        apt-get update -qq &&
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3
+      register: k3s_python3_bootstrap
+      changed_when: k3s_python3_bootstrap.rc == 0
+      failed_when: k3s_python3_bootstrap.rc != 0
+      when: k3s_python3_check.rc != 0
+      tags: [bootstrap-python, remote-write]
+      # Bounded: raw is synchronous and apt has its own internal timeouts;
+      # ansible_ssh_common_args connection timeout caps overall hang time.
+
+  tasks:
+    - name: Install and configure k3s
+      ansible.builtin.include_role:
+        name: k3s
