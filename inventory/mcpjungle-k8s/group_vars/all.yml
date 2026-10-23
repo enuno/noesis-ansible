@@ -77,21 +77,33 @@ mcpjungle_k8s_ingress_host: "mcpjungle"
 mcpjungle_k8s_ingress_class: "tailscale"
 mcpjungle_k8s_ingress_retries: 12
 
+# --- Server mode --------------------------------------------------------------
+# development mode has NO authentication and NO ACLs: every tailnet peer that
+# can reach the Ingress gets full read/write on the registry (register and
+# deregister servers, invoke any tool). It also enables the Dashboard UI,
+# which enterprise mode does not serve at all. The operating mode is set once,
+# at the server's first initialization, and cannot be changed afterward --
+# switching modes on an already-initialized deployment requires dropping and
+# recreating its database, which destroys every registered server, user, and
+# client. User-authorized switch to development mode: 2026-10-23, specifically
+# to get the Dashboard UI; the trust boundary for the resulting open access is
+# the tailnet itself, which stays private (no LoadBalancer/public IP anywhere
+# in this cluster -- verified at the time of the switch).
+mcpjungle_k8s_server_mode: "development"
+
 # --- Registry contents -------------------------------------------------------
-# One upstream MCP server (zero-credential, read-only), one operator user for
-# human CLI access, and one MCP client identity for the agents. The client is
-# scoped to an explicit allow-list; "--allow *" is never used.
+# One upstream MCP server (zero-credential, read-only). Users and MCP clients
+# are an ENTERPRISE-MODE-ONLY concept (POST /api/v0/users and /clients do not
+# apply in development mode, where every request is already unauthenticated);
+# configure_registry.yml skips that part of its work entirely when
+# mcpjungle_k8s_server_mode != "enterprise", so these stay empty in dev mode
+# rather than attempting operations the server does not support.
 mcpjungle_k8s_registry_upstreams:
   - name: "mcpjungle-docs"
     url: "https://docs.mcpjungle.com/mcp"
     description: "MCPJungle official documentation (read-only)"
-mcpjungle_k8s_registry_users:
-  - name: "elvis"
-    bw_key: "MCPJUNGLE_K3S_DEFAULT_USER_TOKEN"
-mcpjungle_k8s_registry_clients:
-  - name: "noesis-agents"
-    allow: ["mcpjungle-docs"]
-    bw_key: "MCPJUNGLE_K3S_DEFAULT_CLIENT_TOKEN"
+mcpjungle_k8s_registry_users: []
+mcpjungle_k8s_registry_clients: []
 
 # --- Operational -------------------------------------------------------------
 mcpjungle_k8s_timeout: 600

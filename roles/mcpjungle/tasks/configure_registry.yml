@@ -105,15 +105,19 @@
     mode: "0700"
   tags: [mcpjungle, k8s, registry]
 
-# --- admin credential ---------------------------------------------------------
+# --- admin credential (ENTERPRISE MODE ONLY) ----------------------------------
 # The admin token is the only credential that may create users and clients.
 # It already exists in Bitwarden (escrowed at first deploy); it is read here
-# and never regenerated.
+# and never regenerated. Users/clients/admin tokens are an enterprise-mode-only
+# concept: development mode enforces no authentication at all, so none of this
+# applies there -- skip it entirely rather than fail against a server that
+# does not implement these endpoints.
 - name: Look up the escrowed admin token record
   ansible.builtin.set_fact:
     mcpjungle_k8s_registry_admin_records: >-
       {{ mcpjungle_k8s_bw_index
          | selectattr('key', 'equalto', mcpjungle_k8s_registry_admin_bw_key) | list }}
+  when: (mcpjungle_k8s_server_mode | default('enterprise')) == 'enterprise'
   no_log: true
   tags: [mcpjungle, k8s, registry]
 
@@ -128,6 +132,7 @@
       created once by init-server and cannot be re-minted: the API accepts
       "role":"admin" and silently stores "user", so a lost admin token needs a
       destructive database reset. Resolve the record first.
+  when: (mcpjungle_k8s_server_mode | default('enterprise')) == 'enterprise'
   no_log: true
   tags: [mcpjungle, k8s, registry]
 
@@ -138,6 +143,7 @@
       {{ mcpjungle_k8s_registry_admin_records | map(attribute='id') | first }} -o json'
   environment:
     BWS_ACCESS_TOKEN: "{{ mcpjungle_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  when: (mcpjungle_k8s_server_mode | default('enterprise')) == 'enterprise'
   register: mcpjungle_k8s_registry_admin_get_result
   changed_when: false
   failed_when: mcpjungle_k8s_registry_admin_get_result.rc != 0
@@ -156,8 +162,25 @@
     executable: /bin/bash
   environment:
     HOME: "{{ mcpjungle_k8s_registry_home }}"
+  when: (mcpjungle_k8s_server_mode | default('enterprise')) == 'enterprise'
   changed_when: true
   no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+# development mode enforces no authentication, so "register" and "list" need
+# only the registry URL -- there is no token to carry.
+- name: Write the unauthenticated registry configuration (development mode)
+  ansible.builtin.shell:
+    cmd: >-
+      set -euo pipefail;
+      umask 077;
+      printf 'registry_url: %s\n' "{{ mcpjungle_k8s_registry_url }}"
+      > {{ mcpjungle_k8s_registry_home }}/.mcpjungle.conf
+    executable: /bin/bash
+  environment:
+    HOME: "{{ mcpjungle_k8s_registry_home }}"
+  when: (mcpjungle_k8s_server_mode | default('enterprise')) != 'enterprise'
+  changed_when: true
   tags: [mcpjungle, k8s, registry]
 
 # --- upstream MCP servers -----------------------------------------------------
@@ -198,12 +221,13 @@
   no_log: true
   tags: [mcpjungle, k8s, registry]
 
-# --- operator users -----------------------------------------------------------
+# --- operator users (ENTERPRISE MODE ONLY) -------------------------------------
 - name: List the operator users
   ansible.builtin.command:
     cmd: "{{ mcpjungle_cli_install_path }} list users --registry {{ mcpjungle_k8s_registry_url }}"
   environment:
     HOME: "{{ mcpjungle_k8s_registry_home }}"
+  when: (mcpjungle_k8s_server_mode | default('enterprise')) == 'enterprise'
   register: mcpjungle_k8s_registry_users_result
   changed_when: false
   failed_when: mcpjungle_k8s_registry_users_result.rc != 0
@@ -220,6 +244,7 @@
   loop: "{{ mcpjungle_k8s_registry_users }}"
   loop_control:
     label: "{{ item.name }}"
+  when: (mcpjungle_k8s_server_mode | default('enterprise')) == 'enterprise'
   register: mcpjungle_k8s_registry_create_user_result
   changed_when: mcpjungle_k8s_registry_create_user_result.rc == 0
   # `list users` writes to STDERR on this CLI version, not stdout -- confirmed
@@ -258,12 +283,13 @@
   # "create" attempt that fails must NOT be turned into an empty escrow
   # record that would overwrite the stored credential.
   when:
+    - (mcpjungle_k8s_server_mode | default('enterprise')) == 'enterprise'
     - mcpjungle_k8s_allow_bitwarden_write | bool
     - mcpjungle_k8s_registry_create_user_result.results[loop_index].rc == 0
   no_log: true
   tags: [mcpjungle, k8s, registry]
 
-# --- MCP client identities ----------------------------------------------------
+# --- MCP client identities (ENTERPRISE MODE ONLY) ------------------------------
 # One client per consuming application or workflow, each scoped to an explicit
 # allow-list. "--allow *" is never used here: it would grant every client
 # every registered server.
@@ -272,6 +298,7 @@
     cmd: "{{ mcpjungle_cli_install_path }} list mcp-clients --registry {{ mcpjungle_k8s_registry_url }}"
   environment:
     HOME: "{{ mcpjungle_k8s_registry_home }}"
+  when: (mcpjungle_k8s_server_mode | default('enterprise')) == 'enterprise'
   register: mcpjungle_k8s_registry_clients_result
   changed_when: false
   failed_when: mcpjungle_k8s_registry_clients_result.rc != 0
@@ -289,6 +316,7 @@
   loop: "{{ mcpjungle_k8s_registry_clients }}"
   loop_control:
     label: "{{ item.name }}"
+  when: (mcpjungle_k8s_server_mode | default('enterprise')) == 'enterprise'
   register: mcpjungle_k8s_registry_create_client_result
   changed_when: mcpjungle_k8s_registry_create_client_result.rc == 0
   failed_when:
@@ -317,6 +345,7 @@
   changed_when: mcpjungle_k8s_registry_escrow_client_result.rc == 0
   failed_when: mcpjungle_k8s_registry_escrow_client_result.rc != 0
   when:
+    - (mcpjungle_k8s_server_mode | default('enterprise')) == 'enterprise'
     - mcpjungle_k8s_allow_bitwarden_write | bool
     - mcpjungle_k8s_registry_create_client_result.results[loop_index].rc == 0
   no_log: true
@@ -339,6 +368,7 @@
        (mcpjungle_k8s_registry_clients | default([])) }}
   loop_control:
     label: "{{ item.name }}"
+  when: (mcpjungle_k8s_server_mode | default('enterprise')) == 'enterprise'
   no_log: true
   tags: [mcpjungle, k8s, registry]
 
