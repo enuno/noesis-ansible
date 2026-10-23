@@ -61,6 +61,7 @@ mcpjungle_k8s_client_bw_key: "MCPJUNGLE_K3S_DEFAULT_CLIENT_TOKEN"
 mcpjungle_k8s_escrow_keys:
   - "MCPJUNGLE_K3S_DEFAULT_DB_PASSWORD"
   - "MCPJUNGLE_K3S_DEFAULT_ADMIN_TOKEN"
+  - "MCPJUNGLE_K3S_DEFAULT_USER_TOKEN"
   - "MCPJUNGLE_K3S_DEFAULT_CLIENT_TOKEN"
 # Optional: pin exact record ids to bypass key lookup entirely.
 mcpjungle_k8s_bw_record_ids: {}
@@ -75,6 +76,22 @@ mcpjungle_k8s_expose_enabled: false
 mcpjungle_k8s_ingress_host: "mcpjungle"
 mcpjungle_k8s_ingress_class: "tailscale"
 mcpjungle_k8s_ingress_retries: 12
+
+# --- Registry contents -------------------------------------------------------
+# One upstream MCP server (zero-credential, read-only), one operator user for
+# human CLI access, and one MCP client identity for the agents. The client is
+# scoped to an explicit allow-list; "--allow *" is never used.
+mcpjungle_k8s_registry_upstreams:
+  - name: "mcpjungle-docs"
+    url: "https://docs.mcpjungle.com/mcp"
+    description: "MCPJungle official documentation (read-only)"
+mcpjungle_k8s_registry_users:
+  - name: "elvis"
+    bw_key: "MCPJUNGLE_K3S_DEFAULT_USER_TOKEN"
+mcpjungle_k8s_registry_clients:
+  - name: "noesis-agents"
+    allow: ["mcpjungle-docs"]
+    bw_key: "MCPJUNGLE_K3S_DEFAULT_CLIENT_TOKEN"
 
 # --- Operational -------------------------------------------------------------
 mcpjungle_k8s_timeout: 600

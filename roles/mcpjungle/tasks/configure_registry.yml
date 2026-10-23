@@ -1,0 +1,377 @@
+---
+# Configure the MCPJungle REGISTRY once the tailnet exposure is live.
+#
+# The registry is the control plane of the deployment: it holds the upstream
+# MCP servers, the operator users, and the MCP client identities the other
+# agents authenticate with. Without this file a redeploy leaves the gateway
+# running but EMPTY -- `mcpjungle list tools` correctly reports zero tools and
+# no agent can call anything. The Helm release and the tailnet endpoint are
+# not the deployment; the registry contents are.
+#
+# Everything here runs through the `mcpjungle` CLI, which this role already
+# installs (install_cli.yml). The CLI is the supported interface: it owns the
+# token handling and the registry API shape. The legacy custom module
+# (noesis_mcpjungle_onboard) targets an older `/servers` endpoint layout that
+# the current API no longer serves, and is not used on this path.
+#
+# Credentials are read from and written to Bitwarden, the authoritative store.
+# The CLI prints a token exactly once, at creation time, so each creation step
+# captures it and escrows it immediately -- a token that is printed and not
+# escrowed is unrecoverable, because the server will not show it again.
+#
+# The CLI reads its registry URL and token from ~/.mcpjungle.conf. The tasks
+# below run it with HOME pointed at a private temporary directory, so the
+# operator's own CLI configuration on the host is never read or overwritten.
+#
+# UPSTREAM QUIRK -- verified empirically, not documented upstream: this CLI
+# is INCONSISTENT about which stream it writes to, even on success:
+#   `list servers`, `list mcp-clients`      -> stdout
+#   `list tools`, `list users`, `version`   -> stderr
+#   `create user`, `create mcp-client`      -> the "mcpjungle login <token>"
+#                                               success message -> stderr
+#   `register`                               -> a short header on stdout, the
+#                                               full tool dump on stderr
+# A check or token-capture that reads only `.stdout` silently sees nothing for
+# half of these and breaks idempotency (a successful re-run looks like a
+# fresh failure) or loses the token entirely. Every check and every token
+# capture below reads stdout+stderr COMBINED so it cannot regress if a future
+# CLI version moves a command's output between the two streams again.
+#
+# NOTE ON NAMING: every `register:` here ends in `_result`. An earlier version
+# registered the listing as `mcpjungle_k8s_registry_users` -- the same name as
+# the input variable -- so the register silently REPLACED the input list with
+# a result dict, and the next task failed with "The `loop` value must resolve
+# to a 'list', not 'dict'". Registered results and input variables must never
+# share a name in the same role.
+
+- name: Refuse to configure the registry under check mode
+  ansible.builtin.debug:
+    msg: "check mode: registry configuration skipped by design."
+  when: ansible_check_mode
+  tags: [mcpjungle, k8s, registry]
+
+- name: Skip registry configuration when nothing is requested
+  ansible.builtin.debug:
+    msg: "registry configuration skipped: no upstreams, users, or clients requested."
+  when: >
+    (mcpjungle_k8s_registry_upstreams | default([]) | length == 0) and
+    (mcpjungle_k8s_registry_users | default([]) | length == 0) and
+    (mcpjungle_k8s_registry_clients | default([]) | length == 0)
+  tags: [mcpjungle, k8s, registry]
+
+# The registry is only reachable at the tailnet HTTPS hostname. The tailnet IP
+# is NOT a usable address: the Tailscale operator's proxy routes by TLS SNI,
+# so a bare-IP https:// connection sends no SNI, misses the hostname-keyed
+# Web handler, falls through to the TCP handler and is refused. The service's
+# own port is never published on the tailnet either.
+- name: Resolve the registry hostname reported by the Tailscale operator
+  ansible.builtin.set_fact:
+    mcpjungle_k8s_registry_hostname: >-
+      {{ (mcpjungle_k8s_ingress_info.resources | default([]) | first
+          | json_query('status.loadBalancer.ingress[0].hostname')) | default('', true) }}
+  no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+- name: Require the operator-reported tailnet hostname before configuring the registry
+  ansible.builtin.assert:
+    that:
+      - mcpjungle_k8s_registry_hostname | length > 0
+      - mcpjungle_k8s_registry_hostname is match('^[a-z0-9.-]+[.][a-z]{2,}$')
+    fail_msg: >-
+      The Tailscale operator did not report a tailnet hostname for the
+      MCPJungle Ingress, so the registry URL cannot be built. The registry is
+      only reachable at the tailnet HTTPS hostname. Run the exposure task
+      first and confirm it reported a hostname.
+  tags: [mcpjungle, k8s, registry]
+
+- name: Build the registry URL
+  ansible.builtin.set_fact:
+    mcpjungle_k8s_registry_url: "https://{{ mcpjungle_k8s_registry_hostname }}"
+  no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+- name: Confirm the MCPJungle CLI is installed on the managed host
+  ansible.builtin.command:
+    cmd: "{{ mcpjungle_cli_install_path }} version"
+  register: mcpjungle_k8s_registry_cli_version_result
+  changed_when: false
+  failed_when: mcpjungle_k8s_registry_cli_version_result.rc != 0
+  tags: [mcpjungle, k8s, registry]
+
+- name: Create a private working directory for the registry CLI
+  ansible.builtin.file:
+    path: "{{ mcpjungle_k8s_registry_home }}"
+    state: directory
+    mode: "0700"
+  tags: [mcpjungle, k8s, registry]
+
+# --- admin credential ---------------------------------------------------------
+# The admin token is the only credential that may create users and clients.
+# It already exists in Bitwarden (escrowed at first deploy); it is read here
+# and never regenerated.
+- name: Look up the escrowed admin token record
+  ansible.builtin.set_fact:
+    mcpjungle_k8s_registry_admin_records: >-
+      {{ mcpjungle_k8s_bw_index
+         | selectattr('key', 'equalto', mcpjungle_k8s_registry_admin_bw_key) | list }}
+  no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+- name: Require exactly one escrowed admin token record
+  ansible.builtin.assert:
+    that:
+      - mcpjungle_k8s_registry_admin_records | length == 1
+    fail_msg: >-
+      Expected exactly one Bitwarden record for
+      {{ mcpjungle_k8s_registry_admin_bw_key }}, found
+      {{ mcpjungle_k8s_registry_admin_records | length }}. The admin token is
+      created once by init-server and cannot be re-minted: the API accepts
+      "role":"admin" and silently stores "user", so a lost admin token needs a
+      destructive database reset. Resolve the record first.
+  no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+- name: Fetch the escrowed admin token
+  ansible.builtin.command:
+    cmd: >-
+      bash -lic '{{ mcpjungle_k8s_bws_path }} secret get
+      {{ mcpjungle_k8s_registry_admin_records | map(attribute='id') | first }} -o json'
+  environment:
+    BWS_ACCESS_TOKEN: "{{ mcpjungle_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  register: mcpjungle_k8s_registry_admin_get_result
+  changed_when: false
+  failed_when: mcpjungle_k8s_registry_admin_get_result.rc != 0
+  no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+- name: Write the temporary admin registry configuration
+  ansible.builtin.shell:
+    cmd: >-
+      set -euo pipefail;
+      umask 077;
+      printf 'registry_url: %s\naccess_token: %s\n'
+      "{{ mcpjungle_k8s_registry_url }}"
+      "{{ mcpjungle_k8s_registry_admin_get_result.stdout | from_json | json_query('value') }}"
+      > {{ mcpjungle_k8s_registry_home }}/.mcpjungle.conf
+    executable: /bin/bash
+  environment:
+    HOME: "{{ mcpjungle_k8s_registry_home }}"
+  changed_when: true
+  no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+# --- upstream MCP servers -----------------------------------------------------
+- name: List the registered upstream MCP servers
+  ansible.builtin.command:
+    cmd: "{{ mcpjungle_cli_install_path }} list servers --registry {{ mcpjungle_k8s_registry_url }}"
+  environment:
+    HOME: "{{ mcpjungle_k8s_registry_home }}"
+  register: mcpjungle_k8s_registry_servers_result
+  changed_when: false
+  failed_when: mcpjungle_k8s_registry_servers_result.rc != 0
+  no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+- name: Register each approved upstream MCP server
+  ansible.builtin.command:
+    cmd: >-
+      {{ mcpjungle_cli_install_path }} register
+      --name {{ item.name }}
+      --url {{ item.url }}
+      {{ '--description ' ~ item.description if item.description | default('') | length > 0 else '' }}
+      --registry {{ mcpjungle_k8s_registry_url }}
+  environment:
+    HOME: "{{ mcpjungle_k8s_registry_home }}"
+  loop: "{{ mcpjungle_k8s_registry_upstreams }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: mcpjungle_k8s_registry_register_result
+  changed_when: mcpjungle_k8s_registry_register_result.rc == 0
+  # Re-registering an existing server is not an error condition: the registry
+  # already holds it, which is the desired end state. Check stdout+stderr
+  # combined: `list servers` happens to use stdout today, but nothing here
+  # should depend on that staying true.
+  failed_when:
+    - mcpjungle_k8s_registry_register_result.rc != 0
+    - item.name not in ((mcpjungle_k8s_registry_servers_result.stdout | default(''))
+                         + (mcpjungle_k8s_registry_servers_result.stderr | default('')))
+  no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+# --- operator users -----------------------------------------------------------
+- name: List the operator users
+  ansible.builtin.command:
+    cmd: "{{ mcpjungle_cli_install_path }} list users --registry {{ mcpjungle_k8s_registry_url }}"
+  environment:
+    HOME: "{{ mcpjungle_k8s_registry_home }}"
+  register: mcpjungle_k8s_registry_users_result
+  changed_when: false
+  failed_when: mcpjungle_k8s_registry_users_result.rc != 0
+  no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+- name: Create the missing operator users
+  ansible.builtin.command:
+    cmd: >-
+      {{ mcpjungle_cli_install_path }} create user {{ item.name }}
+      --registry {{ mcpjungle_k8s_registry_url }}
+  environment:
+    HOME: "{{ mcpjungle_k8s_registry_home }}"
+  loop: "{{ mcpjungle_k8s_registry_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: mcpjungle_k8s_registry_create_user_result
+  changed_when: mcpjungle_k8s_registry_create_user_result.rc == 0
+  # `list users` writes to STDERR on this CLI version, not stdout -- confirmed
+  # empirically (rc=0, stdout='', stderr='1. admin  [ADMIN]\n\n2. elvis'). This
+  # check reads both streams so it is not tied to that choice.
+  failed_when:
+    - mcpjungle_k8s_registry_create_user_result.rc != 0
+    - item.name not in ((mcpjungle_k8s_registry_users_result.stdout | default(''))
+                         + (mcpjungle_k8s_registry_users_result.stderr | default('')))
+  no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+# The token is printed once, by the CLI, at creation time. It is captured here
+# and escrowed directly; it is never logged and never written to the host's
+# own CLI configuration.
+- name: Escrow the freshly created operator user tokens
+  ansible.builtin.command:
+    cmd: >-
+      bash -lic '{{ mcpjungle_k8s_bws_path }} secret create
+      {{ item.bw_key }}
+      {{ ((mcpjungle_k8s_registry_create_user_result.results[loop_index].stdout | default(''))
+          + (mcpjungle_k8s_registry_create_user_result.results[loop_index].stderr | default('')))
+         | regex_search('mcpjungle login ([A-Za-z0-9_-]{20,})', '\\1') | quote }}
+      {{ mcpjungle_k8s_bw_project_id }}'
+  environment:
+    BWS_ACCESS_TOKEN: "{{ mcpjungle_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  loop: "{{ mcpjungle_k8s_registry_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+    index_var: loop_index
+  register: mcpjungle_k8s_registry_escrow_user_result
+  changed_when: mcpjungle_k8s_registry_escrow_user_result.rc == 0
+  failed_when: mcpjungle_k8s_registry_escrow_user_result.rc != 0
+  # Only escrow when this run actually created the user: the CLI prints the
+  # token exactly once, so on a re-run there is nothing to scrape and a
+  # "create" attempt that fails must NOT be turned into an empty escrow
+  # record that would overwrite the stored credential.
+  when:
+    - mcpjungle_k8s_allow_bitwarden_write | bool
+    - mcpjungle_k8s_registry_create_user_result.results[loop_index].rc == 0
+  no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+# --- MCP client identities ----------------------------------------------------
+# One client per consuming application or workflow, each scoped to an explicit
+# allow-list. "--allow *" is never used here: it would grant every client
+# every registered server.
+- name: List the MCP client identities
+  ansible.builtin.command:
+    cmd: "{{ mcpjungle_cli_install_path }} list mcp-clients --registry {{ mcpjungle_k8s_registry_url }}"
+  environment:
+    HOME: "{{ mcpjungle_k8s_registry_home }}"
+  register: mcpjungle_k8s_registry_clients_result
+  changed_when: false
+  failed_when: mcpjungle_k8s_registry_clients_result.rc != 0
+  no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+- name: Create the missing MCP client identities
+  ansible.builtin.command:
+    cmd: >-
+      {{ mcpjungle_cli_install_path }} create mcp-client {{ item.name }}
+      --allow "{{ item.allow | default([]) | join(',') }}"
+      --registry {{ mcpjungle_k8s_registry_url }}
+  environment:
+    HOME: "{{ mcpjungle_k8s_registry_home }}"
+  loop: "{{ mcpjungle_k8s_registry_clients }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: mcpjungle_k8s_registry_create_client_result
+  changed_when: mcpjungle_k8s_registry_create_client_result.rc == 0
+  failed_when:
+    - mcpjungle_k8s_registry_create_client_result.rc != 0
+    - item.name not in ((mcpjungle_k8s_registry_clients_result.stdout | default(''))
+                         + (mcpjungle_k8s_registry_clients_result.stderr | default('')))
+  no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+- name: Escrow the freshly created MCP client tokens
+  ansible.builtin.command:
+    cmd: >-
+      bash -lic '{{ mcpjungle_k8s_bws_path }} secret create
+      {{ item.bw_key }}
+      {{ ((mcpjungle_k8s_registry_create_client_result.results[loop_index].stdout | default(''))
+          + (mcpjungle_k8s_registry_create_client_result.results[loop_index].stderr | default('')))
+         | regex_search('mcpjungle login ([A-Za-z0-9_-]{20,})', '\\1') | quote }}
+      {{ mcpjungle_k8s_bw_project_id }}'
+  environment:
+    BWS_ACCESS_TOKEN: "{{ mcpjungle_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  loop: "{{ mcpjungle_k8s_registry_clients }}"
+  loop_control:
+    label: "{{ item.name }}"
+    index_var: loop_index
+  register: mcpjungle_k8s_registry_escrow_client_result
+  changed_when: mcpjungle_k8s_registry_escrow_client_result.rc == 0
+  failed_when: mcpjungle_k8s_registry_escrow_client_result.rc != 0
+  when:
+    - mcpjungle_k8s_allow_bitwarden_write | bool
+    - mcpjungle_k8s_registry_create_client_result.results[loop_index].rc == 0
+  no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+# A missing escrow record is NOT recoverable by re-running: the CLI shows a
+# token exactly once, at creation time. Fail closed rather than report a
+# registry as configured while its credential is unbacked.
+- name: Require every requested escrow key to exist in Bitwarden
+  ansible.builtin.assert:
+    that:
+      - item.bw_key is in (mcpjungle_k8s_bw_index | default([]) | map(attribute='key') | list)
+    fail_msg: >-
+      No Bitwarden record for {{ item.bw_key }} (entity {{ item.name }}). The
+      CLI prints an access token exactly once, at creation time, so a missing
+      record cannot be recovered by re-running this playbook. Re-create the
+      identity, or escrow the token from wherever it was captured.
+  loop: >-
+    {{ (mcpjungle_k8s_registry_users | default([])) +
+       (mcpjungle_k8s_registry_clients | default([])) }}
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+# --- verification -------------------------------------------------------------
+- name: Verify the registry now serves tools
+  ansible.builtin.command:
+    cmd: "{{ mcpjungle_cli_install_path }} list tools --registry {{ mcpjungle_k8s_registry_url }}"
+  environment:
+    HOME: "{{ mcpjungle_k8s_registry_home }}"
+  register: mcpjungle_k8s_registry_tools_result
+  changed_when: false
+  failed_when: mcpjungle_k8s_registry_tools_result.rc != 0
+  no_log: true
+  tags: [mcpjungle, k8s, registry]
+
+- name: Report the registry configuration
+  ansible.builtin.debug:
+    msg:
+      - "registry URL: {{ mcpjungle_k8s_registry_url }}"
+      - "upstream servers requested: {{ mcpjungle_k8s_registry_upstreams | map(attribute='name') | list }}"
+      - "operator users requested: {{ mcpjungle_k8s_registry_users | map(attribute='name') | list }}"
+      - "mcp clients requested: {{ mcpjungle_k8s_registry_clients | map(attribute='name') | list }}"
+      - >-
+        tools visible in the registry:
+        {{ (((mcpjungle_k8s_registry_tools_result.stdout | default(''))
+             + (mcpjungle_k8s_registry_tools_result.stderr | default('')))
+            | regex_findall('^[0-9]+[.] [a-zA-Z0-9_.-]+')) | length }}
+  tags: [mcpjungle, k8s, registry]
+
+# The temporary directory held the admin token in a plaintext CLI config.
+- name: Remove the temporary registry working directory
+  ansible.builtin.file:
+    path: "{{ mcpjungle_k8s_registry_home }}"
+    state: absent
+  changed_when: true
+  tags: [mcpjungle, k8s, registry]

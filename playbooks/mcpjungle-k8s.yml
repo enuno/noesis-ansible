@@ -78,3 +78,16 @@
         tasks_from: expose_tailscale.yml
       when: mcpjungle_k8s_expose_enabled | bool
       tags: [mcpjungle, k8s, expose]
+
+    # The registry URL is only knowable once the Tailscale operator has
+    # reported the tailnet hostname, so this must run after the exposure task.
+    - name: Configure the registry (upstreams, operator users, MCP clients)
+      ansible.builtin.include_role:
+        name: mcpjungle
+        tasks_from: configure_registry.yml
+      when: >-
+        mcpjungle_k8s_expose_enabled | bool and
+        ((mcpjungle_k8s_registry_upstreams | default([]) | length > 0) or
+         (mcpjungle_k8s_registry_users | default([]) | length > 0) or
+         (mcpjungle_k8s_registry_clients | default([]) | length > 0))
+      tags: [mcpjungle, k8s, registry]

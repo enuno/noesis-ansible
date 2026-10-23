@@ -96,6 +96,7 @@ mcpjungle_k8s_client_bw_key: "MCPJUNGLE_K3S_DEFAULT_CLIENT_TOKEN"
 mcpjungle_k8s_escrow_keys:
   - "MCPJUNGLE_K3S_DEFAULT_DB_PASSWORD"
   - "MCPJUNGLE_K3S_DEFAULT_ADMIN_TOKEN"
+  - "MCPJUNGLE_K3S_DEFAULT_USER_TOKEN"
   - "MCPJUNGLE_K3S_DEFAULT_CLIENT_TOKEN"
 mcpjungle_k8s_bw_record_ids: {}
 
@@ -121,6 +122,19 @@ mcpjungle_k8s_timeout: 600
 # depending on which playbook invokes the role.
 mcpjungle_k8s_namespace_manifest: "{{ role_path }}/../../charts/mcpjungle/namespace.yaml"
 mcpjungle_k8s_rendered_values: {}
+
+# --- Registry configuration ---------------------------------------------------
+# The registry holds the upstream MCP servers, the operator users, and the MCP
+# client identities the other agents authenticate with. A redeploy that leaves
+# it empty produces a running gateway that serves nothing.
+mcpjungle_k8s_registry_upstreams: []
+#   each: {name, url, description?}
+mcpjungle_k8s_registry_users: []
+#   each: {name, bw_key}
+mcpjungle_k8s_registry_clients: []
+#   each: {name, allow: [...], bw_key}
+mcpjungle_k8s_registry_home: "/var/lib/mcpjungle/registry-cli"
+mcpjungle_k8s_registry_admin_bw_key: "MCPJUNGLE_K3S_DEFAULT_ADMIN_TOKEN"
 
 # Crash-safe staging for a freshly generated credential. Mode 0600 on the
 # controller. Removed only after Bitwarden confirms the record is stored.
