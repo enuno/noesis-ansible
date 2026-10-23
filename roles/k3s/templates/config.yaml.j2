@@ -16,3 +16,12 @@ disable:
   - {{ component }}
 {% endfor %}
 write-kubeconfig-mode: "0600"
+{% if k3s_tls_sans | length > 0 %}
+# Extra API server certificate SANs. The tailnet DNS name is required for
+# remote `kubectl` over the tailnet: k3s auto-detects node IPs but not tailnet
+# DNS names, and a client that cannot verify the certificate cannot connect.
+tls-san:
+{% for san in k3s_tls_sans %}
+  - {{ san }}
+{% endfor %}
+{% endif %}

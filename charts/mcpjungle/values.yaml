@@ -124,6 +124,23 @@ env:
   PORT: "8080"
   # development | enterprise. `production` is a deprecated upstream alias for
   # `enterprise`; do not use it.
+  #
+  # `development` serves the web Dashboard at `/`. Upstream states the Dashboard
+  # "is currently only supported when running mcpjungle in development mode"
+  # (docs/guides/dashboard.mdx) — the route is not registered in enterprise mode.
+  #
+  # It is NOT a free switch. Once the database has been initialised in
+  # enterprise mode the server refuses to start in development mode:
+  #   "server is already initialized in enterprise mode, cannot start in
+  #    development mode"
+  # and development mode DISABLES Authentication and ACLs
+  # (docs/deployment/production.mdx). So enabling the Dashboard on an existing
+  # deployment would mean dropping and recreating the database AND losing auth.
+  #
+  # The ROLE also sets this explicitly in its rendered values
+  # (mcpjungle_k8s_server_mode). Keep the two in agreement: when they differ,
+  # which one wins depends on the helm module's value-merging path, and the
+  # release silently keeps the old mode while the task reports "ok".
   SERVER_MODE: "enterprise"
   MCP_SERVER_INIT_REQ_TIMEOUT_SEC: "30"
   SESSION_IDLE_TIMEOUT_SEC: "3600"

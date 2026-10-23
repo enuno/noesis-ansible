@@ -17,7 +17,7 @@
     that:
       - mcpjungle_k8s_deployment.resources | default([]) | length > 0
       - mcpjungle_k8s_deployment.resources | first
-        | json_query('status.readyReplicas // 0') | int >= 1
+        | json_query('status.readyReplicas || `0`') | int >= 1
     fail_msg: >-
       MCPJungle Deployment '{{ mcpjungle_k8s_release_name }}' is not ready on
       context '{{ mcpjungle_k8s_context }}'. Check the pod events and the
@@ -43,6 +43,6 @@
       - "release      : {{ mcpjungle_k8s_release_name }} (rev {{ mcpjungle_k8s_helm_info.status | default('unknown') }})"
       - "namespace    : {{ mcpjungle_k8s_namespace }}"
       - "context      : {{ mcpjungle_k8s_context }}"
-      - "readyReplicas: {{ mcpjungle_k8s_deployment.resources | default([]) | first | json_query('status.readyReplicas // 0') }}"
+      - "readyReplicas: {{ mcpjungle_k8s_deployment.resources | default([]) | first | json_query('status.readyReplicas || `0`') }}"
       - "endpoint     : {{ mcpjungle_k8s_endpoint | default('NOT EXPOSED') }}"
       - "NOTE         : reachability, ACL scope, and MCP protocol exchange are NOT proven here."

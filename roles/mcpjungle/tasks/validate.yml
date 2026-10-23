@@ -1,10 +1,14 @@
 ---
+# Host-local health probe for the Docker path only. On Kubernetes the app is
+# reachable in-cluster (Service mcpjungle:8080), never on the host's
+# localhost:<port>, so this probe always failed with "Connection refused" even
+# while the pod was healthy. The k8s path is validated by validate_k8s.yml.
 - name: Validate MCPJungle health
   ansible.builtin.uri:
     url: "http://localhost:{{ mcpjungle_port }}/health"
-    method: GET
-    status_code: 200
-  register: mcp_health
+  register: mcpjungle_health
+  until: mcpjungle_health.status in [200, 201]
   retries: 5
-  delay: 3
-  until: mcp_health.status == 200
+  delay: 10
+  changed_when: false
+  when: mcpjungle_deploy_method != 'k8s'

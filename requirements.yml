@@ -17,4 +17,6 @@ collections:
   - name: ansible.posix
     version: ">=1.5.4,<3.0.0"
 
+# kubernetes.core is listed once above at >=6.6.0. The MCPJungle deployment path
+# needs no separate pin; it is covered by that same entry.
 roles: []

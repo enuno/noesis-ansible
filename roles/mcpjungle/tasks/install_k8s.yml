@@ -22,13 +22,17 @@
       {{ mcpjungle_k8s_required_bw_project_id }} (got
       {{ mcpjungle_k8s_bw_project_id | default('<unset>') }}). The image must be
       pinned to an immutable digest, never 'latest'.
-    tags: [mcpjungle, k8s, validate]
+  tags: [mcpjungle, k8s, validate]
 
-- name: Check that the target user can actually read the kubeconfig
+# Runs with the play's become: true (root), which is the privilege level every
+# task that actually USES this kubeconfig runs at. An earlier version forced
+# become: false here, which tested the SSH login user's read access instead —
+# a privilege the deployment never uses, and which made the check fail for a
+# reason unrelated to whether the deploy can work.
+- name: Check that the effective task user can actually read the kubeconfig
   ansible.builtin.stat:
     path: "{{ mcpjungle_k8s_kubeconfig }}"
   register: mcpjungle_k8s_kubeconfig_stat
-  become: false
   tags: [mcpjungle, k8s, validate]
 
 - name: Fail with a useful message when the kubeconfig is unreadable
@@ -83,11 +87,28 @@
   changed_when: false
   tags: [mcpjungle, k8s, validate]
 
+# Read the context names straight out of the kubeconfig. The earlier version
+# walked `k8s_cluster_info.connection`, but that key is a STRING in the
+# installed kubernetes.core, so the walk raised "no attribute 'contexts'" and the
+# guard could never pass. The kubeconfig is the ground truth anyway.
+- name: Read the context names declared in the kubeconfig
+  ansible.builtin.slurp:
+    src: "{{ mcpjungle_k8s_kubeconfig }}"
+  register: mcpjungle_k8s_kubeconfig_raw
+  changed_when: false
+  no_log: true
+  tags: [mcpjungle, k8s, validate]
+
 - name: Fail closed if the named context is absent from the kubeconfig
   ansible.builtin.assert:
     that:
-      - mcpjungle_k8s_context in (mcpjungle_k8s_target.connection | default({}) | dict2items
-         | map(attribute='value.contexts') | list | flatten | map(attribute='name') | list)
+      # Parenthesised on purpose: `|` binds tighter than `or`, so without the
+      # inner brackets this compared the context name against a list of DICTS
+      # rather than their names, and the guard failed even when the context
+      # existed.
+      - mcpjungle_k8s_context in (((mcpjungle_k8s_kubeconfig_raw.content
+         | b64decode | from_yaml | default({}, true)).get('contexts') or [])
+         | map(attribute='name') | list)
     fail_msg: >-
       Context '{{ mcpjungle_k8s_context }}' was not found in
       {{ mcpjungle_k8s_kubeconfig }}. Refusing to fall back to the current
@@ -120,20 +141,41 @@
     definition: "{{ (lookup('ansible.builtin.file', mcpjungle_k8s_namespace_manifest) | from_yaml) }}"
   tags: [mcpjungle, k8s, install]
 
+# Build the manifest with set_fact first. Passing `definition:` inline leaves the
+# NESTED key un-templated -- the literal "{{ mcpjungle_k8s_db_secret_key }}" was
+# sent to the API server, which rejected it as an invalid config key (422).
+- name: Build the database Secret manifest
+  ansible.builtin.set_fact:
+    mcpjungle_k8s_db_secret_manifest:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ mcpjungle_k8s_db_secret_name }}"
+        namespace: "{{ mcpjungle_k8s_namespace }}"
+      type: Opaque
+      # Built as a single Jinja expression, not `"{{ key }}": value`. Ansible
+      # does NOT template dict KEYS: written that way the API server received a
+      # literal key named "{{ mcpjungle_k8s_db_secret_key }}" and returned 422
+      # "a valid config key must consist of alphanumeric characters".
+      # `data` is base64; `string_data` is silently dropped by this module and
+      # produced an empty Secret (DATA 0).
+      data: "{{ {mcpjungle_k8s_db_secret_key: mcpjungle_k8s_db_password | b64encode} }}"
+  no_log: true
+  when:
+    - mcpjungle_k8s_database_mode == 'postgres'
+    - not ansible_check_mode
+    - mcpjungle_k8s_db_password is defined
+    - mcpjungle_k8s_bw_stored | default(false) | bool
+  tags: [mcpjungle, k8s, secrets]
+
+# The value is resolved from Bitwarden in tasks/bw_escrow.yml and held in a
+# no_log-guarded fact. Never rendered into a diff, log, or artifact.
 - name: Ensure the database Secret exists, sourced from Bitwarden
   kubernetes.core.k8s:
     kubeconfig: "{{ mcpjungle_k8s_kubeconfig }}"
     context: "{{ mcpjungle_k8s_context }}"
     state: present
-    api_version: v1
-    kind: Secret
-    name: "{{ mcpjungle_k8s_db_secret_name }}"
-    namespace: "{{ mcpjungle_k8s_namespace }}"
-    type: Opaque
-    # value is resolved from Bitwarden in tasks/secrets.yml and held in a
-    # no_log-guarded fact. Never rendered into a diff, log, or artifact.
-    string_data:
-      "{{ mcpjungle_k8s_db_secret_key }}": "{{ mcpjungle_k8s_db_password }}"
+    definition: "{{ mcpjungle_k8s_db_secret_manifest }}"
   no_log: true
   diff: false
   when:
@@ -145,6 +187,11 @@
     - mcpjungle_k8s_bw_stored | default(false) | bool
   tags: [mcpjungle, k8s, secrets]
 
+# The `env` block below is set EXPLICITLY rather than relying on the chart's
+# own default. A chart-default change did not propagate through the helm
+# module's reset_values path: the release silently stayed on the old
+# SERVER_MODE while the task reported "ok" and changed=0. Keep this expression
+# free of YAML comments -- the offline suite extracts and re-evaluates it.
 - name: Build the Helm values tree from role variables
   ansible.builtin.set_fact:
     mcpjungle_k8s_rendered_values: >-
@@ -157,6 +204,14 @@
              'pullPolicy': 'IfNotPresent',
            },
            'service': {'type': 'ClusterIP', 'port': 8080},
+           'env': {
+             'MCPJUNGLE_BIND_HOST': '0.0.0.0',
+             'PORT': '8080',
+             'SERVER_MODE': mcpjungle_k8s_server_mode,
+             'MCP_SERVER_INIT_REQ_TIMEOUT_SEC': '30',
+             'SESSION_IDLE_TIMEOUT_SEC': '3600',
+             'OTEL_ENABLED': 'false',
+           },
            'database': {
              'mode': mcpjungle_k8s_database_mode,
              'postgres': {
@@ -185,14 +240,19 @@
     kubeconfig: "{{ mcpjungle_k8s_kubeconfig }}"
     context: "{{ mcpjungle_k8s_context }}"
     name: "{{ mcpjungle_k8s_release_name }}"
-    chart_ref: "./charts/mcpjungle"
+    # Resolved from role_path, not a bare "./charts/...". The helm module runs
+    # with the ROLE directory as its base, so a relative chart_ref resolved to
+    # roles/mcpjungle/charts/mcpjungle and Helm reported "path not found" even
+    # though the chart exists. playbook_dir would move with the caller.
+    chart_ref: "{{ role_path }}/../../charts/mcpjungle"
     release_namespace: "{{ mcpjungle_k8s_namespace }}"
     # Pinned chart version from the in-repo first-party chart.
     chart_version: "{{ mcpjungle_k8s_chart_version }}"
     create_namespace: false
     # Keep history bounded but non-zero so rollback is possible.
     wait: true
-    timeout: "{{ mcpjungle_k8s_timeout }}"
+    # Helm v4 rejects a bare number: "--timeout" needs a duration unit.
+    timeout: "{{ mcpjungle_k8s_timeout }}s"
     # Never leave a half-upgraded release behind on failure.
     atomic: true
     cleanup_on_fail: true

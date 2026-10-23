@@ -17,6 +17,14 @@
   gather_facts: true
   tags: [mcpjungle, k8s]
 
+  # A SECOND `pre_tasks:` key here silently discarded the first one (Ansible uses
+  # the last definition), so the fail-fast target assertion never ran. There must
+  # be exactly ONE pre_tasks block; both concerns live in it.
+  #
+  # B7: escrow MUST run before install. The db Secret task gates on
+  # mcpjungle_k8s_bw_stored, which escrow sets; running the role first meant the
+  # gate was always false, the Secret was silently skipped, and the release came
+  # up pointing at a Secret that did not exist.
   pre_tasks:
     - name: Refuse to run without an explicit target context
       ansible.builtin.assert:
@@ -28,11 +36,6 @@
           explicitly. Ansible must never silently select the current kubectl
           context.
 
-  # B7: escrow MUST run before install. The db Secret task gates on
-  # mcpjungle_k8s_bw_stored, which escrow sets; running the role first meant the
-  # gate was always false, the Secret was silently skipped, and the release came
-  # up pointing at a Secret that did not exist.
-  pre_tasks:
     - name: Escrow every newly created secret in Bitwarden BEFORE install/expose
       ansible.builtin.include_role:
         name: mcpjungle
@@ -55,6 +58,13 @@
         mcpjungle_deploy_method: k8s
 
   tasks:
+
+    - name: Install the MCPJungle CLI on the managed host
+      ansible.builtin.include_role:
+        name: mcpjungle
+        tasks_from: install_cli.yml
+      when: mcpjungle_cli_install_method in ['release', 'brew']
+      tags: [mcpjungle, k8s, cli]
 
     - name: Validate the release and cluster-side wiring
       ansible.builtin.include_role:

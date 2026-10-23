@@ -27,10 +27,14 @@
 - name: Fail if an existing k3s binary cannot report its version
   ansible.builtin.assert:
     that:
-      - k3s_installed_version.rc == 0
-      - k3s_installed_version.stdout | length > 0
+      - k3s_installed_version.rc | default(1) == 0
+      - k3s_installed_version.stdout | default('') | length > 0
     fail_msg: Existing k3s binary is not executable or returned no version.
-  when: k3s_binary_stat.stat.exists
+  # Skipped in --check mode: the `command` probe above does not run under
+  # check, so `rc`/`stdout` are undefined and the assertion aborted the whole
+  # check-mode run. The real (non-check) run is unaffected -- there the probe
+  # executes and the assertion is meaningful.
+  when: k3s_binary_stat.stat.exists and not ansible_check_mode
 
 # Existing cluster protection: re-running against a host whose installed
 # version differs from the pinned version is a stop-the-line failure.
@@ -47,6 +51,10 @@
       before re-running.
   when:
     - k3s_binary_stat.stat.exists
+    # The version probe is skipped in --check mode, so stdout is empty and
+    # this compared the pinned version against "" and always failed. Skipping
+    # the check-mode case keeps the guard meaningful on a real run.
+    - not ansible_check_mode
     - k3s_version not in (k3s_installed_version.stdout | default(''))
 
 # Replace an absent or modified binary even when it prints the pinned version.

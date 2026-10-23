@@ -49,3 +49,23 @@ hermes_agent_dashboard_trusted_proxies:
   - 31.97.209.57/32
   - 10.42.0.1/32
   - 10.42.0.0/24
+
+# --- Remote kubectl over the tailnet -------------------------------------------
+# The API server already LISTENS on *:6443 and the serving certificate already
+# carries this node's tailscale0 address (k3s auto-detects node IPs), so
+# `kubectl --server=https://100.119.84.26:6443` already works from the tailnet.
+#
+# What did NOT work was the tailnet DNS NAME: k3s does not auto-detect tailnet
+# names, so the certificate was not valid for it and clients failed with
+#   tls: failed to verify certificate: x509: certificate is valid for
+#   kubernetes, ..., noesis-praxis, ...
+# Adding the name to tls-san fixes that. The IP is listed explicitly too, so the
+# intent survives a k3s reinstall that happens before tailscale0 exists.
+k3s_tls_sans:
+  - noesis-praxis.tailf99a0.ts.net
+  - 100.119.84.26
+
+# k3s writes the kubeconfig with server: https://127.0.0.1:6443, which only
+# works on this host. Point it at the tailnet name so a copy of this file lets
+# an operator run kubectl from any tailnet machine.
+k3s_kubeconfig_server: "https://noesis-praxis.tailf99a0.ts.net:6443"

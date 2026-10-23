@@ -2,6 +2,10 @@
 # MCPJungle defaults
 mcpjungle_version: "latest"
 mcpjungle_port: 8085
+# `base_data_dir` was never defined on the Kubernetes path, so templating this
+# default raised "base_data_dir is undefined" and aborted validation. The base
+# is now a defaulted variable in its own right.
+base_data_dir: "/var/lib"
 mcpjungle_data_dir: "{{ base_data_dir }}/mcpjungle"
 mcpjungle_log_dir: "{{ base_log_dir }}/mcpjungle"
 mcpjungle_image: "noesispraxis/mcpjungle:{{ mcpjungle_version }}"
@@ -46,6 +50,30 @@ mcpjungle_k8s_image_digest: ""
 
 # Database. Upstream recommends PostgreSQL for multi-user deployments.
 mcpjungle_k8s_database_mode: "postgres"
+
+# Server mode passed EXPLICITLY to the chart. Upstream (docs/deployment/production.mdx):
+#   development -> Dashboard served at /, but Authentication and ACLs DISABLED
+#   enterprise  -> Authentication + ACLs enabled, manual `init-server`, NO Dashboard
+#
+# `enterprise` is REQUIRED here and is not a preference. MCPJungle refuses to
+# start in development mode once the database has been initialised in enterprise
+# mode: "server is already initialized in enterprise mode, cannot start in
+# development mode". The dashboard therefore cannot be enabled on an existing
+# deployment without dropping and recreating the mcpjungle database, which
+# would also disable authentication and ACLs. The Dashboard is documented as
+# development-mode-only upstream (docs/guides/dashboard.mdx), so in enterprise
+# mode there is no web UI -- administer through the CLI/API instead.
+# The env block is set in the role's rendered values rather than relying on the
+# chart's own default, because a chart-default change did not propagate through
+# the helm module's reset_values path and the release silently stayed on the
+# old mode.
+mcpjungle_k8s_server_mode: "enterprise"
+
+# MCPJungle CLI installation on the managed host. `release` = the published
+# GitHub release archive (Linux), checksum-verified before install. `brew` is
+# for macOS (brew install mcpjungle/mcpjungle/mcpjungle). `none` skips it.
+mcpjungle_cli_install_method: "release"
+mcpjungle_cli_install_path: "/usr/local/bin/mcpjungle"
 mcpjungle_k8s_database_postgres_host: ""
 mcpjungle_k8s_database_postgres_port: 5432
 mcpjungle_k8s_database_postgres_database: "mcpjungle"
@@ -74,6 +102,16 @@ mcpjungle_k8s_bw_record_ids: {}
 # Tailscale private exposure via the existing operator.
 mcpjungle_k8s_expose_enabled: false
 mcpjungle_k8s_ingress_host: ""
+
+# Tailnet exposure uses a `connectors.tailscale.com` Connector, NOT an Ingress
+# and NOT the operator's own device address (100.94.198.124 /
+# `tailscale-operator`). The hostname names the SERVICE so the tailnet does not
+# show the node hostname.
+mcpjungle_k8s_connector_hostname: "mcpjungle"
+mcpjungle_k8s_connector_tag: "tag:mcpjungle"
+# In-cluster DNS of the MCPJungle Service; the connector routes to this.
+mcpjungle_k8s_service_dns: "mcpjungle.mcpjungle.svc.cluster.local"
+mcpjungle_k8s_service_port: 8080
 mcpjungle_k8s_ingress_class: "tailscale"
 mcpjungle_k8s_ingress_tailnet: ""
 mcpjungle_k8s_ingress_retries: 12

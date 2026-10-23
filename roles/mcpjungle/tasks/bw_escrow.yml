@@ -19,7 +19,7 @@
 
 - name: Confirm the bws CLI is available
   ansible.builtin.command:
-    cmd: "{{ mcpjungle_k8s_bws_path }} --version"
+    cmd: "bash -lic '{{ mcpjungle_k8s_bws_path }} --version'"
   register: mcpjungle_k8s_bws_version
   changed_when: false
   failed_when: mcpjungle_k8s_bws_version.rc != 0
@@ -59,7 +59,7 @@
 
 - name: Verify the machine account can read the required project (metadata only)
   ansible.builtin.command:
-    cmd: "{{ mcpjungle_k8s_bws_path }} project get {{ mcpjungle_k8s_required_bw_project_id }}"
+    cmd: "bash -lic '{{ mcpjungle_k8s_bws_path }} project get {{ mcpjungle_k8s_required_bw_project_id }}'"
   environment:
     BWS_ACCESS_TOKEN: "{{ mcpjungle_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
   register: mcpjungle_k8s_bw_project
@@ -73,7 +73,7 @@
 # fail closed if a key matches more than one record.
 - name: List existing records in the project (ids and keys only, never values)
   ansible.builtin.command:
-    cmd: "{{ mcpjungle_k8s_bws_path }} secret list {{ mcpjungle_k8s_required_bw_project_id }} -o json"
+    cmd: "bash -lic '{{ mcpjungle_k8s_bws_path }} secret list {{ mcpjungle_k8s_required_bw_project_id }} -o json'"
   environment:
     BWS_ACCESS_TOKEN: "{{ mcpjungle_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
   register: mcpjungle_k8s_bw_list
@@ -135,18 +135,21 @@
 
 - name: Fetch the existing database password when exactly one record exists
   ansible.builtin.command:
-    cmd: "{{ mcpjungle_k8s_bws_path }} secret get {{ mcpjungle_k8s_bw_index
+    cmd: "bash -lic '{{ mcpjungle_k8s_bws_path }} secret get {{ mcpjungle_k8s_bw_index
            | selectattr('key', 'equalto', mcpjungle_k8s_db_bw_key)
-           | map(attribute='id') | first }} -o json"
+           | map(attribute='id') | first }} -o json'"
   environment:
     BWS_ACCESS_TOKEN: "{{ mcpjungle_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
   register: mcpjungle_k8s_bw_db_get
   changed_when: false
   failed_when: mcpjungle_k8s_bw_db_get.rc != 0
   no_log: true
-  when:
-    - mcpjungle_k8s_db_existing | length == 1
-    - mcpjungle_k8s_pending_slurp.content | default('') | length > 0
+  # Fetch whenever exactly one record exists. This used to ALSO require a
+  # pending_slurp, but that staged file only exists after a crash mid-escrow --
+  # so on a normal re-run the fetch was skipped while the reuse task below still
+  # ran, and it died on an undefined `stdout`. Idempotent reuse must not depend
+  # on the recovery path.
+  when: mcpjungle_k8s_db_existing | length == 1
   tags: [mcpjungle, k8s, secrets]
 
 - name: Reuse the stored database password (idempotent, no rotation)
@@ -162,7 +165,7 @@
 # mistaken for "record does not exist".
 - name: Generate a database password only when no record exists
   ansible.builtin.set_fact:
-    mcpjungle_k8s_db_password: "{{ lookup('community.general.random_string', 40, false, 'ascii_letters,digits') }}"
+    mcpjungle_k8s_db_password: "{{ lookup('community.general.random_string', length=40, ignore_case=false, chars='ascii_letters,digits') }}"
     mcpjungle_k8s_db_created: true
   no_log: true
   when:
@@ -233,7 +236,7 @@
 
 - name: Verify the database credential is durably stored in Bitwarden
   ansible.builtin.command:
-    cmd: "{{ mcpjungle_k8s_bws_path }} secret list {{ mcpjungle_k8s_required_bw_project_id }} -o json"
+    cmd: "bash -lic '{{ mcpjungle_k8s_bws_path }} secret list {{ mcpjungle_k8s_required_bw_project_id }} -o json'"
   environment:
     BWS_ACCESS_TOKEN: "{{ mcpjungle_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
   register: mcpjungle_k8s_bw_verify

@@ -1,7 +1,12 @@
 ---
+# The Docker compose render is only meaningful on the Docker path. Without this
+# guard the Kubernetes play still reached it (the play sets
+# mcpjungle_deploy_method=k8s, but nothing here honoured it) and died creating
+# /var/lib/mcpjungle on a host where the k8s release does not use it.
 - name: Deploy MCPJungle docker-compose
   ansible.builtin.template:
     src: docker-compose.yml.j2
     dest: "{{ mcpjungle_data_dir }}/docker-compose.yml"
     mode: '0644'
   notify: restart_mcpjungle
+  when: mcpjungle_deploy_method != 'k8s'

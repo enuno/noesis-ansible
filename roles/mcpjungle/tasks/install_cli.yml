@@ -1,0 +1,127 @@
+---
+# Install the MCPJungle CLI on the managed host.
+#
+# The CLI is the operator-facing tool for enterprise mode: `init-server` creates
+# the first admin identity, `login` stores an access token, and `list`/`create`
+# administer the registry. It is NOT in the server image (the upstream image is
+# distroless and contains only the server binary), so it must be installed
+# separately on any machine that administers the deployment.
+#
+# Ubuntu path: install the release archive published on GitHub. The published
+# checksums.txt is verified before anything is installed -- an unverified binary
+# that can administer the server is not acceptable. The upstream script this is
+# based on does NOT verify the checksum; that step is added here.
+#
+# macOS is handled by Homebrew (see mcpjungle_cli_install_method).
+
+- name: Install the MCPJungle CLI (Linux release archive)
+  when: mcpjungle_cli_install_method == 'release'
+  block:
+    - name: Ensure the packages the release installer needs are present
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - jq
+          - tar
+          - unzip
+        state: present
+        update_cache: true
+      register: mcpjungle_cli_deps
+      changed_when: mcpjungle_cli_deps is changed
+
+    - name: Create a temporary download directory
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: mcpjungle-cli-
+      register: mcpjungle_cli_tmp
+
+    - name: Download, verify, and install the release binary
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          tmpdir="{{ mcpjungle_cli_tmp.path }}"
+
+          case "$(uname -m)" in
+            x86_64)        arch_pattern='(amd64|x86_64)' ;;
+            aarch64|arm64) arch_pattern='(arm64|aarch64)' ;;
+            *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+
+          curl -fsSL https://api.github.com/repos/mcpjungle/MCPJungle/releases/latest \
+            -o "$tmpdir/release.json"
+
+          asset_url="$(
+            jq -r --arg arch "$arch_pattern" '
+              [
+                .assets[]
+                | select(.name | test("linux"; "i"))
+                | select(.name | test($arch; "i"))
+                | select(.name | test("\\.(tar\\.gz|tgz|zip)$"; "i"))
+                | .browser_download_url
+              ]
+              | if length == 1 then .[0] else empty end
+            ' "$tmpdir/release.json"
+          )"
+
+          if [ -z "$asset_url" ]; then
+            echo "Could not uniquely select a Linux release archive." >&2
+            echo "Available release assets:" >&2
+            jq -r '.assets[].name' "$tmpdir/release.json" >&2
+            exit 1
+          fi
+
+          version="$(jq -r '.tag_name' "$tmpdir/release.json")"
+          echo "Downloading: $asset_url (version $version)"
+
+          cd "$tmpdir"
+          curl -fL "$asset_url" -o archive
+
+          curl -fsSL "https://github.com/mcpjungle/MCPJungle/releases/download/${version}/checksums.txt" \
+            -o checksums.txt
+
+          # Verify before installing. A binary that can administer the server
+          # must not be installed on trust.
+          expected="$(grep -F "$(basename "$asset_url")" checksums.txt | awk '{print $1}')"
+          actual="$(sha256sum archive | awk '{print $1}')"
+          if [ -z "$expected" ]; then
+            echo "No published checksum for $(basename "$asset_url"); refusing to install." >&2
+            exit 1
+          fi
+          if [ "$expected" != "$actual" ]; then
+            echo "CHECKSUM MISMATCH for $(basename "$asset_url")" >&2
+            echo "  published: $expected" >&2
+            echo "  computed:  $actual" >&2
+            exit 1
+          fi
+          echo "checksum verified: $actual"
+
+          mkdir -p "$tmpdir/extracted"
+          case "$asset_url" in
+            *.tar.gz|*.tgz) tar -xzf "$tmpdir/archive" -C "$tmpdir/extracted" ;;
+            *.zip) unzip -q "$tmpdir/archive" -d "$tmpdir/extracted" ;;
+          esac
+
+          binary="$(find "$tmpdir/extracted" -type f -name mcpjungle -print -quit)"
+          if [ -z "$binary" ]; then
+            echo "The downloaded archive did not contain an mcpjungle binary." >&2
+            exit 1
+          fi
+
+          install -m 0755 "$binary" "{{ mcpjungle_cli_install_path }}"
+      register: mcpjungle_cli_install
+      changed_when: "'checksum verified' in mcpjungle_cli_install.stdout"
+      retries: 3
+      delay: 5
+
+    - name: Verify the installed CLI runs
+      ansible.builtin.command:
+        cmd: "{{ mcpjungle_cli_install_path }} version"
+      register: mcpjungle_cli_version
+      changed_when: false
+
+    - name: Remove the temporary download directory
+      ansible.builtin.file:
+        path: "{{ mcpjungle_cli_tmp.path }}"
+        state: absent
+      changed_when: false

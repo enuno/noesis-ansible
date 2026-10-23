@@ -176,14 +176,25 @@ if shutil.which("ansible-playbook"):
     install_expr = re.search(
         r"mcpjungle_k8s_rendered_values: >-\s*\n\s*\{\{.*?recursive=true\) \}\}",
         read(os.path.join(ROLE, "tasks", "install_k8s.yml")), re.S)
-    expose_expr = re.search(
-        r"mcpjungle_k8s_rendered_values: >-\s*\n\s*\{\{.*?recursive=true\) \}\}",
-        read(os.path.join(ROLE, "tasks", "expose_tailscale.yml")), re.S)
+    # Exposure moved from an Ingress values-merge to a tailscale.com/v1alpha1
+    # Connector CR. There is no rendered-values merge left in that file, so the
+    # probe asserts on the Connector definition the role actually ships.
+    expose_src = read(os.path.join(ROLE, "tasks", "expose_tailscale.yml"))
+    expose_expr = None
+    # Exposure uses the standard Ingress with ingressClassName `tailscale`
+    # (this operator sets OPERATOR_INGRESS_CLASS_NAME=tailscale). A
+    # connectors.tailscale.com Connector was tried and REJECTED: its
+    # spec.appConnector.routes must be CIDRs, so "service:8080" fails validation.
+    check("expose uses the tailscale Ingress class, not a Connector",
+          "className': 'tailscale'" in expose_src and "kind: Connector" not in expose_src)
+    check("ingress host comes from the service-name variable",
+          "'host': mcpjungle_k8s_connector_hostname" in expose_src)
+    check("expose refuses the operator device and server hostnames",
+          "'tailscale-operator'" in expose_src and "'noesis-praxis'" in expose_src)
 
     with open(os.path.join(tmp, "ansible.cfg"), "w") as fh:
         fh.write("[defaults]\nnocows = 1\nhost_key_checking = False\n")
     check("install values expression located", install_expr is not None)
-    check("expose merge expression located", expose_expr is not None)
     with open(probe, "w") as fh:
         fh.write(
             "---\n- hosts: localhost\n  connection: local\n  gather_facts: false\n"
@@ -203,20 +214,22 @@ if shutil.which("ansible-playbook"):
             "    mcpjungle_k8s_ingress_class: tailscale\n"
             "    mcpjungle_k8s_ingress_host: mcpjungle\n"
             "    mcpjungle_k8s_ingress_tailnet: ''\n"
+            "    mcpjungle_k8s_connector_hostname: mcpjungle\n"
+            "    mcpjungle_k8s_connector_tag: tag:mcpjungle\n"
+            "    mcpjungle_k8s_service_dns: mcpjungle.mcpjungle.svc.cluster.local\n"
+            "    mcpjungle_k8s_service_port: 8080\n"
+            "    mcpjungle_k8s_server_mode: development\n"
+            "    mcpjungle_k8s_required_bw_project_id: 72974d0e-81af-4678-bab7-b46000985859\n"
             "  tasks:\n"
             "    - name: install values expression\n"
             "      ansible.builtin.set_fact:\n"
             "        out_install: >-\n"
             + "".join("          " + ln + "\n" for ln in (install_expr.group(0).split("\n")[1:] if install_expr else []))
-            + "    - name: expose merge expression (must tolerate an EMPTY dict)\n"
-            "      ansible.builtin.set_fact:\n"
-            "        out_expose: >-\n"
-            + "".join("          " + ln + "\n" for ln in (expose_expr.group(0).split("\n")[1:] if expose_expr else []))
-            + "    - name: assert the ingress key actually landed\n"
+            + "    - name: assert the Connector hostname guards are satisfiable\n"
             "      ansible.builtin.assert:\n"
             "        that:\n"
-            "          - out_expose.ingress.enabled is defined\n"
-            "          - out_expose.ingress.enabled | bool\n"
+            "          - mcpjungle_k8s_connector_hostname is match('^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')\n"
+            "          - mcpjungle_k8s_connector_hostname not in ['tailscale-operator','noesis-praxis']\n"
         )
     res = subprocess.run(["ansible-playbook", "-i", "localhost,", "probe.yml"],
                          capture_output=True, text=True, cwd=tmp)

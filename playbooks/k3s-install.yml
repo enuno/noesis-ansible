@@ -92,7 +92,11 @@
       register: k3s_python3_bootstrap
       changed_when: k3s_python3_bootstrap.rc == 0
       failed_when: k3s_python3_bootstrap.rc != 0
-      when: k3s_python3_check.rc != 0
+      # `rc | default(1)` : in --check mode the raw module is SKIPPED, so the
+      # probe task never registers and `rc` is undefined -- the `when` then
+      # raised "Error while evaluating conditional" and aborted the whole
+      # check-mode run before the role was ever reached.
+      when: (k3s_python3_check.rc | default(1)) != 0
       tags: [bootstrap-python, remote-write]
       # Bounded: raw is synchronous and apt has its own internal timeouts;
       # ansible_ssh_common_args connection timeout caps overall hang time.
@@ -101,3 +105,16 @@
     - name: Install and configure k3s
       ansible.builtin.include_role:
         name: k3s
+
+    # k3s regenerates /etc/rancher/k3s/k3s.yaml on every start, so the
+    # kubeconfig server address can only be rewritten AFTER the restart that a
+    # config change triggers. Flush the handlers first, then rewrite.
+    - name: Apply pending k3s restarts before rewriting the kubeconfig
+      ansible.builtin.meta: flush_handlers
+
+    - name: Point the kubeconfig at the tailnet endpoint
+      ansible.builtin.include_role:
+        name: k3s
+        tasks_from: kubeconfig.yml
+      when: k3s_kubeconfig_server | length > 0
+      tags: [k3s, kubeconfig]

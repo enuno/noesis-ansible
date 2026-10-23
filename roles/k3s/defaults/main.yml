@@ -22,5 +22,22 @@ k3s_disable_components:
   - traefik
   - servicelb
 
+# Additional Subject Alternative Names for the k3s API server certificate.
+# k3s auto-detects the node's IP addresses (including the tailscale0 address),
+# but NOT tailnet DNS names, so a client connecting to
+# https://noesis-praxis.tailf99a0.ts.net:6443 fails certificate verification:
+#   tls: failed to verify certificate: x509: certificate is valid for
+#   kubernetes, kubernetes.default, ..., noesis-praxis, ...
+# Listing the tailnet name here makes the API server certificate valid for it.
+# Empty by default: adding a SAN changes the serving certificate and therefore
+# requires a k3s restart to take effect.
+k3s_tls_sans: []
+
+# Rewrite the `server:` address inside the generated kubeconfig so `kubectl`
+# works from any machine on the tailnet instead of only on this host
+# (k3s writes https://127.0.0.1:6443 by default). Empty = leave it alone.
+# The value must match one of the SANs above, or TLS verification will fail.
+k3s_kubeconfig_server: ""
+
 # Rollout / readiness bounds (seconds) used by the role's validate split.
 k3s_node_ready_timeout: 180
