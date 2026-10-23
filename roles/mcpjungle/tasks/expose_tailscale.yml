@@ -1,0 +1,130 @@
+---
+# Tailnet-private exposure through the EXISTING Tailscale Kubernetes Operator.
+#
+# Follows the cluster's established pattern exactly (compare the `buzz` and
+# `noesis-praxis` Ingresses): a plain networking.k8s.io/v1 Ingress with
+# ingressClassName `tailscale`. The operator mints the proxy and the real DNS
+# name; we never fabricate a *.ts.net hostname and never enable Funnel.
+
+- name: Refuse to expose before credential escrow is verified
+  ansible.builtin.assert:
+    that:
+      - mcpjungle_k8s_bw_stored | default(false) | bool
+    fail_msg: >-
+      Refusing to expose MCPJungle on the tailnet: required credentials are
+      not confirmed stored in Bitwarden project
+      {{ mcpjungle_k8s_required_bw_project_id }}. Exposure stays disabled until
+      escrow succeeds.
+  tags: [mcpjungle, k8s, expose]
+
+- name: Require an explicit exposure decision
+  ansible.builtin.assert:
+    that:
+      - mcpjungle_k8s_expose_enabled | bool
+      - mcpjungle_k8s_ingress_host | length > 0
+    fail_msg: >-
+      Tailnet exposure requires mcpjungle_k8s_expose_enabled=true and an
+      explicit mcpjungle_k8s_ingress_host HOSTSPEC.
+  tags: [mcpjungle, k8s, expose]
+
+- name: Enable the Tailscale ingress in the rendered values
+  ansible.builtin.set_fact:
+    mcpjungle_k8s_rendered_values: >-
+      {{ (mcpjungle_k8s_rendered_values | default({})) | combine({
+           'ingress': ((mcpjungle_k8s_rendered_values | default({})).get('ingress', {})
+                       | combine({
+                           'enabled': true,
+                           'host': mcpjungle_k8s_ingress_host,
+                           'className': mcpjungle_k8s_ingress_class,
+                           'tls': true,
+                         }))
+         }, recursive=true) }}
+  tags: [mcpjungle, k8s, expose]
+
+- name: Reconcile the Helm release with the operator-managed ingress
+  kubernetes.core.helm:
+    kubeconfig: "{{ mcpjungle_k8s_kubeconfig }}"
+    context: "{{ mcpjungle_k8s_context }}"
+    name: "{{ mcpjungle_k8s_release_name }}"
+    chart_ref: "./charts/mcpjungle"
+    chart_version: "{{ mcpjungle_k8s_chart_version }}"
+    release_namespace: "{{ mcpjungle_k8s_namespace }}"
+    wait: true
+    timeout: "{{ mcpjungle_k8s_timeout }}"
+    atomic: true
+    cleanup_on_fail: true
+    state: present
+    values: "{{ mcpjungle_k8s_rendered_values }}"
+  register: mcpjungle_k8s_release_exposed
+  no_log: true
+  diff: false
+  tags: [mcpjungle, k8s, expose]
+
+# Read the operator-assigned hostname back from status. Never assert a DNS name
+# that was not observed.
+- name: Read back the operator-assigned proxy hostname
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ mcpjungle_k8s_kubeconfig }}"
+    context: "{{ mcpjungle_k8s_context }}"
+    api_version: networking.k8s.io/v1
+    kind: Ingress
+    namespace: "{{ mcpjungle_k8s_namespace }}"
+    name: "{{ mcpjungle_k8s_release_name }}"
+    wait: true
+    wait_timeout: "{{ mcpjungle_k8s_timeout }}"
+  register: mcpjungle_k8s_ingress_info
+  retries: "{{ mcpjungle_k8s_ingress_retries }}"
+  delay: 5
+  until: >-
+    (mcpjungle_k8s_ingress_info.resources | default([]) | length) > 0
+  tags: [mcpjungle, k8s, expose]
+
+- name: Record the observed endpoint (never fabricated)
+  ansible.builtin.set_fact:
+    mcpjungle_k8s_endpoint: >-
+      {{ (mcpjungle_k8s_ingress_info.resources | default([]) | first
+          | default({}) | json_query('status.loadBalancer.ingress[0].hostname')) }}
+  tags: [mcpjungle, k8s, expose]
+
+- name: Fail closed if the operator has not assigned a hostname
+  ansible.builtin.assert:
+    that:
+      - mcpjungle_k8s_endpoint is defined
+      - mcpjungle_k8s_endpoint | default('') | length > 0
+    fail_msg: >-
+      The Tailscale operator has not assigned a proxy hostname yet. Do NOT
+      assume or construct a *.ts.net domain. Check the operator logs and the
+      machine account's tag authorization in the tailnet ACL.
+  tags: [mcpjungle, k8s, expose]
+
+- name: Report the observed private endpoint
+  ansible.builtin.debug:
+    msg: >-
+      MCPJungle is exposed tailnet-only at
+      https://{{ mcpjungle_k8s_endpoint }}/mcp
+      (health: /health, SSE: /sse). Reachability and ACL scope are NOT proven
+      by this task; verify from an allowed identity before relying on it.
+
+# --- Explicit non-exposure guarantees --------------------------------------
+- name: Assert no unintended public exposure was created
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ mcpjungle_k8s_kubeconfig }}"
+    context: "{{ mcpjungle_k8s_context }}"
+    api_version: v1
+    kind: Service
+    namespace: "{{ mcpjungle_k8s_namespace }}"
+    label_selectors:
+      - app.kubernetes.io/instance={{ mcpjungle_k8s_release_name }}
+  register: mcpjungle_k8s_services
+  tags: [mcpjungle, k8s, expose]
+
+- name: Fail if any MCPJungle service is LoadBalancer or NodePort
+  ansible.builtin.assert:
+    that:
+      - mcpjungle_k8s_services.resources | default([])
+        | map(attribute='spec.type') | select('in', ['LoadBalancer', 'NodePort'])
+        | list | length == 0
+    fail_msg: >-
+      An MCPJungle service is LoadBalancer/NodePort. Tailnet exposure must use
+      the Tailscale operator only; no public ingress or public DNS is intended.
+  tags: [mcpjungle, k8s, expose]

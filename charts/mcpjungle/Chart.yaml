@@ -1,5 +1,29 @@
+---
 apiVersion: v2
 name: mcpjungle
-description: OpenClaw ACP agent orchestrator
-version: 0.1.0
-appVersion: "latest"
+description: MCPJungle self-hosted MCP gateway (first-party chart, official upstream image)
+type: application
+# Chart version is noesis-ansible's own; appVersion tracks the PINNED upstream release.
+version: 0.2.0
+# Pinned to upstream release 0.4.6 (published 2026-08-02). Never float to `latest`.
+appVersion: "0.4.6"
+kubeVersion: ">=1.27.0-0"
+keywords:
+  - mcp
+  - gateway
+  - ai
+home: https://github.com/mcpjungle/MCPJungle
+sources:
+  - https://github.com/mcpjungle/MCPJungle
+maintainers:
+  - name: enuno
+annotations:
+  # Image provenance: OFFICIAL upstream build (ghcr.io/mcpjungle/mcpjungle).
+  # The third-party chart at dinhdobathi1992/MCPJungle/mcpjungle-chart was evaluated and
+  # REJECTED (reviewed 2026-10-22): it points at a nonexistent image (GHCR 403), carries no
+  # LICENSE, invents env vars absent from upstream, passes a `--ui` flag upstream does not
+  # define, and pins SQLite against upstream's own PostgreSQL guidance.
+  # Upstream issue mcpjungle/MCPJungle#56 ("Provide an official Helm chart") is still OPEN,
+  # so this first-party chart is the defensible path. See docs/mcpjungle-k8s-runbook.md.
+  noesislab.noosphere.org/image-provenance: official-upstream
+  noesislab.noosphere.org/community-chart-review: rejected-2026-10-22

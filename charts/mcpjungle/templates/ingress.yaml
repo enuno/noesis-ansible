@@ -1,0 +1,64 @@
+{{- /*
+Tailnet-private exposure via the EXISTING Tailscale Kubernetes Operator.
+
+Follows the cluster's established pattern (see the `buzz` and `noesis-praxis`
+Ingresses): a plain networking.k8s.io/v1 Ingress with ingressClassName: tailscale.
+The operator creates the backing proxy and writes the real DNS name into
+.status.loadBalancer.ingress[].hostname.
+
+The hostname below is a HOSTSPEC, not a resolvable address. Tailscale appends the
+tailnet suffix itself, so no *.ts.net domain is hardcoded here.
+
+This chart creates NO LoadBalancer, NO NodePort, NO Funnel, and no public DNS.
+The backing Service stays ClusterIP.
+*/ -}}
+{{- if .Values.ingress.enabled }}
+{{- if not .Values.ingress.host }}
+{{- fail "ingress.host is required when ingress.enabled=true (HOSTSPEC, not a full DNS name)" }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "mcpjungle.fullname" . }}
+  labels:
+    {{- /* Deliberately NOT mcpjungle.labels: that helper already emits
+           app.kubernetes.io/managed-by: Helm, and adding a second one makes a
+           duplicate YAML key. Emit the map explicitly instead. */}}
+    helm.sh/chart: {{ include "mcpjungle.chart" . }}
+    {{- include "mcpjungle.selectorLabels" . | nindent 4 }}
+    {{- if .Chart.AppVersion }}
+    app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+    {{- end }}
+    app.kubernetes.io/managed-by: ansible-tailscale-k8s
+  annotations:
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- if .Values.ingress.tailnet }}
+    tailscale.com/tailnet: {{ .Values.ingress.tailnet | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          {{- range .Values.ingress.paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                {{- /* $ is the ROOT context. Inside `range`, "." is the current
+                       path item, so .Values here is nil and the entire chart
+                       fails to render. This path is only exercised when
+                       ingress.enabled=true. */}}
+                name: {{ include "mcpjungle.fullname" $ }}
+                port:
+                  number: {{ $.Values.service.port }}
+          {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+  {{- end }}
+{{- end }}

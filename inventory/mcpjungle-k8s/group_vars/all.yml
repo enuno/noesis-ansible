@@ -1,0 +1,82 @@
+---
+# MCPJungle on k3s via the in-repo first-party Helm chart.
+#
+# Every value here is an EXAMPLE and is safe to commit: no credential, no token,
+# no kubeconfig content. Secrets come from Bitwarden at run time.
+
+# --- Target selection (never implicit) ---------------------------------------
+# This describes the CLUSTER, not the deployer, so it stays valid when Ansible
+# is run from a different machine. Tasks execute ON THE TARGET, so the kubeconfig
+# must exist there, not on the controller.
+mcpjungle_k8s_kubeconfig: "/home/elvis/.kube/config"
+mcpjungle_k8s_context: "default"
+
+# --- Deployer-side settings (override when running from another machine) -----
+# The private key THIS controller uses to reach the target. A different deployer
+# will have a different key, so it is a variable rather than hardcoded in the
+# inventory.
+ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
+
+# --- Release identity --------------------------------------------------------
+mcpjungle_k8s_namespace: "mcpjungle"
+mcpjungle_k8s_release_name: "mcpjungle"
+
+# --- Chart / image provenance ------------------------------------------------
+# In-repo first-party chart, pinned. Upstream publishes no official chart
+# (mcpjungle/MCPJungle#56 is open); the third-party chart was rejected.
+mcpjungle_k8s_chart_version: "0.2.0"
+mcpjungle_k8s_image_repository: "ghcr.io/mcpjungle/mcpjungle"
+# Pinned upstream release 0.4.6 multi-arch index digest.
+mcpjungle_k8s_image_tag: "0.4.6"
+mcpjungle_k8s_image_digest: "sha256:59940d2e3a586ab9a063cf24fa37460bc993686fa056729fd1ada25436123dd9"
+
+# --- Database ----------------------------------------------------------------
+# Upstream recommends PostgreSQL for anything multi-user
+# (docs/deployment/database.mdx). SQLite requires persistence.enabled.
+mcpjungle_k8s_database_mode: "postgres"
+mcpjungle_k8s_database_postgres_host: "buzz-postgres-postgresql.buzz.svc.cluster.local"
+mcpjungle_k8s_database_postgres_port: 5432
+mcpjungle_k8s_database_postgres_database: "mcpjungle"
+mcpjungle_k8s_database_postgres_user: "mcpjungle"
+
+# --- Bitwarden Secrets Manager ----------------------------------------------
+# The required project. This is enforced in preflight; a different value is a
+# hard failure, not a soft default.
+mcpjungle_k8s_required_bw_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+mcpjungle_k8s_bw_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+mcpjungle_k8s_bws_path: "/usr/local/bin/bws"
+# Leave empty and rely on BWS_ACCESS_TOKEN from the controller credential
+# mechanism. Never commit the token itself.
+mcpjungle_k8s_bws_access_token: ""
+# Master gate for EXTERNAL Bitwarden writes. Keep false until the provisioning
+# plan is approved; the role fails closed without it.
+mcpjungle_k8s_allow_bitwarden_write: false
+
+# Key naming, scoped by environment/cluster/release to avoid the collisions that
+# already exist in this project (174 records, 5 duplicated keys today).
+mcpjungle_k8s_bw_prefix: "MCPJUNGLE_K3S_DEFAULT_"
+mcpjungle_k8s_db_bw_key: "MCPJUNGLE_K3S_DEFAULT_DB_PASSWORD"
+mcpjungle_k8s_admin_bw_key: "MCPJUNGLE_K3S_DEFAULT_ADMIN_TOKEN"
+mcpjungle_k8s_client_bw_key: "MCPJUNGLE_K3S_DEFAULT_CLIENT_TOKEN"
+mcpjungle_k8s_escrow_keys:
+  - "MCPJUNGLE_K3S_DEFAULT_DB_PASSWORD"
+  - "MCPJUNGLE_K3S_DEFAULT_ADMIN_TOKEN"
+  - "MCPJUNGLE_K3S_DEFAULT_CLIENT_TOKEN"
+# Optional: pin exact record ids to bypass key lookup entirely.
+mcpjungle_k8s_bw_record_ids: {}
+
+# Kubernetes runtime Secret that DELIVERS the escrowed database password.
+mcpjungle_k8s_db_secret_name: "mcpjungle-db"
+mcpjungle_k8s_db_secret_key: "password"
+
+# --- Tailscale private exposure ---------------------------------------------
+# HostSPEC only. Tailscale appends the real tailnet domain; do not write one.
+mcpjungle_k8s_expose_enabled: false
+mcpjungle_k8s_ingress_host: "mcpjungle"
+mcpjungle_k8s_ingress_class: "tailscale"
+mcpjungle_k8s_ingress_retries: 12
+
+# --- Operational -------------------------------------------------------------
+mcpjungle_k8s_timeout: 600
+# Role-relative so it resolves regardless of the invoking playbook's location.
+mcpjungle_k8s_namespace_manifest: "{{ role_path }}/../../charts/mcpjungle/namespace.yaml"

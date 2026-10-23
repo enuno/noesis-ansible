@@ -1,9 +1,32 @@
+---
+# MCPJungle values.
+#
+# Every interface below is VERIFIED against upstream MCPJungle 0.4.6 source and
+# docs/reference/environment-variables.mdx. Values that the rejected community
+# chart invented (MCPJUNGLE_PORT, MCPJUNGLE_LOG_LEVEL, MCPJUNGLE_ADMIN_TOKEN,
+# MCPJUNGLE_INIT_TOKEN, MCPJUNGLE_SERVERS_FILE) are deliberately NOT reproduced:
+# they do not exist upstream.
+#
+# Verified upstream env vars: DATABASE_URL, SQLITE_DB_PATH, POSTGRES_HOST,
+# POSTGRES_PORT, POSTGRES_USER, POSTGRES_USER_FILE, POSTGRES_PASSWORD,
+# POSTGRES_PASSWORD_FILE, POSTGRES_DB, POSTGRES_DB_FILE, MCPJUNGLE_BIND_HOST,
+# PORT, SERVER_MODE, MCP_SERVER_INIT_REQ_TIMEOUT_SEC, SESSION_IDLE_TIMEOUT_SEC,
+# OTEL_ENABLED, OTEL_RESOURCE_ATTRIBUTES.
+#
+# Verified upstream CLI flags: --port, --host, --sqlite-db-path, --enterprise.
+# There is NO --ui flag; the dashboard is always served at /.
+
 replicaCount: 1
 
 image:
-  repository: noesislab/mcpjungle
+  # OFFICIAL upstream image (verified pullable: manifest HTTP 200).
+  repository: ghcr.io/mcpjungle/mcpjungle
+  tag: "0.4.6"
+  # Multi-arch index digest for 0.4.6. Pinning this makes the deploy immutable.
+  # linux/amd64 -> sha256:c953a33f84fd0afaf6553b6682cbc12636717dcb9529407ef179198c180adb1c
+  # linux/arm64 -> sha256:fc2bf2f008a175f4174f8812d1a90bb7e28f06e054eb70668250da3d6623784d
+  digest: "sha256:59940d2e3a586ab9a063cf24fa37460bc993686fa056729fd1ada25436123dd9"
   pullPolicy: IfNotPresent
-  tag: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -30,19 +53,27 @@ securityContext:
   runAsGroup: 1000
 
 service:
+  # Upstream PORT default is 8080. The old chart's 8085 matched neither upstream
+  # nor its own containerPort; corrected here.
   type: ClusterIP
-  port: 8085
+  port: 8080
 
+# Tailnet-private exposure through the EXISTING Tailscale Kubernetes Operator.
+# This mirrors the cluster's established pattern (buzz, noesis-praxis): a plain
+# Ingress with ingressClassName: tailscale, which the operator backs with a proxy.
+# The operator mints the real DNS name; do NOT fabricate a *.ts.net hostname here.
 ingress:
   enabled: false
-  className: ""
+  className: tailscale
   annotations: {}
-  hosts:
-    - host: mcpjungle.local
-      paths:
-        - path: /
-          pathType: ImplementationSpecific
-  tls: []
+  # `tailscale.com/tailnet` pins the operator to a specific tailnet when the
+  # machine account belongs to more than one. Omit for a single-tailnet account.
+  tailnet: ""
+  host: ""
+  tls: true
+  paths:
+    - path: /
+      pathType: Prefix
 
 resources:
   limits:
@@ -62,17 +93,41 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 
+# Only required for SQLite mode. PostgreSQL mode ignores this.
 persistence:
   enabled: false
   storageClass: ""
   accessMode: ReadWriteOnce
   size: 1Gi
 
-env:
-  MCPJUNGLE_PORT: "8080"
-  MCPJUNGLE_LOG_LEVEL: "info"
+# Database mode: postgres (recommended, upstream guidance for multi-user) or sqlite.
+# Upstream docs/deployment/database.mdx: SQLite is "not recommended for production
+# or multi-user deployments". Postgres requires mcpjungle.database.postgresSecret.
+database:
+  mode: postgres
+  postgres:
+    host: ""
+    port: 5432
+    database: mcpjungle
+    user: mcpjungle
+    # Name of an EXISTING Kubernetes Secret holding `password`. This chart NEVER
+    # generates credential values. The role populates that Secret from Bitwarden.
+    # Upstream reads POSTGRES_PASSWORD_FILE, so the secret is mounted as a file and
+    # the password never appears in a container env var.
+    existingSecret: ""
+    existingSecretKey: password
+    sslMode: ""
 
+# Plain, non-secret settings only. Verified names, verified defaults.
+env:
+  MCPJUNGLE_BIND_HOST: "0.0.0.0"
+  PORT: "8080"
+  # development | enterprise. `production` is a deprecated upstream alias for
+  # `enterprise`; do not use it.
+  SERVER_MODE: "enterprise"
+  MCP_SERVER_INIT_REQ_TIMEOUT_SEC: "30"
+  SESSION_IDLE_TIMEOUT_SEC: "3600"
+  OTEL_ENABLED: "false"
+
+# Escape hatch for verified extra env. Same shape as before.
 envFromSecrets: []
-#  - name: MCPJUNGLE_API_KEY
-#    secretName: mcpjungle-secrets
-#    key: api-key

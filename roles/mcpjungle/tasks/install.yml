@@ -1,6 +1,21 @@
 ---
-- name: Ensure MCPJungle data directory exists
-  ansible.builtin.file:
-    path: "{{ mcpjungle_data_dir }}"
-    state: directory
-    mode: '0755'
+# Dispatcher. The docker/docker-compose path is preserved unchanged; the
+# Kubernetes/Helm path is additive and selected explicitly.
+- name: Validate the requested deploy method
+  ansible.builtin.assert:
+    that:
+      - mcpjungle_deploy_method in ['docker', 'k8s']
+    fail_msg: >-
+      mcpjungle_deploy_method must be 'docker' or 'k8s' (got
+      '{{ mcpjungle_deploy_method | default("<unset>") }}').
+  tags: [mcpjungle, install]
+
+- name: Install MCPJungle via Docker Compose (existing path, unchanged)
+  ansible.builtin.include_tasks: install_docker.yml
+  when: mcpjungle_deploy_method == 'docker'
+  tags: [mcpjungle, install, docker]
+
+- name: Install MCPJungle via Helm on Kubernetes (new path)
+  ansible.builtin.include_tasks: install_k8s.yml
+  when: mcpjungle_deploy_method == 'k8s'
+  tags: [mcpjungle, install, k8s]

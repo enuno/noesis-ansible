@@ -1,3 +1,12 @@
+{{- /*
+MCPJungle Deployment.
+
+Interface notes (verified against upstream 0.4.6):
+  - health endpoint is GET /health (internal/api/server.go), unauthenticated.
+  - MCP transport is /mcp (streamable HTTP) and /sse + /message (SSE transport).
+  - There is NO --ui flag; the dashboard is always served at /.
+  - Credentials arrive via *_FILE env vars, never as literal values in the manifest.
+*/ -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -31,7 +40,11 @@ spec:
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- if .Values.image.digest }}
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          {{- else }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -56,6 +69,18 @@ spec:
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- if and (eq .Values.database.mode "postgres") .Values.database.postgres.existingSecret }}
+            - name: POSTGRES_HOST
+              value: {{ required "database.postgres.host is required when mode=postgres" .Values.database.postgres.host | quote }}
+            - name: POSTGRES_PORT
+              value: {{ .Values.database.postgres.port | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.database.postgres.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.database.postgres.user | quote }}
+            - name: POSTGRES_PASSWORD_FILE
+              value: /etc/mcpjungle/db/{{ .Values.database.postgres.existingSecretKey }}
+            {{- end }}
             {{- range .Values.envFromSecrets }}
             - name: {{ .name }}
               valueFrom:
@@ -63,17 +88,34 @@ spec:
                   name: {{ .secretName }}
                   key: {{ .key }}
             {{- end }}
-          {{- if .Values.persistence.enabled }}
           volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if and (eq .Values.database.mode "postgres") .Values.database.postgres.existingSecret }}
+            - name: db-credentials
+              mountPath: /etc/mcpjungle/db
+              readOnly: true
+            {{- end }}
+            {{- if .Values.persistence.enabled }}
             - name: data
               mountPath: /data
-          {{- end }}
-      {{- if .Values.persistence.enabled }}
+            {{- end }}
       volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if and (eq .Values.database.mode "postgres") .Values.database.postgres.existingSecret }}
+        - name: db-credentials
+          secret:
+            secretName: {{ .Values.database.postgres.existingSecret }}
+            items:
+              - key: {{ .Values.database.postgres.existingSecretKey }}
+                path: {{ .Values.database.postgres.existingSecretKey }}
+        {{- end }}
+        {{- if .Values.persistence.enabled }}
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "mcpjungle.fullname" . }}-data
-      {{- end }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

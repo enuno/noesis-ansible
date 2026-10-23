@@ -1,0 +1,70 @@
+---
+# mcpjungle-k8s.yml — MCPJungle on Kubernetes via the in-repo first-party Helm
+# chart, exposed privately through the EXISTING Tailscale Kubernetes Operator.
+#
+# Usage (offline validation first, then an approved deploy):
+#   ansible-playbook -i inventory/mcpjungle-k8s/hosts.ini playbooks/mcpjungle-k8s.yml --syntax-check
+#   ansible-playbook -i inventory/mcpjungle-k8s/hosts.ini playbooks/mcpjungle-k8s.yml --check
+#   ansible-playbook -i inventory/mcpjungle-k8s/hosts.ini playbooks/mcpjungle-k8s.yml
+#
+# This playbook mutates nothing until secrets escrow succeeds, and it never
+# publishes tailnet policy. Both require separate explicit approval.
+
+- name: Deploy MCPJungle to Kubernetes (Helm) with tailnet-private exposure
+  hosts: mcpjungle_k8s
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
+  gather_facts: true
+  tags: [mcpjungle, k8s]
+
+  pre_tasks:
+    - name: Refuse to run without an explicit target context
+      ansible.builtin.assert:
+        that:
+          - mcpjungle_k8s_kubeconfig | length > 0
+          - mcpjungle_k8s_context | length > 0
+        fail_msg: >-
+          mcpjungle_k8s_kubeconfig and mcpjungle_k8s_context must both be set
+          explicitly. Ansible must never silently select the current kubectl
+          context.
+
+  # B7: escrow MUST run before install. The db Secret task gates on
+  # mcpjungle_k8s_bw_stored, which escrow sets; running the role first meant the
+  # gate was always false, the Secret was silently skipped, and the release came
+  # up pointing at a Secret that did not exist.
+  pre_tasks:
+    - name: Escrow every newly created secret in Bitwarden BEFORE install/expose
+      ansible.builtin.include_role:
+        name: mcpjungle
+        tasks_from: bw_escrow.yml
+      when: not ansible_check_mode
+      tags: [mcpjungle, k8s, secrets]
+
+    - name: Report that check mode performs no escrow
+      ansible.builtin.debug:
+        msg: >-
+          check mode: skipping Bitwarden escrow entirely. No credential is
+          generated and no record is created or updated in this mode.
+      when: ansible_check_mode
+      tags: [mcpjungle, k8s, secrets]
+
+  roles:
+    - role: mcpjungle
+      # Docker-compose path stays available; this playbook selects k8s.
+      vars:
+        mcpjungle_deploy_method: k8s
+
+  tasks:
+
+    - name: Validate the release and cluster-side wiring
+      ansible.builtin.include_role:
+        name: mcpjungle
+        tasks_from: validate_k8s.yml
+      tags: [mcpjungle, k8s, validate]
+
+    - name: Expose privately through the Tailscale operator (approval-gated)
+      ansible.builtin.include_role:
+        name: mcpjungle
+        tasks_from: expose_tailscale.yml
+      when: mcpjungle_k8s_expose_enabled | bool
+      tags: [mcpjungle, k8s, expose]

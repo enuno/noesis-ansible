@@ -20,3 +20,71 @@ mcp_servers: []
 #         description: "Read a file from the filesystem"
 #     capabilities:
 #       - "filesystem"
+
+# ---------------------------------------------------------------------------
+# Kubernetes / Helm deployment (additive; docker path above unchanged)
+# ---------------------------------------------------------------------------
+
+# Which install path to use: 'docker' (existing docker-compose) or 'k8s' (Helm).
+mcpjungle_deploy_method: "docker"
+
+mcpjungle_k8s_enabled: false
+
+# Target selection. NEVER resolved implicitly; both are required for the k8s path.
+mcpjungle_k8s_kubeconfig: ""
+mcpjungle_k8s_context: ""
+mcpjungle_k8s_namespace: "mcpjungle"
+mcpjungle_k8s_release_name: "mcpjungle"
+
+# Chart + image provenance. The image MUST be digest-pinned; upstream publishes
+# no official Helm chart and the third-party chart was rejected (see
+# docs/mcpjungle-k8s-runbook.md).
+mcpjungle_k8s_chart_version: "0.2.0"
+mcpjungle_k8s_image_repository: "ghcr.io/mcpjungle/mcpjungle"
+mcpjungle_k8s_image_tag: "0.4.6"
+mcpjungle_k8s_image_digest: ""
+
+# Database. Upstream recommends PostgreSQL for multi-user deployments.
+mcpjungle_k8s_database_mode: "postgres"
+mcpjungle_k8s_database_postgres_host: ""
+mcpjungle_k8s_database_postgres_port: 5432
+mcpjungle_k8s_database_postgres_database: "mcpjungle"
+mcpjungle_k8s_database_postgres_user: "mcpjungle"
+mcpjungle_k8s_db_secret_name: "mcpjungle-db"
+mcpjungle_k8s_db_secret_key: "password"
+
+# Bitwarden Secrets Manager. The required project is a constant; the effective
+# project must equal it exactly.
+mcpjungle_k8s_required_bw_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+mcpjungle_k8s_bw_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+mcpjungle_k8s_bws_path: "/usr/local/bin/bws"
+mcpjungle_k8s_bws_access_token: ""
+# Master gate for external Bitwarden writes. The role fails closed without it.
+mcpjungle_k8s_allow_bitwarden_write: false
+mcpjungle_k8s_bw_prefix: "MCPJUNGLE_K3S_DEFAULT_"
+mcpjungle_k8s_db_bw_key: "MCPJUNGLE_K3S_DEFAULT_DB_PASSWORD"
+mcpjungle_k8s_admin_bw_key: "MCPJUNGLE_K3S_DEFAULT_ADMIN_TOKEN"
+mcpjungle_k8s_client_bw_key: "MCPJUNGLE_K3S_DEFAULT_CLIENT_TOKEN"
+mcpjungle_k8s_escrow_keys:
+  - "MCPJUNGLE_K3S_DEFAULT_DB_PASSWORD"
+  - "MCPJUNGLE_K3S_DEFAULT_ADMIN_TOKEN"
+  - "MCPJUNGLE_K3S_DEFAULT_CLIENT_TOKEN"
+mcpjungle_k8s_bw_record_ids: {}
+
+# Tailscale private exposure via the existing operator.
+mcpjungle_k8s_expose_enabled: false
+mcpjungle_k8s_ingress_host: ""
+mcpjungle_k8s_ingress_class: "tailscale"
+mcpjungle_k8s_ingress_tailnet: ""
+mcpjungle_k8s_ingress_retries: 12
+
+mcpjungle_k8s_timeout: 600
+# Resolved relative to the ROLE, not the playbook, so the path cannot break
+# depending on which playbook invokes the role.
+mcpjungle_k8s_namespace_manifest: "{{ role_path }}/../../charts/mcpjungle/namespace.yaml"
+mcpjungle_k8s_rendered_values: {}
+
+# Crash-safe staging for a freshly generated credential. Mode 0600 on the
+# controller. Removed only after Bitwarden confirms the record is stored.
+mcpjungle_k8s_pending_secret_file: "{{ lookup('env', 'HOME') }}/.cache/noesis/mcpjungle-pending.secret"
+

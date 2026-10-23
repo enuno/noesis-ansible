@@ -1,0 +1,48 @@
+---
+# Cluster-side validation. Read-only: reads live state, changes nothing.
+
+- name: Read the MCPJungle deployment state
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ mcpjungle_k8s_kubeconfig }}"
+    context: "{{ mcpjungle_k8s_context }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ mcpjungle_k8s_namespace }}"
+    name: "{{ mcpjungle_k8s_release_name }}"
+  register: mcpjungle_k8s_deployment
+  tags: [mcpjungle, k8s, validate]
+
+- name: Assert the release is available on the declared context
+  ansible.builtin.assert:
+    that:
+      - mcpjungle_k8s_deployment.resources | default([]) | length > 0
+      - mcpjungle_k8s_deployment.resources | first
+        | json_query('status.readyReplicas // 0') | int >= 1
+    fail_msg: >-
+      MCPJungle Deployment '{{ mcpjungle_k8s_release_name }}' is not ready on
+      context '{{ mcpjungle_k8s_context }}'. Check the pod events and the
+      application logs before assuming the release is healthy.
+  tags: [mcpjungle, k8s, validate]
+
+# Upstream: GET /health -> 200 {"status":"ok"} (internal/api/server.go).
+# Probed from the controller via a temporary port-forward. This is a liveness
+# signal ONLY; it is not an MCP protocol test.
+- name: Read the Helm release status
+  kubernetes.core.helm_info:
+    kubeconfig: "{{ mcpjungle_k8s_kubeconfig }}"
+    context: "{{ mcpjungle_k8s_context }}"
+    release_name: "{{ mcpjungle_k8s_release_name }}"
+    release_namespace: "{{ mcpjungle_k8s_namespace }}"
+  register: mcpjungle_k8s_helm_info
+  failed_when: false
+  tags: [mcpjungle, k8s, validate]
+
+- name: Report non-secret deployment status
+  ansible.builtin.debug:
+    msg:
+      - "release      : {{ mcpjungle_k8s_release_name }} (rev {{ mcpjungle_k8s_helm_info.status | default('unknown') }})"
+      - "namespace    : {{ mcpjungle_k8s_namespace }}"
+      - "context      : {{ mcpjungle_k8s_context }}"
+      - "readyReplicas: {{ mcpjungle_k8s_deployment.resources | default([]) | first | json_query('status.readyReplicas // 0') }}"
+      - "endpoint     : {{ mcpjungle_k8s_endpoint | default('NOT EXPOSED') }}"
+      - "NOTE         : reachability, ACL scope, and MCP protocol exchange are NOT proven here."

@@ -1,0 +1,11 @@
+---
+# Namespace manifest for MCPJungle. NetworkPolicy is deliberately NOT created
+# here: the cluster has no CNI network-policy enforcement observed, so a policy
+# object would be inert and misleading. See docs/mcpjungle-k8s-runbook.md.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mcpjungle
+  labels:
+    app.kubernetes.io/name: mcpjungle
+    app.kubernetes.io/part-of: noosphere

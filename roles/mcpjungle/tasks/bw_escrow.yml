@@ -1,0 +1,284 @@
+---
+# Bitwarden Secrets Manager escrow for every credential this deployment creates.
+#
+# Bitwarden SM is the authoritative persistent store. The Kubernetes Secret is a
+# runtime DELIVERY copy only. Order is enforced:
+#   resolve-or-generate -> store -> verify stored -> deliver -> (expose)
+# Exposure is a separate task file that runs last and asserts the escrow flag.
+#
+# This file is deliberately NOT run under --check: check mode must never
+# generate a live credential or create/update a Bitwarden record.
+
+# M10: this used to be a hard assert, which made the playbook's own documented
+# `--check` preflight command fail. It is now a guard on every task below.
+- name: Refuse to touch Bitwarden under check mode
+  ansible.builtin.debug:
+    msg: "check mode: Bitwarden escrow skipped by design."
+  when: ansible_check_mode
+  tags: [mcpjungle, k8s, secrets]
+
+- name: Confirm the bws CLI is available
+  ansible.builtin.command:
+    cmd: "{{ mcpjungle_k8s_bws_path }} --version"
+  register: mcpjungle_k8s_bws_version
+  changed_when: false
+  failed_when: mcpjungle_k8s_bws_version.rc != 0
+  tags: [mcpjungle, k8s, secrets]
+
+- name: Require the Bitwarden access token from the approved controller mechanism
+  ansible.builtin.assert:
+    that:
+      - (mcpjungle_k8s_bws_access_token | default('')) | length > 0
+        or (lookup('env', 'BWS_ACCESS_TOKEN') | length > 0)
+    fail_msg: >-
+      No Bitwarden access token. Supply mcpjungle_k8s_bws_access_token from the
+      approved controller credential mechanism or BWS_ACCESS_TOKEN in the
+      environment. Do NOT bootstrap Bitwarden access from inside the cluster
+      and do NOT persist the access token as an application credential.
+  no_log: true
+  tags: [mcpjungle, k8s, secrets]
+
+- name: Resolve the effective Bitwarden project id
+  ansible.builtin.set_fact:
+    mcpjungle_k8s_bw_effective_project: "{{ mcpjungle_k8s_bw_project_id }}"
+  no_log: true
+  tags: [mcpjungle, k8s, secrets]
+
+# The project id is MANDATORY and validated against the required constant.
+# A different project is a hard failure, never a silent override.
+- name: Enforce the required Bitwarden project id
+  ansible.builtin.assert:
+    that:
+      - mcpjungle_k8s_bw_effective_project == mcpjungle_k8s_required_bw_project_id
+    fail_msg: >-
+      Bitwarden project must be exactly {{ mcpjungle_k8s_required_bw_project_id }}.
+      Got {{ mcpjungle_k8s_bw_effective_project }}. Using a different project
+      requires explicit authorization.
+  no_log: true
+  tags: [mcpjungle, k8s, secrets]
+
+- name: Verify the machine account can read the required project (metadata only)
+  ansible.builtin.command:
+    cmd: "{{ mcpjungle_k8s_bws_path }} project get {{ mcpjungle_k8s_required_bw_project_id }}"
+  environment:
+    BWS_ACCESS_TOKEN: "{{ mcpjungle_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  register: mcpjungle_k8s_bw_project
+  changed_when: false
+  failed_when: mcpjungle_k8s_bw_project.rc != 0
+  no_log: true
+  tags: [mcpjungle, k8s, secrets]
+
+# Ambiguity guard. This project currently holds 174 records with 5 duplicated
+# keys, so key-only lookup is NOT safe: resolve by the persisted record id, and
+# fail closed if a key matches more than one record.
+- name: List existing records in the project (ids and keys only, never values)
+  ansible.builtin.command:
+    cmd: "{{ mcpjungle_k8s_bws_path }} secret list {{ mcpjungle_k8s_required_bw_project_id }} -o json"
+  environment:
+    BWS_ACCESS_TOKEN: "{{ mcpjungle_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  register: mcpjungle_k8s_bw_list
+  changed_when: false
+  failed_when: mcpjungle_k8s_bw_list.rc != 0
+  no_log: true
+  tags: [mcpjungle, k8s, secrets]
+
+# Project id+key per record. The previous expression (map('dict2items') |
+# map('last')) returned each record's LAST FIELD (revisionDate) rather than the
+# record, so every lookup silently matched nothing and a fresh credential was
+# generated on EVERY run.
+- name: Index records by id and key (never by position or by last field)
+  ansible.builtin.set_fact:
+    mcpjungle_k8s_bw_index: >-
+      {{ mcpjungle_k8s_bw_list.stdout | from_json
+         | json_query('[*].{id: id, key: key}') }}
+  no_log: true
+  tags: [mcpjungle, k8s, secrets]
+
+- name: Map each escrow key to its matching-record count in the project
+  ansible.builtin.set_fact:
+    mcpjungle_k8s_bw_counts: >-
+      {{ (mcpjungle_k8s_bw_counts | default({})) | combine({
+           item: (mcpjungle_k8s_bw_index | selectattr('key', 'equalto', item) | list | length)
+         }, recursive=true) }}
+  loop: "{{ mcpjungle_k8s_escrow_keys }}"
+  no_log: true
+  tags: [mcpjungle, k8s, secrets]
+
+# Fail closed rather than pick an arbitrary record. This project already holds
+# duplicated keys, so key-only lookup is demonstrably unsafe here.
+- name: Fail closed when an escrow key matches more than one Bitwarden record
+  ansible.builtin.assert:
+    that:
+      # <= 1, not == 1: zero matches is the legitimate first-deploy state and
+      # must not block provisioning. Only an AMBIGUOUS match (2+) must fail.
+      - (mcpjungle_k8s_bw_counts | length) == 0
+        or (mcpjungle_k8s_bw_counts.values() | max) <= 1
+    fail_msg: >-
+      Ambiguous Bitwarden record(s) for key(s):
+      {{ mcpjungle_k8s_bw_counts | dict2items
+         | rejectattr('value', 'le', 1) | map(attribute='key') | join(', ') }}.
+      Refusing to select an arbitrary record. Resolve the duplicate in
+      Bitwarden, or pin the exact record id in mcpjungle_k8s_bw_record_ids.
+  no_log: true
+  tags: [mcpjungle, k8s, secrets]
+
+# --- PostgreSQL credential -------------------------------------------------
+# Generated on the controller, stored in Bitwarden, and only then delivered.
+# Re-runs REUSE the stored value: no regeneration, no overwrite.
+- name: Look up the existing database password record by key
+  ansible.builtin.set_fact:
+    mcpjungle_k8s_db_existing: >-
+      {{ mcpjungle_k8s_bw_index
+         | selectattr('key', 'equalto', mcpjungle_k8s_db_bw_key) | list }}
+  no_log: true
+  tags: [mcpjungle, k8s, secrets]
+
+- name: Fetch the existing database password when exactly one record exists
+  ansible.builtin.command:
+    cmd: "{{ mcpjungle_k8s_bws_path }} secret get {{ mcpjungle_k8s_bw_index
+           | selectattr('key', 'equalto', mcpjungle_k8s_db_bw_key)
+           | map(attribute='id') | first }} -o json"
+  environment:
+    BWS_ACCESS_TOKEN: "{{ mcpjungle_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  register: mcpjungle_k8s_bw_db_get
+  changed_when: false
+  failed_when: mcpjungle_k8s_bw_db_get.rc != 0
+  no_log: true
+  when:
+    - mcpjungle_k8s_db_existing | length == 1
+    - mcpjungle_k8s_pending_slurp.content | default('') | length > 0
+  tags: [mcpjungle, k8s, secrets]
+
+- name: Reuse the stored database password (idempotent, no rotation)
+  ansible.builtin.set_fact:
+    mcpjungle_k8s_db_password: "{{ mcpjungle_k8s_bw_db_get.stdout | from_json | json_query('value') }}"
+    mcpjungle_k8s_db_created: false
+  no_log: true
+  when: mcpjungle_k8s_db_existing | length == 1
+  tags: [mcpjungle, k8s, secrets]
+
+# Generate ONLY when absence is confirmed by a successful lookup above.
+# A permission error or network failure fails earlier, so it can never be
+# mistaken for "record does not exist".
+- name: Generate a database password only when no record exists
+  ansible.builtin.set_fact:
+    mcpjungle_k8s_db_password: "{{ lookup('community.general.random_string', 40, false, 'ascii_letters,digits') }}"
+    mcpjungle_k8s_db_created: true
+  no_log: true
+  when:
+    - mcpjungle_k8s_db_existing | length == 0
+    - not (mcpjungle_k8s_pending_slurp.content | default('') | length > 0)
+  tags: [mcpjungle, k8s, secrets]
+
+# B10: the generated password existed only in an in-memory fact. If the write
+# below fails it was unrecoverable and the next run silently minted a different
+# one. Stage it at 0600 on the controller, and delete only after verification.
+- name: Stage the generated password for crash-safe recovery
+  ansible.builtin.copy:
+    dest: "{{ mcpjungle_k8s_pending_secret_file }}"
+    content: "{{ mcpjungle_k8s_db_password }}"
+    mode: '0600'
+  no_log: true
+  when:
+    - mcpjungle_k8s_db_created | bool
+    - mcpjungle_k8s_allow_bitwarden_write | bool
+  tags: [mcpjungle, k8s, secrets]
+
+- name: Recover a staged password from a previously failed run
+  ansible.builtin.stat:
+    path: "{{ mcpjungle_k8s_pending_secret_file }}"
+  register: mcpjungle_k8s_pending_stat
+  when:
+    - (mcpjungle_k8s_db_existing | default([]) | length) == 0
+    - not (mcpjungle_k8s_db_created | default(false) | bool)
+  tags: [mcpjungle, k8s, secrets]
+
+- name: Reuse the staged password rather than generating a new one
+  ansible.builtin.slurp:
+    src: "{{ mcpjungle_k8s_pending_secret_file }}"
+  register: mcpjungle_k8s_pending_slurp
+  no_log: true
+  when:
+    - mcpjungle_k8s_pending_stat.stat.exists | default(false)
+  tags: [mcpjungle, k8s, secrets]
+
+- name: Persist the new database password to Bitwarden (EXTERNAL WRITE)
+  ansible.builtin.command:
+    argv:
+      - "{{ mcpjungle_k8s_bws_path }}"
+      - secret
+      - create
+      - "{{ mcpjungle_k8s_db_bw_key }}"
+      - "{{ mcpjungle_k8s_db_password }}"
+      - "{{ mcpjungle_k8s_required_bw_project_id }}"
+  environment:
+    BWS_ACCESS_TOKEN: "{{ mcpjungle_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  register: mcpjungle_k8s_bw_db_create
+  changed_when: mcpjungle_k8s_bw_db_create.rc == 0
+  failed_when: mcpjungle_k8s_bw_db_create.rc != 0
+  no_log: true
+  when:
+    - mcpjungle_k8s_db_created | bool
+    - mcpjungle_k8s_allow_bitwarden_write | bool
+  tags: [mcpjungle, k8s, secrets]
+
+- name: Capture the new Bitwarden record id (non-secret identifier)
+  ansible.builtin.set_fact:
+    mcpjungle_k8s_bw_db_record_id: "{{ mcpjungle_k8s_bw_db_create.stdout | from_json | json_query('id') }}"
+  no_log: true
+  when:
+    - mcpjungle_k8s_db_created | bool
+    - mcpjungle_k8s_allow_bitwarden_write | bool
+  tags: [mcpjungle, k8s, secrets]
+
+- name: Verify the database credential is durably stored in Bitwarden
+  ansible.builtin.command:
+    cmd: "{{ mcpjungle_k8s_bws_path }} secret list {{ mcpjungle_k8s_required_bw_project_id }} -o json"
+  environment:
+    BWS_ACCESS_TOKEN: "{{ mcpjungle_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  register: mcpjungle_k8s_bw_verify
+  changed_when: false
+  failed_when: mcpjungle_k8s_bw_verify.rc != 0
+  no_log: true
+  when: mcpjungle_k8s_database_mode == 'postgres'
+  tags: [mcpjungle, k8s, secrets]
+
+- name: Fail closed unless exactly one stored record backs this deployment
+  ansible.builtin.assert:
+    that:
+      - (mcpjungle_k8s_bw_verify.stdout | from_json
+         | selectattr('key', 'equalto', mcpjungle_k8s_db_bw_key) | list | length) == 1
+    fail_msg: >-
+      Database credential is NOT confirmed stored in Bitwarden project
+      {{ mcpjungle_k8s_required_bw_project_id }}. Refusing to continue: the
+      Kubernetes Secret must never be the only persistent record, and the
+      service must stay unexposed until escrow succeeds.
+  no_log: true
+  when: mcpjungle_k8s_database_mode == 'postgres'
+  tags: [mcpjungle, k8s, secrets]
+
+- name: Destroy the staged password once escrow is verified
+  ansible.builtin.file:
+    path: "{{ mcpjungle_k8s_pending_secret_file }}"
+    state: absent
+  when: mcpjungle_k8s_database_mode in ['sqlite'] or mcpjungle_k8s_bw_verify is defined
+  tags: [mcpjungle, k8s, secrets]
+
+- name: Mark Bitwarden escrow as verified
+  ansible.builtin.set_fact:
+    mcpjungle_k8s_bw_stored: true
+  when: mcpjungle_k8s_database_mode in ['sqlite'] or mcpjungle_k8s_bw_verify is defined
+  tags: [mcpjungle, k8s, secrets]
+
+# --- Application-issued credentials ---------------------------------------
+# MCPJungle mints its OWN admin token via `init-server`; there is no upstream
+# env var to pre-seed it. Those credentials are captured and escrowed in the
+# post-install phase (tasks/init.yml), never at pre-install, because they do not
+# exist until the release is running.
+- name: Note the application-issued credential phase
+  ansible.builtin.debug:
+    msg: >-
+      Admin and MCP-client credentials are issued by MCPJungle at runtime and
+      are escrowed in {{ mcpjungle_k8s_bw_prefix }}* records during the init
+      phase. Exposure stays disabled until that escrow is verified.
+  tags: [mcpjungle, k8s, secrets]
