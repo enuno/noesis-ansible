@@ -38,14 +38,16 @@
 - name: Fail with a useful message when the kubeconfig is unreadable
   ansible.builtin.fail:
     msg: >-
-      The remote user cannot read {{ mcpjungle_k8s_kubeconfig }} (exists:
-      {{ mcpjungle_k8s_kubeconfig_stat.stat.exists }}, readable:
+      The effective task user cannot read {{ mcpjungle_k8s_kubeconfig }}
+      (exists: {{ mcpjungle_k8s_kubeconfig_stat.stat.exists }}, readable:
       {{ mcpjungle_k8s_kubeconfig_stat.stat.readable | default(false) }}).
-      That file is 0660 elvis:elvis in a 0700 directory and the `ansible` account
-      is not in group `elvis`, so the run would die with an opaque permission
-      error. Either run as the owning account
-      (-e noesispraxis_ansible_user=elvis), or explicitly authorise granting the
-      `ansible` account read access to this cluster-admin credential.
+      Point mcpjungle_k8s_kubeconfig at a kubeconfig the task user can read —
+      on a k3s host that is the root-owned /etc/rancher/k3s/k3s.yaml, which
+      these plays can read because they run with become. Do NOT work around
+      this by switching the login identity to a human account, and do not
+      point it at a per-user ~/.kube/config: those are typically mode 0660
+      inside a 0700 home directory and unreadable by the `ansible` automation
+      account, which is exactly the failure this check reports.
   when:
     - not mcpjungle_k8s_kubeconfig_stat.stat.exists
       or not (mcpjungle_k8s_kubeconfig_stat.stat.readable | default(false))

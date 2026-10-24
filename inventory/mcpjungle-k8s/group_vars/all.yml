@@ -8,14 +8,29 @@
 # This describes the CLUSTER, not the deployer, so it stays valid when Ansible
 # is run from a different machine. Tasks execute ON THE TARGET, so the kubeconfig
 # must exist there, not on the controller.
-mcpjungle_k8s_kubeconfig: "/home/elvis/.kube/config"
+#
+# Use the k3s-managed kubeconfig, NOT a user's ~/.kube/config. The previous
+# value (/home/elvis/.kube/config) is mode 0660 elvis:elvis inside a 0700
+# home directory, so it was unreadable by the `ansible` automation account and
+# forced every run to be done as `elvis`. This path is root-owned 0600 and the
+# plays already run with become, so it works for any login identity and keeps
+# the deploy independent of whose home directory exists.
+mcpjungle_k8s_kubeconfig: "/etc/rancher/k3s/k3s.yaml"
 mcpjungle_k8s_context: "default"
 
 # --- Deployer-side settings (override when running from another machine) -----
 # The private key THIS controller uses to reach the target. A different deployer
 # will have a different key, so it is a variable rather than hardcoded in the
 # inventory.
-ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
+#
+# `hashgrid_signing_key` is the designated automation keypair; its public half
+# is in authorized_keys for both `elvis` and `ansible` on the target, verified
+# by authenticating with that key alone.
+noesis_ssh_private_key_file: "~/.ssh/hashgrid_signing_key"
+ansible_ssh_private_key_file: "{{ noesis_ssh_private_key_file }}"
+
+# Login identity for this target. Never `elvis`.
+noesispraxis_ansible_user: "ansible"
 
 # --- Release identity --------------------------------------------------------
 mcpjungle_k8s_namespace: "mcpjungle"

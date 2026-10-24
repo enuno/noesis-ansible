@@ -1,0 +1,27 @@
+---
+# Deployer-side settings for the praxis-k3s inventory.
+#
+# These describe the MACHINE RUNNING ANSIBLE, not the target, so they are
+# variables a different deployer can override rather than facts about the
+# cluster. Cluster-describing values live in group_vars/k3s_server.yml.
+
+# SSH identity this controller presents to the target.
+#
+# `hashgrid_signing_key` is the designated automation keypair: its public half
+# is installed in authorized_keys for BOTH `elvis` and `ansible` on the target,
+# and authentication was verified with the key alone
+# (`-o IdentitiesOnly=yes`, agent disabled) for both accounts.
+#
+# Override from another controller:
+#   ansible-playbook ... -e noesis_ssh_private_key_file=/path/to/your/key
+noesis_ssh_private_key_file: "~/.ssh/hashgrid_signing_key"
+ansible_ssh_private_key_file: "{{ noesis_ssh_private_key_file }}"
+
+# Login identity for Linux targets. The inventory sets ansible_user=ansible
+# per host; this is the value plays reference for `remote_user`, kept here so
+# the account is auditable in one place.
+#
+# Do NOT set this to `elvis`. It is also deliberately NOT applied to macOS
+# hosts (see inventory/tailscale/hosts.ini) — that machine has no `ansible`
+# account, so forcing it there breaks the connection.
+noesispraxis_ansible_user: "ansible"
