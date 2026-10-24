@@ -1,10 +1,24 @@
 # Noesis Praxis single-node k3s operator runbook
 
-This is the unified operator sequence for `noesis-praxis` (`31.97.209.57`,
-Ubuntu 26.04 x86_64). The resolved controller workspace is:
+This is the unified operator sequence for the single-node k3s cluster.
+
+**Identity — host vs Kubernetes node (these differ deliberately):**
+
+| | Value |
+|---|---|
+| Machine / OS hostname | `noesis-lab` (`noesis-lab.hashgrid.net`, `31.97.209.57`, Ubuntu 26.04 x86_64) |
+| Host tailnet device | `noesis-lab.tailf99a0.ts.net` → `100.119.84.26` |
+| Kubernetes node name | `noesis-praxis` (pinned via `k3s_node_name`) |
+| Inventory alias | `noesis-lab` in group `k3s_server` |
+
+`noesis-praxis.tailf99a0.ts.net` is the Hermes **dashboard proxy pod**, not
+this host. See `k3s.md` for why the names differ and why they must not be
+unified. Recovery for a node-identity break is §10 below.
+
+The resolved controller workspace is:
 
 ```text
-/Users/elvis/projects/noesis-ansible
+/home/elvis/projects/noesis-ansible
 ```
 
 All commands below start in that directory unless they explicitly say they run
@@ -80,7 +94,7 @@ ansible-playbook --syntax-check -i inventory/praxis-k3s/hosts.ini playbooks/tail
 ansible-playbook --list-hosts -i inventory/praxis-k3s/hosts.ini playbooks/tailscale-install.yml
 ```
 
-The final command must select exactly one host: `noesis-praxis` in
+The final command must select exactly one host: `noesis-lab` in
 `k3s_server`.
 
 ### 2.3 Approved read-only remote preflight
@@ -376,3 +390,92 @@ restore test first.
 - Running the Tailscale role with `state: absent` invokes logout and removes the
   package, changing the durable tailnet identity. It is forbidden during
   installation, upgrades, key rotation, recovery, or ordinary rollback.
+
+## 10. Recovery: node identity broke after a hostname change
+
+**Symptom.** After a rename and/or reboot, `kubectl get nodes` shows **two**
+nodes: the real one `NotReady`, and a new one named after the current OS
+hostname. PV-backed workloads sit `Pending` with
+`didn't match PersistentVolume's node affinity`. Apps whose dependency is
+one of those pods `CrashLoopBackOff`. Stateless pods (e.g.
+`tailscale-operator`) look fine and prove nothing.
+
+**Cause.** `k3s_node_name` was unset, so k3s derived the Kubernetes node name
+from the OS hostname. Renaming the host therefore changed the node identity,
+and local-path PVs are pinned by `nodeAffinity` to the *old* node name.
+
+**Diagnose (read-only).**
+
+```bash
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml   # or ~/.kube/config
+kubectl get nodes -o wide
+kubectl get nodes -o json | jq -r '.items[] | "\(.metadata.name) created=\(.metadata.creationTimestamp) taints=\(.spec.taints // [])"'
+kubectl get pv -o json | jq -r '.items[] | "\(.metadata.name) affinity=\(.spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[0].values)"'
+kubectl -n <ns> describe pod <pending-pod> | sed -n '/Events:/,$p'
+```
+
+The PV affinity values name the node you must keep. Confirm which node object
+is the newcomer by `creationTimestamp`.
+
+**Repair.**
+
+1. Archive evidence first — node/pod/PV state and the current config:
+   ```bash
+   kubectl get nodes -o yaml > nodes-before.yaml
+   kubectl get pods -A -o wide > pods-before.txt
+   kubectl get pv -o yaml   > pv-before.yaml
+   sudo cp /etc/rancher/k3s/config.yaml config.yaml.bak
+   ```
+2. Pin the node name to the value the PVs require, then apply. Ansible owns
+   this — do not hand-edit `/etc/rancher/k3s/config.yaml` as the durable fix:
+   ```yaml
+   # inventory/praxis-k3s/group_vars/k3s_server.yml
+   k3s_node_name: "noesis-praxis"
+   ```
+   ```bash
+   ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/k3s-install.yml \
+     --skip-tags bootstrap-python
+   ```
+   The config change notifies the `Restart k3s` handler. Confirm kubelet picked
+   it up:
+   ```bash
+   sudo journalctl -u k3s --since '-2 min' --no-pager \
+     | grep -oE 'Running kubelet .*--hostname-override=[^ ]+' | tail -1
+   ```
+3. Wait for the original node to return `Ready` and shed its
+   `node.kubernetes.io/unreachable` taints:
+   ```bash
+   kubectl wait --for=condition=Ready node/noesis-praxis --timeout=180s
+   kubectl get node noesis-praxis -o jsonpath='{.spec.taints}'; echo
+   ```
+4. **Only then** delete the phantom node object. Verify you are deleting the
+   newcomer, never the node the PVs are bound to:
+   ```bash
+   kubectl get node <phantom> -o yaml > phantom-node.yaml   # archive
+   kubectl delete node <phantom> --timeout=120s
+   ```
+   Its "Running" pods are orphaned containers no kubelet is managing; deleting
+   the node releases them so their controllers recreate them on the real node.
+5. Converge and verify:
+   ```bash
+   kubectl get nodes -o wide                 # exactly one, Ready
+   kubectl get pods -A -o wide               # all Running on noesis-praxis
+   kubectl get pvc -A                        # all Bound
+   ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/k3s-verify.yml
+   ```
+
+**Expect transient restart noise.** Pods that restart during the window while
+CoreDNS is itself rescheduling fail with
+`failed to lookup address information: Temporary failure in name resolution`.
+That is self-clearing — judge by the final state, not the restart count.
+
+**Prevention.** `k3s_node_name` is now pinned and the role asserts after every
+run that k3s registered under it, so a future rename cannot silently strand
+the PVs. The OS hostname is now free to change without touching the cluster.
+
+### Do not
+
+- Do not delete or recreate the node the PVs are bound to.
+- Do not try to rewrite `nodeAffinity` on a bound local-path PV; it is
+  effectively immutable, and the supported fix is keeping the node name.
+- Do not treat a healthy stateless pod as evidence the cluster is healthy.

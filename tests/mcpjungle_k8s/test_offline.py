@@ -189,8 +189,24 @@ if shutil.which("ansible-playbook"):
           "className': 'tailscale'" in expose_src and "kind: Connector" not in expose_src)
     check("ingress host comes from the service-name variable",
           "'host': mcpjungle_k8s_connector_hostname" in expose_src)
-    check("expose refuses the operator device and server hostnames",
-          "'tailscale-operator'" in expose_src and "'noesis-praxis'" in expose_src)
+    # The reserved-hostname list moved from an inline literal in the task file
+    # into roles/mcpjungle/defaults/main.yml so it is auditable in one place
+    # and can grow. Assert BOTH halves: the task consults the variable, and
+    # the variable actually reserves the names that must never be reused.
+    check("expose refuses reserved hostnames via the shared variable",
+          "mcpjungle_k8s_connector_hostname not in mcpjungle_k8s_reserved_hostnames"
+          in expose_src)
+    _defaults_src = read(os.path.join(ROLE, "defaults", "main.yml"))
+    _reserved_block = _defaults_src.split("mcpjungle_k8s_reserved_hostnames:", 1)
+    check("reserved-hostname list is defined in role defaults",
+          len(_reserved_block) == 2)
+    for _name in ("tailscale-operator", "noesis-praxis", "noesis-lab"):
+        # `noesis-praxis` is the dashboard proxy device AND the k3s node name;
+        # `noesis-lab` is the host's own tailnet device. Neither may be
+        # claimed by a service proxy. See docs/praxis-k3s/k3s.md.
+        check("reserved hostnames include %s" % _name,
+              len(_reserved_block) == 2
+              and ("- %s" % _name) in _reserved_block[1].split("\n\n", 1)[0])
 
     with open(os.path.join(tmp, "ansible.cfg"), "w") as fh:
         fh.write("[defaults]\nnocows = 1\nhost_key_checking = False\n")
@@ -215,6 +231,7 @@ if shutil.which("ansible-playbook"):
             "    mcpjungle_k8s_ingress_host: mcpjungle\n"
             "    mcpjungle_k8s_ingress_tailnet: ''\n"
             "    mcpjungle_k8s_connector_hostname: mcpjungle\n"
+            "    mcpjungle_k8s_reserved_hostnames: [tailscale-operator, noesis-praxis, noesis-lab]\n"
             "    mcpjungle_k8s_connector_tag: tag:mcpjungle\n"
             "    mcpjungle_k8s_service_dns: mcpjungle.mcpjungle.svc.cluster.local\n"
             "    mcpjungle_k8s_service_port: 8080\n"
@@ -229,7 +246,7 @@ if shutil.which("ansible-playbook"):
             "      ansible.builtin.assert:\n"
             "        that:\n"
             "          - mcpjungle_k8s_connector_hostname is match('^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')\n"
-            "          - mcpjungle_k8s_connector_hostname not in ['tailscale-operator','noesis-praxis']\n"
+            "          - mcpjungle_k8s_connector_hostname not in mcpjungle_k8s_reserved_hostnames\n"
         )
     res = subprocess.run(["ansible-playbook", "-i", "localhost,", "probe.yml"],
                          capture_output=True, text=True, cwd=tmp)

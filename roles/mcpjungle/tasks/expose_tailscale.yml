@@ -43,10 +43,11 @@
 - name: Refuse a hostname that collides with the operator device or the server
   ansible.builtin.assert:
     that:
-      - mcpjungle_k8s_connector_hostname not in ['tailscale-operator', 'noesis-praxis']
+      - mcpjungle_k8s_connector_hostname not in mcpjungle_k8s_reserved_hostnames
     fail_msg: >-
       The tailnet hostname must name the service, not the server and not the
       Tailscale operator device. Got {{ mcpjungle_k8s_connector_hostname }}.
+      Reserved: {{ mcpjungle_k8s_reserved_hostnames | join(', ') }}.
   tags: [mcpjungle, k8s, expose]
 
 - name: Enable the Tailscale ingress in the rendered values

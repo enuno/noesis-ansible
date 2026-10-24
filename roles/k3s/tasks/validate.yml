@@ -15,6 +15,27 @@
   until: k3s_nodes.rc == 0 and k3s_nodes.stdout.find(" Ready") != -1
   retries: 30
   delay: 6
+  # Skipped in --check mode: `command` does not execute under check, so
+  # `rc`/`stdout` never register, the `until` condition can never be satisfied,
+  # and the task burned all 30 retries (~3 min) before aborting the whole
+  # check-mode run. The same guard is already applied to the probes in
+  # install.yml. The real (non-check) run is unaffected.
+  when: not ansible_check_mode
+
+- name: Assert the node registered under the pinned node name
+  ansible.builtin.assert:
+    that:
+      - k3s_nodes.stdout is search('^' ~ (k3s_node_name | regex_escape) ~ '\s', multiline=True)
+    fail_msg: >-
+      k3s did not register a node named '{{ k3s_node_name }}'. Registered
+      nodes:
+      {{ k3s_nodes.stdout_lines | default([]) | reject('search', '^NAME') | list }}.
+      A node registered under a different name means the node-name pin is not
+      taking effect — local-path PersistentVolumes are bound to
+      '{{ k3s_node_name }}' by node affinity and will be unschedulable.
+  when:
+    - not ansible_check_mode
+    - k3s_node_name | length > 0
 
 - name: Assert k3s service is enabled and active
   ansible.builtin.systemd_service:

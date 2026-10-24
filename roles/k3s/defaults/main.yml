@@ -14,6 +14,21 @@ k3s_kubeconfig_file: "{{ k3s_config_dir }}/k3s.yaml"
 k3s_service_name: "k3s"
 k3s_systemd_unit: "/etc/systemd/system/k3s.service"
 
+# Stable Kubernetes node name, decoupled from the OS hostname.
+# Empty = let k3s derive the node name from the OS hostname (upstream default).
+#
+# Set this on any host whose OS hostname may change, and on every host that
+# has local-path PersistentVolumes. A local-path PV pins itself to the node
+# that provisioned it via
+#   nodeAffinity: kubernetes.io/hostname In [<node-name>]
+# and that affinity cannot practically be rewritten afterwards. If the OS
+# hostname later changes, kubelet registers a NEW node object under the new
+# name, the original node goes NotReady, and every PV-backed pod becomes
+# unschedulable with "didn't match PersistentVolume's node affinity".
+#
+# Treat the value as immutable once the cluster has local-path PVs.
+k3s_node_name: ""
+
 # GitHub release asset URL for the pinned version (amd64).
 k3s_binary_url: "https://github.com/k3s-io/k3s/releases/download/{{ k3s_version | urlencode }}/k3s"
 
@@ -25,10 +40,16 @@ k3s_disable_components:
 # Additional Subject Alternative Names for the k3s API server certificate.
 # k3s auto-detects the node's IP addresses (including the tailscale0 address),
 # but NOT tailnet DNS names, so a client connecting to
-# https://noesis-praxis.tailf99a0.ts.net:6443 fails certificate verification:
+# https://<host>.<tailnet>.ts.net:6443 fails certificate verification:
 #   tls: failed to verify certificate: x509: certificate is valid for
-#   kubernetes, kubernetes.default, ..., noesis-praxis, ...
+#   kubernetes, kubernetes.default, ..., <node-name>, ...
 # Listing the tailnet name here makes the API server certificate valid for it.
+#
+# Use the HOST's own tailnet device name. Do NOT put a Tailscale *service*
+# proxy name here (e.g. an operator-managed Ingress device): those names
+# resolve to a proxy pod that does not serve the Kubernetes API, so remote
+# kubectl fails to connect at all rather than failing verification.
+#
 # Empty by default: adding a SAN changes the serving certificate and therefore
 # requires a k3s restart to take effect.
 k3s_tls_sans: []

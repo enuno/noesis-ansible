@@ -109,6 +109,20 @@ mcpjungle_k8s_ingress_host: ""
 # `tailscale-operator`). The hostname names the SERVICE so the tailnet does not
 # show the node hostname.
 mcpjungle_k8s_connector_hostname: "mcpjungle"
+
+# Tailnet hostnames this role refuses for the MCPJungle service device.
+# A Tailscale device name must identify the SERVICE; reusing an existing
+# device name silently hijacks that identity (the new proxy claims the
+# MagicDNS name and the original endpoint stops resolving to its real
+# backend). Reserved here:
+#   tailscale-operator  the operator's own device
+#   noesis-praxis       the Hermes dashboard proxy device, and the k3s NODE name
+#   noesis-lab          the HOST's own tailnet device (k3s API lives here)
+# Host vs node naming is explained in docs/praxis-k3s/k3s.md.
+mcpjungle_k8s_reserved_hostnames:
+  - tailscale-operator
+  - noesis-praxis
+  - noesis-lab
 mcpjungle_k8s_connector_tag: "tag:mcpjungle"
 # In-cluster DNS of the MCPJungle Service; the connector routes to this.
 mcpjungle_k8s_service_dns: "mcpjungle.mcpjungle.svc.cluster.local"

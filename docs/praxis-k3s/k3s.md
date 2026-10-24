@@ -1,8 +1,63 @@
 # NoesisPraxis k3s — Component Documentation
 
-Single-node k3s server on `noesis-praxis.hashgrid.net` (31.97.209.57,
-Ubuntu 26.04.1 LTS). Installed and managed entirely by Ansible; no
+Single-node k3s server. Installed and managed entirely by Ansible; no
 install-script side effects, no manual cluster state.
+
+## Host identity vs Kubernetes node identity
+
+These are **deliberately different** and must not be unified:
+
+| | Value | Owned by |
+|---|---|---|
+| Machine / OS hostname | `noesis-lab` (`noesis-lab.hashgrid.net`, `31.97.209.57`, Ubuntu 26.04.1 LTS) | `hostnamectl` / cloud-init |
+| Host tailnet device | `noesis-lab.tailf99a0.ts.net` → `100.119.84.26` | host `tailscaled` |
+| **Kubernetes node name** | **`noesis-praxis`** | `k3s_node_name` (pinned) |
+
+The machine was renamed to `noesis-lab` so it stops colliding with the
+`noesis-praxis` k3s instance. The Kubernetes node keeps the name
+`noesis-praxis` because every local-path PersistentVolume in the cluster
+(Buzz Postgres, Buzz git, Hermes data) was provisioned with
+
+```yaml
+nodeAffinity:
+  required:
+    nodeSelectorTerms:
+      - matchExpressions:
+          - key: kubernetes.io/hostname
+            operator: In
+            values: [noesis-praxis]
+```
+
+and that affinity cannot practically be rewritten on a bound PV. The node
+must therefore keep answering to `noesis-praxis`, which is why
+`k3s_node_name` is pinned explicitly rather than inherited from the hostname.
+
+**Do not** "fix" the mismatch by aligning the two names, and do not change
+`k3s_node_name` on this cluster.
+
+Also note: `noesis-praxis.tailf99a0.ts.net` is **not this host** — it is the
+operator-managed Tailscale proxy pod serving the Hermes dashboard Ingress
+(`100.86.40.93`). The k3s API does not listen there. Anything needing the
+host over the tailnet must use `noesis-lab.tailf99a0.ts.net`.
+
+### Incident this prevents (2026-10-24)
+
+The host was renamed while `k3s_node_name` was unset, so k3s derived the node
+name from the OS hostname. On the next reboot kubelet registered a **second,
+brand-new node** `noesis-lab.hashgrid.net`; the original `noesis-praxis` node
+went `NotReady` and was tainted `node.kubernetes.io/unreachable`. Result:
+
+- every PV-backed workload (`buzz`, `buzz-postgres`, `buzz-redis`,
+  `hermes-agent`) stuck `Pending` with
+  `didn't match PersistentVolume's node affinity`;
+- `mcpjungle` scheduled onto the new node but `CrashLoopBackOff`, because its
+  Postgres dependency was one of the unschedulable pods;
+- `tailscale-operator` *appeared* healthy throughout — it is stateless, so
+  operator health proved nothing about cluster health.
+
+Recovery: pin `node-name`, restart k3s, confirm the original node returns
+`Ready` and untainted, then delete the phantom node object. Full sequence in
+`RUNBOOK.md` §10.
 
 ## Entry Points
 

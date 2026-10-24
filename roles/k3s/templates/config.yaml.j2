@@ -16,6 +16,17 @@ disable:
   - {{ component }}
 {% endfor %}
 write-kubeconfig-mode: "0600"
+{% if k3s_node_name | length > 0 %}
+# Stable Kubernetes node identity, pinned deliberately and INDEPENDENT of the
+# OS hostname. Without this, kubelet registers under whatever the OS hostname
+# happens to be: renaming the machine makes k3s register a BRAND-NEW node,
+# the original node goes NotReady, and every workload bound to a local-path
+# PersistentVolume becomes permanently unschedulable (the PV's
+# `nodeAffinity: kubernetes.io/hostname In [<old name>]` can no longer match).
+# Changing this value on a live cluster has exactly that effect, so treat it
+# as immutable once local-path PVs exist. See docs/praxis-k3s/k3s.md.
+node-name: {{ k3s_node_name }}
+{% endif %}
 {% if k3s_tls_sans | length > 0 %}
 # Extra API server certificate SANs. The tailnet DNS name is required for
 # remote `kubectl` over the tailnet: k3s auto-detects node IPs but not tailnet

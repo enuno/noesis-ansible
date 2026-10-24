@@ -18,6 +18,27 @@ k3s_binary_sha256: "92b94582eb7b34a8cf532e6006842b9ed215a6783cf56a3dd6271fd35243
 # Install location for the k3s binary.
 k3s_install_dir: "/usr/local/bin"
 
+# --- Host identity vs Kubernetes node identity (2026-10-24) -------------------
+# These are DELIBERATELY DIFFERENT and must not be unified:
+#
+#   OS / machine hostname : noesis-lab(.hashgrid.net)  — renamed so the machine
+#                           stops colliding with the noesis-praxis k3s instance
+#   Kubernetes node name  : noesis-praxis               — pinned below
+#
+# Why the node name cannot simply follow the rename: the cluster's local-path
+# PersistentVolumes (Buzz Postgres, Buzz git, Hermes data) each carry
+#   nodeAffinity: kubernetes.io/hostname In [noesis-praxis]
+# written at provision time. That affinity is effectively immutable, so the
+# node must keep answering to `noesis-praxis` or those volumes can never be
+# scheduled again.
+#
+# This pin is what makes the cluster immune to OS hostname drift. It was added
+# after the 2026-10-24 reboot, where the rename caused k3s to register a second
+# node (`noesis-lab.hashgrid.net`), stranded the original node as NotReady, and
+# left every PV-backed workload Pending. Do not change this value on this
+# cluster.
+k3s_node_name: "noesis-praxis"
+
 # k3s server config (roles/k3s/templates/config.yaml.j2).
 # Disabled: traefik, servicelb. Kept: coredns, local-path-provisioner,
 # metrics-server (k3s defaults).
@@ -61,11 +82,20 @@ hermes_agent_dashboard_trusted_proxies:
 #   kubernetes, ..., noesis-praxis, ...
 # Adding the name to tls-san fixes that. The IP is listed explicitly too, so the
 # intent survives a k3s reinstall that happens before tailscale0 exists.
+#
+# 2026-10-24 CORRECTION — this SAN used to read `noesis-praxis.tailf99a0.ts.net`,
+# which is WRONG and silently broke remote kubectl. That MagicDNS name belongs
+# to the operator-managed Hermes *dashboard proxy pod* (100.86.40.93), not to
+# this host; the k3s API does not listen there at all (connection never
+# establishes). The HOST's tailnet identity is the `noesis-lab` device
+# (100.119.84.26). Keep this list pointed at the HOST, and never reuse a
+# service/proxy device name here.
 k3s_tls_sans:
-  - noesis-praxis.tailf99a0.ts.net
+  - noesis-lab.tailf99a0.ts.net
   - 100.119.84.26
 
 # k3s writes the kubeconfig with server: https://127.0.0.1:6443, which only
 # works on this host. Point it at the tailnet name so a copy of this file lets
-# an operator run kubectl from any tailnet machine.
-k3s_kubeconfig_server: "https://noesis-praxis.tailf99a0.ts.net:6443"
+# an operator run kubectl from any tailnet machine. The value must match one of
+# the SANs above, and must be the HOST device, not a service proxy device.
+k3s_kubeconfig_server: "https://noesis-lab.tailf99a0.ts.net:6443"
