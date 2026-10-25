@@ -12,6 +12,16 @@ worker:
   brokerEndpoint: {{ openclaw_k8s_broker_endpoint | tojson }}
   brokerSecretName: {{ openclaw_k8s_broker_secret_name | tojson }}
   brokerSecretKey: {{ openclaw_k8s_broker_secret_key | tojson }}
+plugins:
+  install: {{ openclaw_k8s_plugins_install | tojson }}
+  allow: {{ openclaw_k8s_plugins_allow | tojson }}
+  entries: {{ openclaw_k8s_plugins_entries | tojson }}
+agents:
+  ownership: {{ openclaw_k8s_agents_ownership | tojson }}
+  defaults: {{ openclaw_k8s_agents_defaults | tojson }}
+  entries: {{ openclaw_k8s_agents_entries | tojson }}
+secretStore:
+  entries: {{ openclaw_k8s_secret_store_entries | tojson }}
 gateway:
   bind: {{ openclaw_k8s_gateway_bind | tojson }}
   authMode: {{ openclaw_k8s_gateway_auth_mode | tojson }}

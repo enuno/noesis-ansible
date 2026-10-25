@@ -17,7 +17,7 @@ openclaw_k8s_kubernetes_venv: /opt/ansible-kubernetes
 openclaw_k8s_release_name: openclaw
 openclaw_k8s_namespace: openclaw
 openclaw_k8s_desired_state: present
-openclaw_k8s_chart_version: "0.2.1"
+openclaw_k8s_chart_version: "0.3.1"
 openclaw_k8s_chart_app_version: "2026.10.7"
 openclaw_k8s_chart_source: "{{ playbook_dir | dirname }}/charts/openclaw/{{ openclaw_k8s_chart_version }}"
 openclaw_k8s_chart_path: "/opt/openclaw-chart/{{ openclaw_k8s_chart_version }}"
@@ -128,5 +128,52 @@ openclaw_k8s_authtoken_generate: false
 openclaw_k8s_bws_project_id: ""
 openclaw_k8s_authtoken_escrow_key: OPENCLAW_K3S_NOESIS_GATEWAY_TOKEN
 openclaw_k8s_authtoken_secret_key: OPENCLAW_GATEWAY_TOKEN
+
+# --- plugins ---------------------------------------------------------------
+# Plugin packages installed into the Gateway state by the init container. The
+# package lands in <state>/extensions/<dirName> and persists on the PVC, so
+# the install is skipped once it is present.
+openclaw_k8s_plugins_install:
+  - id: typesafe
+    spec: "@openclaw/typesafe@2026.10.7"
+# The plugin allowlist. Merge into any other allowed plugins.
+openclaw_k8s_plugins_allow:
+  - typesafe
+openclaw_k8s_plugins_entries:
+  typesafe:
+    enabled: true
+    config:
+      apiKey:
+        source: store
+        provider: default
+        id: TYPESAFE_API_KEY
+
+# --- agents ----------------------------------------------------------------
+# decisionModel selects the decision-model role. An unset agent override
+# inherits agents.defaults.decisionModel; an empty override disables decisions
+# for that agent.
+openclaw_k8s_agents_ownership: explicit
+openclaw_k8s_agents_defaults:
+  decisionModel: typesafe/jev-latest
+  # With `ownership: explicit` and more than one agent, owner-scoped commands
+  # have no implicit owner and fail. Naming the system agent restores them.
+  # Heartbeats stay disabled: that needs agents.defaults.heartbeat.agentId.
+  systemAgent:
+    agentId: default
+openclaw_k8s_agents_entries:
+  default:
+    name: OpenClaw Assistant
+    workspace: ~/.openclaw/workspace
+  research:
+    decisionModel: typesafe/jev-1.13.0
+
+# --- gateway secret store --------------------------------------------------
+# Written into the Gateway's team-scoped secret store by the init container.
+# The value arrives as an environment variable from the existingSecret and is
+# written with --value-file, because --value is REFUSED for secret-kind
+# entries (it would leak through argv).
+openclaw_k8s_secret_store_entries:
+  - name: TYPESAFE_API_KEY
+    envVar: TYPESAFE_API_KEY
 openclaw_k8s_destroy_pvc: false
 openclaw_k8s_destroy_pvc_confirm: ""

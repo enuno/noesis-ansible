@@ -12,7 +12,7 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[2]
 ROLE = REPO / "roles" / "openclaw_k8s"
-CHART = REPO / "charts" / "openclaw" / "0.2.1"
+CHART = REPO / "charts" / "openclaw" / "0.3.1"
 DEFAULTS = ROLE / "defaults" / "main.yml"
 EXAMPLE = REPO / "inventory" / "example" / "group_vars" / "openclaw_k3s.yml"
 VALUES_TEMPLATE = ROLE / "templates" / "values-openclaw.yml.j2"
@@ -84,7 +84,7 @@ def test_pins_and_persistence_defaults():
     defaults = load(DEFAULTS)
     chart = load(CHART / "Chart.yaml")
     values = load(CHART / "values.yaml")
-    assert chart["version"] == "0.2.1"
+    assert chart["version"] == "0.3.1"
     assert chart["appVersion"] == "2026.10.7"
     assert defaults["openclaw_k8s_image_digest"] == DIGEST
     assert values["image"]["digest"] == DIGEST
@@ -282,7 +282,9 @@ def test_init_merges_chart_owned_config_keys():
     (channels, agents), so only the chart-owned top-level keys are replaced.
     """
     deployment = (CHART / "templates" / "deployment.yaml").read_text(encoding="utf-8")
-    assert 'const OWNED = ["gateway", "cron"]' in deployment
+    # The owned set must cover every chart-owned block: a key that is not
+    # owned is never replaced, so a change to it silently does nothing.
+    assert 'const OWNED = ["gateway", "cron", "plugins", "agents"]' in deployment
     assert 'live[key] = seed[key]' in deployment
     assert "node --input-type=commonjs" in deployment
     # The whole-file seed must be GONE -- it is what swallowed the change.
@@ -338,8 +340,8 @@ def test_chart_version_is_bumped_so_the_upgrade_applies():
     chart = load(CHART / "Chart.yaml")
     validation = (ROLE / "tasks" / "validate-inputs.yml").read_text(encoding="utf-8")
     assert chart["version"] == defaults["openclaw_k8s_chart_version"]
-    assert defaults["openclaw_k8s_chart_version"] == "0.2.1"
-    assert "openclaw_k8s_chart_version == '0.2.1'" in validation
+    assert defaults["openclaw_k8s_chart_version"] == "0.3.1"
+    assert "openclaw_k8s_chart_version == '0.3.1'" in validation
     # The chart DIRECTORY name must match the version helm records.
     assert CHART.name == chart["version"]
 
@@ -602,6 +604,211 @@ def test_device_playbook_actions_are_gated():
     # The commands run inside the pod, where the CLI and pairing state live.
     assert "dist/index.js" in device and "devices" in device
     assert "--kubeconfig" in device
+
+
+
+
+
+# --- typesafe plugin, credential and decision model ------------------------
+
+
+def helm_render(chart=CHART, extra=None):
+    args = ["helm", "template", "openclaw", str(chart), "--namespace", "openclaw",
+            "--set", "existingSecret=openclaw-secrets"]
+    for kv in extra or []:
+        args += ["--set", kv]
+    out = subprocess.run(args, capture_output=True, text=True)
+    assert out.returncode == 0, "helm template failed:\n%s" % out.stderr
+    return out.stdout
+
+
+def rendered_config():
+    docs = [d for d in yaml.safe_load_all(helm_render()) if d]
+    cm = [d for d in docs if d.get("kind") == "ConfigMap"][0]
+    return json.loads(cm["data"]["openclaw.json"])
+
+
+def rendered_deployment():
+    """The rendered Deployment as TEXT -- assertions on values must see the VALUES.
+
+    Asserting against the template source only proves the template mentions a
+    thing; the placeholder decides what it actually becomes. The text is kept
+    raw (not re-dumped as YAML) because a re-dump wraps long shell commands
+    across lines and breaks substring matching on the command itself.
+    """
+    for chunk in helm_render().split("\n---\n"):
+        if "kind: Deployment" in chunk:
+            return chunk
+    raise AssertionError("the rendered chart has no Deployment")
+
+
+def rendered_deployment_obj():
+    docs = [d for d in yaml.safe_load_all(helm_render()) if d]
+    return [d for d in docs if d.get("kind") == "Deployment"][0]
+
+
+def init_container(name):
+    spec = rendered_deployment_obj()["spec"]["template"]["spec"]
+    for c in spec.get("initContainers", []):
+        if c["name"] == name:
+            return c
+    raise AssertionError("no init container named %s" % name)
+
+
+def command_lines(text):
+    """Shell lines only -- comments mention forbidden options by name."""
+    return "\n".join(l for l in text.splitlines()
+                      if not l.strip().startswith("#"))
+
+
+def test_rendered_config_is_valid_json():
+    """The seeded config must PARSE.
+
+    A missing comma between the plugin and agent entries rendered a
+    syntactically invalid openclaw.json that only failed when the Gateway
+    tried to read it.
+    """
+    cfg = rendered_config()
+    assert isinstance(cfg, dict) and "gateway" in cfg
+
+
+def test_rendered_config_carries_the_typesafe_plugin_block():
+    cfg = rendered_config()
+    plugins = cfg["plugins"]
+    assert plugins["allow"] == ["typesafe"]
+    entry = plugins["entries"]["typesafe"]
+    assert entry["enabled"] is True
+    # The credential must be a SecretRef into the store -- never a literal.
+    api_key = entry["config"]["apiKey"]
+    assert api_key == {"source": "store", "provider": "default", "id": "TYPESAFE_API_KEY"}
+
+
+def test_rendered_config_carries_the_decision_models():
+    cfg = rendered_config()
+    agents = cfg["agents"]
+    assert agents["ownership"] == "explicit"
+    assert agents["defaults"]["decisionModel"] == "typesafe/jev-latest"
+    assert agents["entries"]["research"]["decisionModel"] == "typesafe/jev-1.13.0"
+    # With explicit ownership and several agents, an unnamed system agent
+    # breaks every owner-scoped command ("model inspection has no explicit
+    # owner").
+    assert agents["defaults"]["systemAgent"]["agentId"] == "default"
+
+
+def test_agents_block_has_no_heartbeat_owner():
+    """Heartbeats stay disabled: they need their own agentId.
+
+    The chart disables automations (cron); enabling a heartbeat owner would
+    start background work nobody asked for.
+    """
+    cfg = rendered_config()
+    assert "heartbeat" not in cfg["agents"]["defaults"]
+    assert cfg["cron"]["enabled"] is False
+
+
+def test_the_plugin_is_installed_by_the_init_container():
+    deployment = rendered_deployment()
+    assert "plugins install" in deployment
+    assert "@openclaw/typesafe@2026.10.7" in deployment
+
+
+def test_the_plugin_install_is_skipped_when_already_registered():
+    """The skip test must consult the persisted registry, not a path.
+
+    The install layout differs per package (managed npm project vs
+    extensions/), so a path check would re-install on every pod start.
+    """
+    deployment = rendered_deployment()
+    assert "plugins list --json" in deployment
+    assert 'grep -q \'"id": "typesafe"\'' in deployment
+
+
+def test_the_secret_store_write_never_puts_the_value_in_argv():
+    """`secrets store set --value` is REFUSED for secret-kind entries.
+
+    The value must arrive through --value-file so it never appears in argv
+    (visible in /proc and in any process listing).
+    """
+    deployment = command_lines(rendered_deployment())
+    assert "secrets store set TYPESAFE_API_KEY --value-file -" in deployment
+    # The value must never be an argument.
+    assert "--value " not in deployment
+    assert "--value=" not in deployment
+    # It arrives through the environment, not through the command line.
+    assert "printenv TYPESAFE_API_KEY |" in deployment
+
+
+def test_the_temp_root_is_prepared_for_the_plugin_installer():
+    """The plugin installer refuses a group/world-writable temp root.
+
+    The emptyDir that backs /tmp is created 2777 and the container runs as
+    uid 1000, so it cannot restore the sticky bit itself -- /tmp is
+    root-owned. A root init container restores 1777 and nothing else.
+    """
+    deployment = (CHART / "templates" / "deployment.yaml").read_text(encoding="utf-8")
+    assert "chmod 1777 /tmp" in deployment
+    assert "prepare-temp" in deployment
+
+
+def test_the_root_init_container_is_otherwise_unprivileged():
+    container = init_container("prepare-temp")
+    sc = container["securityContext"]
+    assert sc["runAsUser"] == 0
+    assert sc["readOnlyRootFilesystem"] is True
+    assert sc["allowPrivilegeEscalation"] is False
+    assert sc["capabilities"]["drop"] == ["ALL"]
+    # It must do the chmod and nothing else.
+    script = "\n".join(command_lines(container["command"][-1]).splitlines())
+    chmods = [l.strip() for l in script.splitlines() if l.strip().startswith("chmod")]
+    assert len(chmods) == 1, "prepare-temp must do the chmod and nothing else"
+    assert chmods[0].endswith("1777 /tmp")
+
+
+def test_the_seed_init_container_runs_unprivileged_with_the_secret_env():
+    container = init_container("seed-config")
+    assert container["securityContext"]["runAsUser"] == 1000
+    # The secret value arrives as an environment variable from the Secret.
+    assert container["envFrom"][0]["secretRef"]["name"]
+    # npm's cache must not land on the read-only rootfs.
+    env = {e["name"]: e.get("value") for e in container["env"]}
+    assert env["npm_config_cache"].startswith("/home/node/.openclaw/")
+
+
+def test_the_role_defaults_pin_the_typesafe_plugin():
+    defaults = load(DEFAULTS)
+    installs = defaults["openclaw_k8s_plugins_install"]
+    assert len(installs) == 1
+    assert installs[0]["id"] == "typesafe"
+    assert installs[0]["spec"].startswith("@openclaw/typesafe@")
+    assert defaults["openclaw_k8s_plugins_allow"] == ["typesafe"]
+    api_key = defaults["openclaw_k8s_plugins_entries"]["typesafe"]["config"]["apiKey"]
+    assert api_key["id"] == "TYPESAFE_API_KEY"
+    assert api_key["source"] == "store"
+    assert defaults["openclaw_k8s_secret_store_entries"][0]["name"] == "TYPESAFE_API_KEY"
+
+
+def test_the_role_renders_the_plugin_and_agent_blocks():
+    values = yaml.safe_load(render())
+    assert values["plugins"]["allow"] == ["typesafe"]
+    assert values["plugins"]["install"][0]["id"] == "typesafe"
+    assert values["agents"]["defaults"]["decisionModel"] == "typesafe/jev-latest"
+    assert values["agents"]["defaults"]["systemAgent"]["agentId"] == "default"
+    assert values["secretStore"]["entries"][0]["name"] == "TYPESAFE_API_KEY"
+
+
+def test_the_secret_playbook_delivers_the_typesafe_credential():
+    secret = (REPO / "playbooks" / "openclaw-k8s-secret.yml").read_text(encoding="utf-8")
+    assert "TYPESAFE_API_KEY" in secret
+
+
+def test_the_config_merge_owns_the_plugin_and_agent_blocks():
+    """A merge that does not own a key silently ignores changes to it."""
+    deployment = (CHART / "templates" / "deployment.yaml").read_text(encoding="utf-8")
+    match = re.search(r"const OWNED = \[([^\]]*)\]", deployment)
+    assert match, "the config merge no longer declares its owned keys"
+    owned = match.group(1)
+    for key in ("plugins", "agents"):
+        assert '"%s"' % key in owned
 
 
 if __name__ == "__main__":

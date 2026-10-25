@@ -17,7 +17,7 @@ onto the Noesis k3s cluster and onto plain hosts.
 | Upstream release | `v2026.10.7` (published 2026-10-24, latest non-prerelease) | `roles/openclaw_*/defaults/main.yml` |
 | Container image | `ghcr.io/openclaw/openclaw:2026.10.7-slim` | chart `values.yaml` |
 | Image digest | `sha256:fb26f0841659dc757f23feec9adeab51f11d76779a409db5d22e191b43841afa` | chart + all three roles |
-| Helm chart | `charts/openclaw/0.2.0` (Noesis-maintained, **not** an official upstream chart) | `charts/openclaw/` |
+| Helm chart | `charts/openclaw/0.3.1` (Noesis-maintained, **not** an official upstream chart) | `charts/openclaw/` |
 | Node runtime | Node 24.22.1+ / 26.12.1+ | upstream requirement |
 
 The digest is the **multi-architecture OCI index** for the tag, confirmed to
@@ -42,7 +42,7 @@ playbooks/openclaw-deploy.yml
 | --- | --- | --- |
 | `host` | `roles/openclaw_host` | `https://openclaw.ai/install.sh` (the vendor's own installer) |
 | `docker` | `roles/openclaw_docker` | upstream `docker-compose.yml`, adapted to a digest-pinned image |
-| `k8s` | `roles/openclaw_k8s` | Noesis Helm chart `charts/openclaw/0.2.0` |
+| `k8s` | `roles/openclaw_k8s` | Noesis Helm chart `charts/openclaw/0.3.1` |
 
 Every method is **fail-closed**: live, state-changing work is opt-in per run
 (`openclaw_host_live_changes` / `openclaw_docker_live_changes` /
@@ -271,13 +271,123 @@ prints the request id, and the approval is bound to that exact id.
 
 A paired device shows up in `devices list` with its role and scopes.
 
+## 4e. Plugins and the decision model (TypeSafe)
+
+The Gateway loads plugins from the state volume. The chart installs declared
+plugin packages in the `seed-config` init container, so a fresh PVC comes up
+with the plugin already present.
+
+### What the chart owns
+
+| Piece | Where | Value |
+|---|---|---|
+| package | `values.yaml → plugins.install` | `@openclaw/typesafe@2026.10.7` |
+| allowlist | `values.yaml → plugins.allow` | `["typesafe"]` |
+| credential | `values.yaml → plugins.entries.typesafe.config.apiKey` | `{source: store, provider: default, id: TYPESAFE_API_KEY}` |
+| decision model | `values.yaml → agents.defaults.decisionModel` | `typesafe/jev-latest` |
+| pinned agent | `values.yaml → agents.entries.research.decisionModel` | `typesafe/jev-1.13.0` |
+| store write | `values.yaml → secretStore.entries` | `TYPESAFE_API_KEY` from the Secret's env |
+
+The credential is a **SecretRef**, never a literal. The value lives in the
+Gateway's team-scoped SQLite secret store, written by the init container from
+the `existingSecret` environment variable.
+
+### The three things that break the install
+
+1. **The temp root.** The plugin installer refuses a group/world-writable
+   root without the sticky bit:
+
+   > temp workspace ancestor /tmp has group/world-writable mode 2777 without
+   > sticky protection … have its administrator restore safe permissions
+   > (1777 for a shared system temp directory)
+
+   The emptyDir behind `/tmp` is created 2777 and the container runs as uid
+   1000, so it cannot fix a root-owned directory itself. The `prepare-temp`
+   init container runs as root for exactly one command — `chmod 1777 /tmp` —
+   with `readOnlyRootFilesystem`, no privilege escalation and every capability
+   dropped. `TMPDIR` does **not** satisfy the check.
+
+2. **Memory.** The install is an npm install. The container's old 64Mi limit
+   OOMKilled it mid-install (exit 137). It now requests 256Mi and is capped at
+   512Mi. npm's cache is pointed at the volume (`npm_config_cache`), because
+   `$HOME/.npm` is on the read-only rootfs.
+
+3. **`--value` is refused.** For a secret-kind entry the store CLI rejects
+   `--value` (it would leak through argv). The value is piped:
+
+   ```sh
+   printenv TYPESAFE_API_KEY | node /app/dist/index.js secrets store set \
+     TYPESAFE_API_KEY --value-file -
+   ```
+
+   Note: `${ TYPESAFE_API_KEY }` is *not* valid POSIX expansion (`sh: Bad
+   substitution`), and `${...}` collides with Helm's `{{{` syntax anyway.
+   `printenv` avoids both.
+
+### Skip-if-installed
+
+The install is skipped when the plugin is already in the **persisted registry**:
+
+```sh
+node /app/dist/index.js plugins list --json | grep -q '"id": "typesafe"'
+```
+
+Do not check a path. The layout depends on the package — the install landed in
+`npm/projects/openclaw-typesafe-<hash>`, not `extensions/<name>` — so a path
+check re-installs on every pod start.
+
+### Ownership of the agent set
+
+`agents.ownership: "explicit"` with more than one agent means owner-scoped
+commands have no implicit owner:
+
+> Multiple agents are configured, but model inspection has no explicit owner.
+> Pass `--agent <id>` or set agents.defaults.systemAgent.agentId.
+
+`agents.defaults.systemAgent.agentId` is set to `default` so `models status`
+and friends work without a flag. Heartbeats stay **disabled**: they need
+`agents.defaults.heartbeat.agentId`, which is deliberately unset (the chart
+also disables automations).
+
+### Delivering the credential
+
+```bash
+ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/openclaw-k8s-secret.yml \
+  -e openclaw_k8s_bws_project_id=72974d0e-81af-4678-bab7-b46000985859 \
+  -e openclaw_k8s_existing_secret=openclaw-secrets \
+  -e openclaw_k8s_kube_context=default
+```
+
+The playbook maps `TYPESAFE_API_KEY` (Bitwarden) → the `TYPESAFE_API_KEY` key
+of the `existingSecret`. The chart never creates a Secret.
+
+### Proving the credential resolves
+
+`openclaw secrets audit` does **not** cover plugin-config paths — a bogus
+SecretRef id still audits clean. Use the plugin's own readiness instead:
+
+```bash
+POD=$(kubectl -n openclaw get pod -l app.kubernetes.io/name=openclaw -o jsonpath='{.items[0].metadata.name}')
+kubectl -n openclaw exec "$POD" -c gateway -- node dist/index.js gateway call \
+  plugins.inspect --params '{"pluginId":"typesafe"}' --json
+```
+
+```json
+{ "providerId": "typesafe", "configured": true,
+  "credentialReady": true, "callable": true }
+```
+
+`credentialReady` is the plugin's `isReady()`, which is
+`Boolean(config.baseUrl || config.apiKey)`. With no `baseUrl` configured, a
+true value can only come from the resolved store value.
+
 ## 5. Verification
 
 What counts as evidence, in order:
 
 ```bash
 # 1. the release
-helm list -n openclaw                     # openclaw  openclaw-0.2.0  deployed
+helm list -n openclaw                     # openclaw  openclaw-0.3.1  deployed
 kubectl -n openclaw get pods              # 1/1 Running, 0 restarts
 
 # 2. the operator minted the identity
@@ -357,8 +467,8 @@ forever against an image whose probe route does not exist.
 
 ```bash
 python3 tests/openclaw/test_offline.py     # 18 checks
-helm lint charts/openclaw/0.2.0
-helm template openclaw charts/openclaw/0.2.0 \
+helm lint charts/openclaw/0.3.1
+helm template openclaw charts/openclaw/0.3.1 \
   --set existingSecret=openclaw-secrets \
   --set ingress.enabled=true --set ingress.className=tailscale \
   --set ingress.host=noesis-openclaw --set ingress.tailnetDomain=tailf99a0.ts.net \

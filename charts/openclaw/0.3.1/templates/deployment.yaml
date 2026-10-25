@@ -1,0 +1,271 @@
+{{- include "openclaw.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openclaw.fullname" . }}
+  labels:
+    {{- include "openclaw.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "openclaw.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openclaw.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Roll the pod when the seeded gateway config changes. Without this the
+        # ConfigMap update lands but the running gateway keeps the config it
+        # started with, so a settings change silently does nothing.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "openclaw.fullname" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # The OpenClaw plugin installer refuses to run when the temp root's
+        # ancestors are group/world-writable WITHOUT the sticky bit:
+        #   "temp workspace ancestor /tmp has group/world-writable mode 2777
+        #    without sticky protection ... have its administrator restore safe
+        #    permissions (1777 for a shared system temp directory)"
+        #
+        # The emptyDir that backs /tmp is created 2777 (setgid + 0777) and the
+        # container runs as uid 1000, so it cannot fix the mode itself -- /tmp
+        # is root-owned. This container runs as root ONLY to restore 1777 on
+        # that one directory, then exits. It has no privileges beyond
+        # ownership of the directory it already owns: readOnlyRootFilesystem,
+        # no privilege escalation, and every capability dropped.
+        - name: prepare-temp
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.initImage.pullPolicy }}
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              chmod 1777 /tmp
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+        - name: seed-config
+          # The merge above needs a JSON parser. busybox has neither jq nor
+          # node, so this init container runs the same pinned application
+          # image -- it is already pulled for the main container, so this adds
+          # no new image and no new dependency.
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.initImage.pullPolicy }}
+          # The plugin installer and the secret-store writer both resolve
+          # their target from HOME / OPENCLAW_STATE_DIR, so they must point at
+          # the persistent volume -- not the container's own home.
+          envFrom:
+            - secretRef:
+                name: {{ required "existingSecret is required" .Values.existingSecret | quote }}
+          env:
+            - name: HOME
+              value: /home/node
+            - name: OPENCLAW_HOME
+              value: /home/node
+            - name: OPENCLAW_CONFIG_DIR
+              value: /home/node/.openclaw
+            - name: OPENCLAW_STATE_DIR
+              value: /home/node/.openclaw
+            - name: XDG_CACHE_HOME
+              value: /home/node/.openclaw/.cache
+            # npm's cache defaults to $HOME/.npm, and HOME is /home/node on a
+            # read-only rootfs -- the install would fail with EROFS. Point it
+            # at the persistent volume instead.
+            - name: npm_config_cache
+              value: /home/node/.openclaw/.cache/npm
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /home/node/.openclaw/workspace /home/node/.openclaw/.cache
+              # Merge the chart-OWNED top-level keys into the live config.
+              #
+              # Copying the seed only when the file is missing (the upstream
+              # behaviour) means a settings change NEVER reaches a running
+              # gateway: the file already exists on the PVC, so the new seed
+              # is ignored and the change silently does nothing.
+              #
+              # Overwriting the whole file instead would discard state the
+              # app owns (channels, agents, plugin config). So merge only the
+              # keys this chart declares and leave everything else alone.
+              node --input-type=commonjs -e '
+                const fs = require("fs");
+                const OWNED = ["gateway", "cron", "plugins", "agents"];
+                const seed = JSON.parse(fs.readFileSync("/seed/openclaw.json", "utf8"));
+                let live = {};
+                try { live = JSON.parse(fs.readFileSync("/home/node/.openclaw/openclaw.json", "utf8")); }
+                catch { live = {}; }
+                for (const key of OWNED) { if (key in seed) { live[key] = seed[key]; } }
+                fs.writeFileSync("/home/node/.openclaw/openclaw.json", JSON.stringify(live, null, 2) + "\n");
+              '
+              [ -f /home/node/.openclaw/workspace/AGENTS.md ] || cp /seed/AGENTS.md /home/node/.openclaw/workspace/AGENTS.md
+              # Install the declared plugin packages into the Gateway state.
+              # The install lands in <state>/extensions/<dirName> and persists
+              # on the PVC, so this is skipped once present.
+              {{- range .Values.plugins.install }}
+              # Skip when the plugin is already registered. `plugins list
+              # --json` reads the PERSISTED registry (state/openclaw.sqlite),
+              # which is the authoritative answer -- a path check would be
+              # wrong, because the install layout depends on the package
+              # (managed npm project vs. extensions/).
+              if ! node /app/dist/index.js plugins list --json 2>/dev/null | grep -q '"id": "{{ .id }}"'; then
+                node /app/dist/index.js plugins install "{{ .spec }}" --force --accept-capabilities --acknowledge-install-policy-warning
+              fi
+              {{- end }}
+              # Write the declared values into the Gateway's team-scoped secret
+              # store. --value-file is used because --value is REFUSED for
+              # secret-kind entries (it would leak through argv); the value
+              # arrives as an environment variable from the existingSecret.
+              {{- range .Values.secretStore.entries }}
+              if [ -n "$(printenv {{ .envVar }})" ]; then
+                printenv {{ .envVar }} | node /app/dist/index.js secrets store set {{ .name }} --value-file -
+              fi
+              {{- end }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              # An npm install of a plugin package (plus its dependencies)
+              # does not fit in the 64Mi this container used to have -- the
+              # container was OOMKilled mid-install. Budget for the install.
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: home
+              mountPath: /home/node/.openclaw
+            - name: seed
+              mountPath: /seed
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: gateway
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["node", "/app/dist/index.js", "gateway", "run"]
+          ports:
+            - name: gateway
+              containerPort: {{ .Values.gateway.port }}
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: {{ required "existingSecret is required" .Values.existingSecret | quote }}
+          env:
+            - name: HOME
+              value: /home/node
+            - name: OPENCLAW_CONFIG_DIR
+              value: /home/node/.openclaw
+            - name: XDG_CACHE_HOME
+              value: /home/node/.openclaw/.cache
+            - name: NODE_ENV
+              value: production
+            - name: NOESIS_WORKER_IDENTITY
+              value: {{ .Values.worker.identity | quote }}
+            - name: NOESIS_BROKER_ENDPOINT
+              value: {{ .Values.worker.brokerEndpoint | quote }}
+            {{- if and .Values.worker.brokerSecretName .Values.worker.brokerSecretKey }}
+            - name: NOESIS_BROKER_REFERENCE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.worker.brokerSecretName | quote }}
+                  key: {{ .Values.worker.brokerSecretKey | quote }}
+            {{- end }}
+          # PROBE CONTRACTS - assert the JSON body, not just the status code,
+          # because the Control UI serves a catch-all 200 for unknown paths and
+          # a status-only check would pass forever against an image whose probe
+          # route does not exist.
+          #
+          # The routes return DIFFERENT keys (verified against the upstream
+          # handler src/gateway/server-http-probes.ts at this pinned tag):
+          #   /startupz -> {"ok": bool, "status": "started"|"starting"}
+          #   /readyz   -> {"ready": bool}
+          #   /healthz  -> {"ok": bool, "status": "live"}
+          # Asserting `.ready` against /startupz is ALWAYS false (key absent),
+          # which deadlocks the pod in a startup-probe failure loop. Keep each
+          # probe matched to its own key.
+          startupProbe:
+            exec:
+              command:
+                - node
+                - -e
+                - >-
+                  require('http').get('http://127.0.0.1:{{ .Values.gateway.port }}/startupz',r=>{let b='';r.on('data',d=>b+=d);r.on('end',()=>{try{const j=JSON.parse(b);process.exit(r.statusCode<400&&j.ok===true?0:1)}catch{process.exit(1)}})}).on('error',()=>process.exit(1))
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command:
+                - node
+                - -e
+                - >-
+                  require('http').get('http://127.0.0.1:{{ .Values.gateway.port }}/readyz',r=>{let b='';r.on('data',d=>b+=d);r.on('end',()=>{try{const j=JSON.parse(b);process.exit(r.statusCode<400&&j.ready===true?0:1)}catch{process.exit(1)}})}).on('error',()=>process.exit(1))
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - node
+                - -e
+                - >-
+                  require('http').get('http://127.0.0.1:{{ .Values.gateway.port }}/healthz',r=>{let b='';r.on('data',d=>b+=d);r.on('end',()=>{try{const j=JSON.parse(b);process.exit(r.statusCode<400&&j.ok===true?0:1)}catch{process.exit(1)}})}).on('error',()=>process.exit(1))
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: home
+              mountPath: /home/node/.openclaw
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: home
+          persistentVolumeClaim:
+            claimName: {{ include "openclaw.pvcName" . }}
+        - name: seed
+          configMap:
+            name: {{ include "openclaw.fullname" . }}-seed
+        - name: tmp
+          emptyDir: {}
