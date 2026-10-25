@@ -10,6 +10,8 @@
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/master-stack.yml --tags claude-code-bridge
 
 - name: Deploy the Claude Code bridge
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: false
   vars:

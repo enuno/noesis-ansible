@@ -5,6 +5,8 @@
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/agentregistry.yml --tags install,configure
 
 - name: Deploy Agent Registry Dashboard
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: false
   tags: [foundation, agentregistry, registry]

@@ -5,6 +5,8 @@
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/ag-ui.yml --tags install,configure
 
 - name: Deploy AG-UI Protocol Layer
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: false
   tags: [ag_ui, interaction]

@@ -9,6 +9,8 @@
 # Ensure BWS_ACCESS_TOKEN is exported before running.
 
 - name: Configure Tailscale Networking
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: all
   gather_facts: true
   tags: [networking, tailscale]

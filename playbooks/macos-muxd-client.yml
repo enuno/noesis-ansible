@@ -13,6 +13,7 @@
 #     -e "muxd_api_key=$ANTHROPIC_API_KEY"
 
 - name: Deploy muxd client on macOS and register with hub
+  become: true
   hosts: macos
   gather_facts: true
   tags: [macos, muxd, client]

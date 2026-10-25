@@ -5,6 +5,7 @@
 #   ansible-playbook -i inventory/tailscale/hosts.ini playbooks/macos-hermesdev.yml --tags install,launchd
 
 - name: Deploy Noesis HermesDev on macOS
+  become: true
   hosts: macos
   gather_facts: true
   tags: [macos, hermesdev]

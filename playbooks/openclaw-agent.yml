@@ -7,6 +7,7 @@
 # future service/healthcheck dashboard once a central management system exists.
 
 - name: OpenClaw agent deployment via Docker
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: openclaw_agents
   become: true
 

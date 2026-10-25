@@ -9,6 +9,7 @@
 #     -e moshi_skip_pair=true
 
 - name: Deploy Moshi hooks on macOS
+  become: true
   hosts: macos
   gather_facts: true
   tags: [macos, moshi, hooks]

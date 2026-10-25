@@ -5,6 +5,8 @@
 #   ansible-playbook -i inventory/tailscale/hosts.ini playbooks/bootstrap.yml
 
 - name: NoesisPraxis Bootstrap — Preflight and Secrets
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: all
   gather_facts: true
   tags: [always, bootstrap]

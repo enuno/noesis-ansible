@@ -16,6 +16,8 @@
 #     -e "muxd_api_key=$ANTHROPIC_API_KEY"
 
 - name: Deploy muxd hub and daemon
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: true
   tags: [foundation, muxd]

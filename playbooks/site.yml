@@ -6,6 +6,8 @@
 #   ansible-playbook -i inventory/tailscale/hosts.ini playbooks/site.yml -e noesispraxis_stack_mode=tailscale
 
 - name: NoesisPraxis Stack — Preflight and Bootstrap
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: all
   gather_facts: true
   tags: [always, bootstrap]

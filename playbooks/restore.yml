@@ -5,6 +5,8 @@
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/restore.yml -e restore_timestamp=2026-06-01
 
 - name: NoesisPraxis Restore
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: all
   gather_facts: true
   tags: [restore]

@@ -5,6 +5,8 @@
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/backup.yml --tags backup,full
 
 - name: NoesisPraxis Backup
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: all
   gather_facts: true
   tags: [backup]

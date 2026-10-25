@@ -2,6 +2,8 @@
 # Apply the Honcho memory module and runtime policy to a managed host.
 
 - name: Apply Honcho memory standard
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: true
   tags: [honcho]

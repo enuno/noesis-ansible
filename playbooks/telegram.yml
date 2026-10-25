@@ -5,6 +5,8 @@
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/telegram.yml --tags install,webhook
 
 - name: Deploy Telegram Bot Integration
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: false
   tags: [communications, telegram]

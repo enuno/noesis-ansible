@@ -5,6 +5,8 @@
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/maintenance.yml --tags validate,restart
 
 - name: Rolling maintenance for NoesisPraxis stack
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: all
   gather_facts: true
   serial: 1

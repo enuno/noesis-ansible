@@ -4,6 +4,8 @@
 # macos, telegram, tailscale, sync, validate, backup
 
 - name: "PHASE 0 — Bootstrap"
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: all
   gather_facts: true
   tags: [always, bootstrap]
@@ -13,6 +15,8 @@
         msg: "Bootstrap complete for {{ inventory_hostname }}"
 
 - name: "PHASE 1 — Identity and Registries"
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: false
   tags: [foundation, registries]
@@ -48,6 +52,8 @@
       when: noesispraxis_enable_validation | default(true) | bool
 
 - name: "PHASE 2 — Security and Access"
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: false
   tags: [security]
@@ -77,6 +83,8 @@
       when: noesispraxis_enable_validation | default(true) | bool
 
 - name: "PHASE 3 — Generic Runtime"
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: false
   tags: [runtime, generic]
@@ -119,6 +127,7 @@
       when: noesispraxis_enable_validation | default(true) | bool
 
 - name: "PHASE 4 — macOS-Specific Runtime"
+  become: true
   hosts: macos
   gather_facts: true
   tags: [macos]
@@ -141,6 +150,8 @@
       when: noesispraxis_enable_validation | default(true) | bool
 
 - name: "PHASE 5 — Communications"
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: false
   tags: [telegram, communications]
@@ -158,6 +169,8 @@
       when: noesispraxis_enable_validation | default(true) | bool
 
 - name: "PHASE 6 — Networking"
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: all
   gather_facts: true
   tags: [tailscale, networking]
@@ -190,6 +203,8 @@
       when: noesispraxis_enable_validation | default(true) | bool
 
 - name: "PHASE 7 — Synchronization and Backup"
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: false
   tags: [sync, backup]
@@ -205,6 +220,8 @@
       when: noesispraxis_enable_backup | default(false) | bool
 
 - name: "PHASE 8 — Observability (Grafana Stack)"
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: false
   tags: [observability, grafana-stack]
@@ -220,6 +237,8 @@
       when: noesispraxis_enable_validation | default(true) | bool
 
 - name: "PHASE 9 — Claude Code Bridge (development delegation)"
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: false
   tags: [claude-code-bridge, development]
@@ -235,6 +254,8 @@
       when: noesispraxis_enable_validation | default(true) | bool
 
 - name: "PHASE 10 — Final Validation"
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: all
   gather_facts: false
   tags: [validate, always]

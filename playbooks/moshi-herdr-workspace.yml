@@ -10,6 +10,8 @@
 # and Codex when those binaries are present on the host.
 
 - name: Deploy Moshi hook, Herdr, and tmux baseline on agent hosts
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: agents
   gather_facts: true
   roles:

@@ -5,6 +5,8 @@
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/clawsec.yml --tags scan,validate
 
 - name: Deploy and Run ClawSec Security Scanning
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: true
   tags: [security, clawsec]

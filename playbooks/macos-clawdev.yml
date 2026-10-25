@@ -5,6 +5,7 @@
 #   ansible-playbook -i inventory/tailscale/hosts.ini playbooks/macos-clawdev.yml --tags install,launchd
 
 - name: Deploy Noesis ClawDev on macOS
+  become: true
   hosts: macos
   gather_facts: true
   tags: [macos, clawdev]

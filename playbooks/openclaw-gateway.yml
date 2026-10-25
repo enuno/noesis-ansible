@@ -7,6 +7,8 @@
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/openclaw-gateway.yml
 
 - name: Deploy native OpenClaw gateway (Noesis ClawDev)
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: true
   tags: [openclaw, gateway, clawdev]

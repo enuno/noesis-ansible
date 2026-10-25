@@ -6,6 +6,8 @@
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/grafana-stack.yml -e grafana_stack_admin_password=changeme
 
 - name: NoesisPraxis Grafana Stack — Observability
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: false
   tags: [observability, grafana-stack]

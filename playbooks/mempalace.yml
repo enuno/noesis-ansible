@@ -5,6 +5,8 @@
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/mempalace.yml --tags install,configure
 
 - name: Deploy MemPalace Per-Agent Memory
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: false
   tags: [memory, mempalace]

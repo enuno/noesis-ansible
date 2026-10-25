@@ -5,6 +5,8 @@
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/clawvisor.yml --tags install,configure,policy
 
 - name: Deploy Clawvisor Security Layer
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: false
   tags: [security, clawvisor]

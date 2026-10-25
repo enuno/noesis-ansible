@@ -17,6 +17,8 @@
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/hermes-profiles.yml -e '{"hermes_profiles_fleets":{"noesis":{"want":["noesis-forge","noesis-sentinel"]}}}'
 
 - name: Apply Noesis profile fleet
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: true
   tags: [runtime, hermes, hermes_profiles]

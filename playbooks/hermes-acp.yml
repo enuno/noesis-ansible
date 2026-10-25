@@ -5,6 +5,8 @@
 #   ansible-playbook -i inventory/local/hosts.ini playbooks/hermes-acp.yml --tags register
 
 - name: Deploy Hermes ACP Agent and Register
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
   hosts: local
   gather_facts: false
   tags: [hermes, acp, agent]
