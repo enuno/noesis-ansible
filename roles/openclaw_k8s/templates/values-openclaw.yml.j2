@@ -33,6 +33,7 @@ ingress:
   host: {{ openclaw_k8s_tailnet_hostname | tojson }}
   tailnetDomain: {{ openclaw_k8s_tailnet_domain | tojson }}
   operatorNamespace: {{ openclaw_k8s_tailscale_operator_namespace | tojson }}
+  reservedHostnames: {{ openclaw_k8s_reserved_hostnames | tojson }}
 networkPolicy:
   enabled: true
   allowHttpsEgress: true

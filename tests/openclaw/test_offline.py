@@ -375,6 +375,45 @@ def test_alphaclaw_role_is_untouched():
     assert legacy["openclaw_port"] == 8090
 
 
+def test_chart_refuses_a_reserved_hostname():
+    """A proxy that claims an existing device name hijacks that identity."""
+    helm = shutil.which("helm")
+    if helm is None:
+        return
+    for reserved in ("noesis-lab", "noesis-praxis", "tailscale-operator"):
+        out = subprocess.run(
+            [
+                helm, "template", "openclaw", str(CHART),
+                "--set", "existingSecret=example-openclaw-secret",
+                "--set", "ingress.enabled=true",
+                "--set", "ingress.className=tailscale",
+                "--set", "ingress.host=%s" % reserved,
+                "--set", "ingress.tailnetDomain=tailf99a0.ts.net",
+                "--set", "ingress.reservedHostnames[0]=tailscale-operator",
+                "--set", "ingress.reservedHostnames[1]=noesis-praxis",
+                "--set", "ingress.reservedHostnames[2]=noesis-lab",
+                "--set", "gateway.bind=lan",
+                "--set", "gateway.allowedOrigins[0]=https://x.tailf99a0.ts.net",
+            ],
+            capture_output=True, text=True, check=False,
+        )
+        assert out.returncode != 0, "chart accepted reserved hostname %s" % reserved
+        assert "is reserved" in out.stderr, out.stderr
+
+
+def test_standalone_playbooks_load_the_role_defaults():
+    """The standalone playbooks do not declare the role.
+
+    Without the role's defaults in scope they die on an undefined
+    target-side Python venv path before doing anything.
+    """
+    for name in ("openclaw-k8s-verify.yml", "openclaw-k8s-preflight.yml",
+                 "openclaw-k8s-remove.yml", "openclaw-k8s-secret.yml"):
+        text = (REPO / "playbooks" / name).read_text(encoding="utf-8")
+        assert "vars_files:" in text, "%s does not load the role defaults" % name
+        assert "roles/openclaw_k8s/defaults/main.yml" in text, name
+
+
 if __name__ == "__main__":
     # A pytest-style suite with no runner is a SILENT NO-OP when executed as a
     # script -- it exits 0 having asserted nothing. Run the checks here so the

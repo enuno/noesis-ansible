@@ -48,6 +48,9 @@
 {{- if contains "." .Values.ingress.host -}}
 {{- fail "ingress.host must be a bare hostspec (e.g. noesis-openclaw); the Tailscale operator appends the tailnet domain itself" -}}
 {{- end -}}
+{{- if has .Values.ingress.host .Values.ingress.reservedHostnames -}}
+{{- fail (printf "ingress.host %q is reserved; claiming it would hijack that device's identity" .Values.ingress.host) -}}
+{{- end -}}
 {{- $origin := printf "https://%s.%s" .Values.ingress.host .Values.ingress.tailnetDomain -}}
 {{- if not (has $origin .Values.gateway.allowedOrigins) -}}
 {{- fail (printf "gateway.allowedOrigins must include the exact browser origin %s" $origin) -}}

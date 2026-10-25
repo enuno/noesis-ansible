@@ -4,6 +4,13 @@
   gather_facts: false
   become: true
   tags: [openclaw, preflight]
+  # These playbooks do not declare the openclaw_k8s role, so the role's
+  # defaults are NOT in scope. Without this the target-side Kubernetes Python
+  # venv path is undefined and the play dies before it does anything. Import
+  # the role's own defaults file so there is ONE source of truth for these
+  # values instead of a copy that can drift.
+  vars_files:
+    - "{{ playbook_dir }}/../roles/openclaw_k8s/defaults/main.yml"
   vars:
     openclaw_k8s_live_checks: true
   pre_tasks:

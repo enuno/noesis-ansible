@@ -43,6 +43,11 @@ ingress:
   # not https://<host>. Without this the UI loads and then refuses requests.
   tailnetDomain: ""
   operatorNamespace: tailscale
+  # Names the proxy device must never claim. The Tailscale operator mints a
+  # device per Ingress, so claiming a name already in use HIJACKS that
+  # identity: the new proxy takes the name and the original endpoint stops
+  # resolving to its real backend. Supplied by the role from site inventory.
+  reservedHostnames: []
 networkPolicy:
   enabled: true
   allowHttpsEgress: true
