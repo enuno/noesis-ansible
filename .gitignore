@@ -29,6 +29,9 @@ __pycache__/
 *$py.class
 *.so
 
+# Local kubectl client cache (discovery + HTTP cache) -- runtime state only
+.kube/
+
 # Backup files
 *.bak
 *.swp
