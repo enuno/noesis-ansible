@@ -480,6 +480,130 @@ def test_standalone_playbooks_load_the_role_defaults():
         assert "roles/openclaw_k8s/defaults/main.yml" in text, name
 
 
+def test_escrow_task_captures_the_token_through_a_pty():
+    """The CLI refuses to print the token outside an interactive terminal.
+
+    It checks BOTH stdin.isTTY and stdout.isTTY, so a plain pipe yields
+    nothing. The capture must therefore allocate a pty INSIDE the container
+    (where the CLI runs) and must never let the token reach stdout of the
+    Ansible task.
+    """
+    escrow_path = ROLE / "tasks" / "escrow_authtoken.yml"
+    escrow = escrow_path.read_text(encoding="utf-8")
+    assert "doctor" in escrow and "--generate-gateway-token" in escrow
+
+    # EVERY capture must go through the pty wrapper, not a bare exec. A
+    # file-level string check is vacuous: a second capture elsewhere in the
+    # file keeps "script" present while one call regresses to a bare exec.
+    tasks = yaml.safe_load(escrow)
+    captures = []
+
+    def collect(node):
+        for task in node:
+            argv = task.get("ansible.builtin.command", {}).get("argv") or []
+            # Match on the CLI ENTRYPOINT. Matching "auth-token --show" in a
+            # single element would miss a bare exec that splits the command
+            # across elements -- exactly the regression this test must catch.
+            # A --note that merely quotes the command name has no
+            # dist/index.js and is not a capture.
+            is_cli = any("dist/index.js" in str(a) for a in argv)
+            # `doctor --generate-gateway-token` also runs the CLI but does not
+            # print the token, so it needs no pty. Only the SHOW command does.
+            shows_token = any("auth-token" in str(a) for a in argv)
+            if is_cli and shows_token:
+                captures.append(argv)
+            for member in task.get("block") or []:
+                collect([member])
+
+    collect(tasks)
+    assert captures, "no capture invocation found"
+    for argv in captures:
+        assert "script" in argv, argv
+        assert "-qec" in argv, argv
+        assert any("auth-token" in str(a) for a in argv), argv
+
+
+def test_every_token_task_is_no_log():
+    """A token must never reach the transcript."""
+    escrow_path = ROLE / "tasks" / "escrow_authtoken.yml"
+    tasks = yaml.safe_load(escrow_path.read_text(encoding="utf-8"))
+    assert tasks, "no tasks found"
+
+    def check(node):
+        """Every task that handles the token VALUE must be no_log."""
+        for task in node:
+            name = str(task.get("name", ""))
+            if "block:" not in task and "block" not in task:
+                if any(k in name for k in ("token", "Token")):
+                    # A report that deliberately reveals only metadata (the
+                    # escrow KEY and the token LENGTH) is safe, and no_log
+                    # would only hide it.
+                    if "without revealing the token" not in name:
+                        assert task.get("no_log") is True, name
+            for member in task.get("block") or []:
+                check([member])
+
+    check(tasks)
+
+
+def test_escrow_task_uses_the_kubeconfig_on_every_kubectl_call():
+    """A kubectl call without --kubeconfig fails in a non-interactive run.
+
+    That failure is silent under `failed_when: false` and then surfaces as
+    "the Gateway has no token" -- a completely different fault with a
+    different remedy.
+    """
+    escrow = (ROLE / "tasks" / "escrow_authtoken.yml").read_text(encoding="utf-8")
+    # Count only ARGV-form invocations -- the same variable also appears as a
+    # stat() path and inside a failure message.
+    kubectl_calls = escrow.count('- "{{ openclaw_k8s_kubectl_binary_path }}"')
+    assert kubectl_calls >= 4, "expected several kubectl invocations"
+    assert escrow.count("--kubeconfig") == kubectl_calls
+    assert escrow.count("--context") == kubectl_calls
+
+
+def test_escrow_asserts_the_secret_matches_the_gateway():
+    """The escrow and the delivered Secret must not drift apart."""
+    escrow = (ROLE / "tasks" / "escrow_authtoken.yml").read_text(encoding="utf-8")
+    assert "Assert the delivered Secret carries the Gateway's own auth-token" in escrow
+    assert "b64decode" in escrow
+    # A capture failure must not masquerade as "no token".
+    assert "Distinguish a capture failure from an absent token" in escrow
+
+
+def test_kubectl_binary_default_exists_on_this_host():
+    """The role uses kubectl as a real binary, not just as a module hint.
+
+    A wrong default stayed invisible because the only preflight path that
+    used it as a binary (namespace absent) never ran.
+    """
+    defaults = load(DEFAULTS)
+    path = defaults["openclaw_k8s_kubectl_binary_path"]
+    assert os.path.isfile(path), "%s does not exist on this host" % path
+    assert os.access(path, os.X_OK), "%s is not executable" % path
+
+
+def test_secret_playbook_sources_the_escrowed_token():
+    secret = (REPO / "playbooks" / "openclaw-k8s-secret.yml").read_text(encoding="utf-8")
+    defaults = load(DEFAULTS)
+    assert defaults["openclaw_k8s_authtoken_escrow_key"] in secret
+    # The delivered key must be the one the Gateway reads.
+    assert defaults["openclaw_k8s_authtoken_secret_key"] in secret
+
+
+def test_device_playbook_actions_are_gated():
+    """Device pairing grants gateway access -- gate it explicitly."""
+    device = (REPO / "playbooks" / "openclaw-k8s-device.yml").read_text(encoding="utf-8")
+    for action in ("list", "approve", "approve-latest", "reject"):
+        assert action in device
+    assert "openclaw_device_request_id" in device
+    # approve/reject must not be reachable without an explicit request id.
+    assert "openclaw_device_action not in ['approve', 'reject'] or openclaw_device_request_id | length > 0" in device
+    # The commands run inside the pod, where the CLI and pairing state live.
+    assert "dist/index.js" in device and "devices" in device
+    assert "--kubeconfig" in device
+
+
 if __name__ == "__main__":
     # A pytest-style suite with no runner is a SILENT NO-OP when executed as a
     # script -- it exits 0 having asserted nothing. Run the checks here so the

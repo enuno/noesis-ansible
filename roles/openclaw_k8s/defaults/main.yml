@@ -5,7 +5,12 @@
 openclaw_k8s_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
 openclaw_k8s_kube_context: ""
 openclaw_k8s_helm_binary_path: /usr/local/bin/helm
-openclaw_k8s_kubectl_binary_path: /usr/local/bin/kubectl
+# The REAL kubectl path on the managed host. This is used as an actual
+# binary (not just as a hint to the kubernetes.core modules), so it has to
+# exist: /usr/local/bin/kubectl is NOT created by the k3s role, and the
+# preflight only exercises this path when the namespace is absent, so a
+# wrong default here stays invisible until it is too late.
+openclaw_k8s_kubectl_binary_path: /usr/bin/kubectl
 openclaw_k8s_kubernetes_python_version: "34.1.0"
 openclaw_k8s_kubernetes_venv: /opt/ansible-kubernetes
 
@@ -108,5 +113,20 @@ openclaw_k8s_helm_atomic: true
 openclaw_k8s_helm_create_namespace: true
 openclaw_k8s_helm_history_max: 10
 openclaw_k8s_live_checks: false
+
+# --- Gateway auth-token escrow ---------------------------------------------
+# The Gateway's effective auth-token is what `openclaw gateway auth-token
+# --show` reveals: gateway.auth.token as the Gateway resolves it, i.e. the
+# value delivered in the Secret. Escrowing THAT value (rather than a copy of
+# what we intended to deliver) is what keeps the escrow authoritative -- if the
+# two ever diverge, the deploy fails closed instead of drifting silently.
+#
+# The escrow is opt-in per run because it WRITES to Bitwarden. The capture
+# and the consistency assertion are always safe; only the write is gated.
+openclaw_k8s_authtoken_escrow_enabled: false
+openclaw_k8s_authtoken_generate: false
+openclaw_k8s_bws_project_id: ""
+openclaw_k8s_authtoken_escrow_key: OPENCLAW_K3S_NOESIS_GATEWAY_TOKEN
+openclaw_k8s_authtoken_secret_key: OPENCLAW_GATEWAY_TOKEN
 openclaw_k8s_destroy_pvc: false
 openclaw_k8s_destroy_pvc_confirm: ""

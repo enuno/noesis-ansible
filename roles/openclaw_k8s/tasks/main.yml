@@ -11,6 +11,11 @@
 - name: Install or upgrade OpenClaw
   ansible.builtin.include_tasks: install.yml
   when: openclaw_k8s_desired_state == 'present'
+- name: Escrow the Gateway auth-token
+  ansible.builtin.include_tasks: escrow_authtoken.yml
+  when:
+    - openclaw_k8s_desired_state == 'present'
+    - openclaw_k8s_authtoken_escrow_enabled | bool
 - name: Validate OpenClaw
   ansible.builtin.include_tasks: validate.yml
   when: openclaw_k8s_desired_state == 'present'

@@ -1,0 +1,171 @@
+---
+# openclaw-k8s-device.yml — run OpenClaw device-pairing operations against the
+# running Gateway.
+#
+# The Gateway's device CLI lives inside the pod (the binary and the pairing
+# state are in the image and on the PVC), so every command is executed there
+# with `kubectl exec`.
+#
+#   # what is waiting?
+#   ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/openclaw-k8s-device.yml \
+#     -e openclaw_device_action=list
+#
+#   # approve one specific request
+#   ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/openclaw-k8s-device.yml \
+#     -e openclaw_device_action=approve \
+#     -e openclaw_device_request_id=0f4036f5-f5cd-4e81-a2ce-31f1ed623352
+#
+#   # approve the most recent pending request (two-step: the CLI prints the
+#   # exact id first, and the approval is bound to THAT id)
+#   ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/openclaw-k8s-device.yml \
+#     -e openclaw_device_action=approve-latest
+#
+#   # reject a request
+#   ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/openclaw-k8s-device.yml \
+#     -e openclaw_device_action=reject \
+#     -e openclaw_device_request_id=<id>
+
+- name: Operate OpenClaw device pairing
+  hosts: "{{ openclaw_deploy_group | default('openclaw_k3s') }}"
+  gather_facts: false
+  become: true
+  tags: [openclaw, device]
+
+  vars:
+    openclaw_device_action: list
+    openclaw_device_request_id: ""
+    openclaw_k8s_kubectl_binary_path: /usr/bin/kubectl
+    openclaw_k8s_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+    openclaw_k8s_kube_context: ""
+    openclaw_k8s_namespace: openclaw
+    openclaw_k8s_release_name: openclaw
+
+  tasks:
+    - name: Validate the requested device action
+      ansible.builtin.assert:
+        that:
+          - openclaw_device_action in ['list', 'approve', 'approve-latest', 'reject']
+          - openclaw_device_action not in ['approve', 'reject'] or openclaw_device_request_id | length > 0
+        fail_msg: >-
+          openclaw_device_action must be one of list, approve, approve-latest,
+          reject. 'approve' and 'reject' also require
+          openclaw_device_request_id.
+
+    - name: Build the devices sub-command arguments
+      ansible.builtin.set_fact:
+        openclaw_device_args: >-
+          {{ ['list'] if openclaw_device_action == 'list'
+             else (['approve', openclaw_device_request_id]
+                   if openclaw_device_action == 'approve'
+                   else ['reject', openclaw_device_request_id]) }}
+
+    - name: Check the kubectl binary
+      ansible.builtin.stat:
+        path: "{{ openclaw_k8s_kubectl_binary_path }}"
+      register: openclaw_device_kubectl
+
+    - name: Refuse to run without a usable kubectl binary
+      ansible.builtin.assert:
+        that:
+          - openclaw_device_kubectl.stat.exists
+        fail_msg: >-
+          {{ openclaw_k8s_kubectl_binary_path }} does not exist on this host.
+          Set openclaw_k8s_kubectl_binary_path to the real path.
+
+    - name: Read the Kubernetes context
+      ansible.builtin.command:
+        argv:
+          - "{{ openclaw_k8s_kubectl_binary_path }}"
+          - config
+          - current-context
+          - --kubeconfig
+          - "{{ openclaw_k8s_kubeconfig_path }}"
+      register: openclaw_device_context
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Locate the running OpenClaw pod
+      ansible.builtin.command:
+        argv:
+          - "{{ openclaw_k8s_kubectl_binary_path }}"
+          - --kubeconfig
+          - "{{ openclaw_k8s_kubeconfig_path }}"
+          - -n
+          - "{{ openclaw_k8s_namespace }}"
+          - get
+          - pod
+          - -l
+          - "app.kubernetes.io/name={{ openclaw_k8s_release_name }}"
+          - -o
+          - jsonpath={.items[0].metadata.name}
+      register: openclaw_device_pod
+      changed_when: false
+      no_log: true
+
+    - name: Require a running OpenClaw pod
+      ansible.builtin.assert:
+        that:
+          - openclaw_device_pod.stdout | trim | length > 0
+        fail_msg: >-
+          No OpenClaw pod found in namespace {{ openclaw_k8s_namespace }}.
+          Deploy it first (playbooks/openclaw-k8s-install.yml).
+
+    # Every devices command runs inside the pod: that is where the CLI and the
+    # pairing state live.
+    - name: Run the OpenClaw devices command
+      ansible.builtin.command:
+        argv: "{{ [openclaw_k8s_kubectl_binary_path, '--kubeconfig', openclaw_k8s_kubeconfig_path,
+                     '-n', openclaw_k8s_namespace, 'exec', openclaw_device_pod.stdout | trim,
+                     '-c', 'gateway', '--', 'node', 'dist/index.js', 'devices']
+                    + openclaw_device_args }}"
+      register: openclaw_device_result
+      changed_when: >-
+        openclaw_device_action in ['approve', 'approve-latest', 'reject']
+      when: openclaw_device_action != 'approve-latest'
+
+    # The CLI treats an implicit "approve the latest" as a PREVIEW: it prints
+    # the request id it would approve and exits non-zero. Binding the approval
+    # to an id the operator has actually seen is the CLI's own safety
+    # property, so keep it: run the preview, then approve that exact id.
+    - name: Show the pending request the CLI would approve
+      ansible.builtin.command:
+        argv:
+          - "{{ openclaw_k8s_kubectl_binary_path }}"
+          - --kubeconfig
+          - "{{ openclaw_k8s_kubeconfig_path }}"
+          - -n
+          - "{{ openclaw_k8s_namespace }}"
+          - exec
+          - "{{ openclaw_device_pod.stdout | trim }}"
+          - -c
+          - gateway
+          - --
+          - node
+          - dist/index.js
+          - devices
+          - approve
+      register: openclaw_device_preview
+      changed_when: false
+      failed_when: false
+      when: openclaw_device_action == 'approve-latest'
+
+    - name: Show the pending pairing requests
+      ansible.builtin.debug:
+        msg: "{{ openclaw_device_result.stdout_lines | default([]) }}"
+      when:
+        - openclaw_device_action == 'list'
+        - openclaw_device_result is defined
+
+    - name: Report the approved or rejected device
+      ansible.builtin.debug:
+        msg: "{{ openclaw_device_result.stdout_lines | default([]) }}"
+      when:
+        - openclaw_device_action in ['approve', 'reject']
+
+    - name: Show the request selected for approval
+      ansible.builtin.debug:
+        msg: "{{ openclaw_device_preview.stdout_lines | default([]) }}"
+      when:
+        - openclaw_device_action == 'approve-latest'
+        - openclaw_device_preview is defined

@@ -195,6 +195,82 @@ versions are immutable artifacts — every content change gets a new version
 (`charts/openclaw/0.2.0/` → `0.2.1/`), and the role pins
 `openclaw_k8s_chart_version`.
 
+## 4c. Gateway auth-token escrow
+
+The Gateway's auth-token is `gateway.auth.token` as the Gateway **resolves it** —
+i.e. the value delivered in the Secret. It is escrowed in Bitwarden as
+`OPENCLAW_K3S_NOESIS_GATEWAY_TOKEN` in project `72974d0e-81af-4678-bab7-b46000985859`.
+
+Escrowing the Gateway's *own* value — rather than a copy of what we intended to
+deliver — is what keeps the escrow authoritative. The deploy captures the live
+token and asserts it equals the delivered Secret, so a divergence is a hard
+failure instead of a mystery later.
+
+```bash
+# during a deploy (opt-in: it WRITES to Bitwarden)
+ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/openclaw-k8s-install.yml \
+  -e openclaw_k8s_existing_secret=openclaw-secrets \
+  -e openclaw_k8s_exposure_enabled=true \
+  -e openclaw_k8s_kube_context=default \
+  -e openclaw_k8s_storage_class=local-path \
+  -e openclaw_k8s_live_checks=true \
+  -e openclaw_k8s_authtoken_escrow_enabled=true \
+  -e openclaw_k8s_bws_project_id=72974d0e-81af-4678-bab7-b46000985859
+```
+
+It is **idempotent**: the escrow is written only when the record is missing or
+no longer matches the Gateway's token, so a converging deploy never rewrites a
+credential. If the Gateway has no token at all, set
+`openclaw_k8s_authtoken_generate=true` to let the deploy run
+`openclaw doctor --generate-gateway-token` and then escrow the result.
+
+### Revealing the token by hand
+
+`openclaw gateway auth-token --show` **refuses to run outside an interactive
+terminal** — it checks both `stdin.isTTY` and `stdout.isTTY` so the token
+cannot end up in a pipe or a captured log. To capture it to a file, allocate a
+pty inside the container:
+
+```bash
+POD=$(kubectl -n openclaw get pod -l app.kubernetes.io/name=openclaw -o jsonpath='{.items[0].metadata.name}')
+kubectl -n openclaw exec "$POD" -c gateway -- \
+  script -qec "node dist/index.js gateway auth-token --show" /dev/null > token.txt
+```
+
+`script` is present in the image. Never print the file — compare hashes only.
+
+## 4d. Device pairing approvals
+
+The device CLI lives inside the pod (the binary and the pairing state are in
+the image and on the PVC), so pairing operations run there via `kubectl exec`.
+
+```bash
+# what is waiting?
+ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/openclaw-k8s-device.yml \
+  -e openclaw_device_action=list
+
+# approve one specific request
+ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/openclaw-k8s-device.yml \
+  -e openclaw_device_action=approve \
+  -e openclaw_device_request_id=0f4036f5-f5cd-4e81-a2ce-31f1ed623352
+
+# approve the most recent pending request
+ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/openclaw-k8s-device.yml \
+  -e openclaw_device_action=approve-latest
+
+# reject
+ansible-playbook -i inventory/praxis-k3s/hosts.ini playbooks/openclaw-k8s-device.yml \
+  -e openclaw_device_action=reject \
+  -e openclaw_device_request_id=<id>
+```
+
+`approve` and `reject` **require an explicit request id** — a pairing approval
+grants Gateway access, so it is never implicit. `approve-latest` keeps the
+CLI's own two-step safety property: the implicit selection is a *preview* that
+prints the request id, and the approval is bound to that exact id.
+
+A paired device shows up in `devices list` with its role and scopes.
+
 ## 5. Verification
 
 What counts as evidence, in order:

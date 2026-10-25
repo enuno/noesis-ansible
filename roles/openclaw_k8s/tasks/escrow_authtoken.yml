@@ -1,0 +1,289 @@
+---
+# Capture the Gateway's OWN auth-token and keep it escrowed in Bitwarden.
+#
+# `openclaw gateway auth-token --show` reveals gateway.auth.token as the
+# Gateway actually resolves it -- i.e. the value delivered in the Secret. That
+# is what makes the escrow authoritative: escrowing a COPY of what we meant to
+# deliver lets the two drift apart silently. Escrowing the Gateway's own
+# value, and asserting it equals the delivered Secret, makes a divergence a
+# hard failure instead of a mystery at 2am.
+#
+# The CLI refuses to print the token outside an interactive terminal (it
+# checks BOTH stdin.isTTY and stdout.isTTY) so that it never lands in a pipe
+# or a captured log. `script` allocates a pty INSIDE the container, where the
+# CLI actually runs, and the token is written straight to a 0600 file.
+#
+# Every task here is no_log: the token must never reach the transcript.
+
+- name: Check the kubectl binary the capture depends on
+  ansible.builtin.stat:
+    path: "{{ openclaw_k8s_kubectl_binary_path }}"
+  register: openclaw_k8s_authtoken_kubectl
+
+- name: Refuse to capture without a usable kubectl binary
+  ansible.builtin.assert:
+    that:
+      - openclaw_k8s_authtoken_kubectl.stat.exists
+    fail_msg: >-
+      {{ openclaw_k8s_kubectl_binary_path }} does not exist on this host, and
+      the auth-token capture runs kubectl from there. Set
+      openclaw_k8s_kubectl_binary_path to the real path.
+  no_log: true
+
+- name: Locate the running OpenClaw pod
+  ansible.builtin.command:
+    argv:
+      - "{{ openclaw_k8s_kubectl_binary_path }}"
+      - --kubeconfig
+      - "{{ openclaw_k8s_kubeconfig_path }}"
+      - --context
+      - "{{ openclaw_k8s_kube_context }}"
+      - -n
+      - "{{ openclaw_k8s_namespace }}"
+      - get
+      - pod
+      - -l
+      - "app.kubernetes.io/name={{ openclaw_k8s_release_name }}"
+      - -o
+      - jsonpath={.items[0].metadata.name}
+  register: openclaw_k8s_authtoken_pod
+  changed_when: false
+  no_log: true
+
+- name: Capture the Gateway auth-token from the running Gateway
+  ansible.builtin.command:
+    argv:
+      - "{{ openclaw_k8s_kubectl_binary_path }}"
+      - --kubeconfig
+      - "{{ openclaw_k8s_kubeconfig_path }}"
+      - --context
+      - "{{ openclaw_k8s_kube_context }}"
+      - -n
+      - "{{ openclaw_k8s_namespace }}"
+      - exec
+      - "{{ openclaw_k8s_authtoken_pod.stdout | trim }}"
+      - -c
+      - gateway
+      - --
+      - script
+      - -qec
+      - "node dist/index.js gateway auth-token --show"
+      - /dev/null
+  register: openclaw_k8s_authtoken_capture
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+# A capture that errors must not masquerade as "the Gateway has no token" --
+# those are different faults with different remedies, and conflating them
+# sends the operator to the wrong place.
+- name: Distinguish a capture failure from an absent token
+  ansible.builtin.assert:
+    that:
+      - openclaw_k8s_authtoken_capture.rc == 0
+    fail_msg: >-
+      The auth-token capture command failed (exit
+      {{ openclaw_k8s_authtoken_capture.rc }}). This is a capture failure, NOT
+      a Gateway without a token: check kubectl access, the pod name, and that
+      `script` exists in the image. The raw error is suppressed because the
+      command's output can contain the token.
+  no_log: true
+
+- name: Extract the token from the captured typescript
+  ansible.builtin.set_fact:
+    openclaw_k8s_authtoken_value: >-
+      {{ (openclaw_k8s_authtoken_capture.stdout | default(''))
+         | regex_findall('[0-9a-f]{32,}')
+         | first | default('') }}
+  no_log: true
+
+- name: Generate a Gateway token when the Gateway has none
+  when:
+    - openclaw_k8s_authtoken_value | length == 0
+    - openclaw_k8s_authtoken_generate | bool
+  block:
+    - name: Ask the Gateway to generate a token
+      ansible.builtin.command:
+        argv:
+          - "{{ openclaw_k8s_kubectl_binary_path }}"
+          - --kubeconfig
+          - "{{ openclaw_k8s_kubeconfig_path }}"
+          - --context
+          - "{{ openclaw_k8s_kube_context }}"
+          - -n
+          - "{{ openclaw_k8s_namespace }}"
+          - exec
+          - "{{ openclaw_k8s_authtoken_pod.stdout | trim }}"
+          - -c
+          - gateway
+          - --
+          - node
+          - dist/index.js
+          - doctor
+          - --generate-gateway-token
+      register: openclaw_k8s_authtoken_generate_run
+      changed_when: true
+      failed_when: false
+      no_log: true
+
+    - name: Re-capture the Gateway token after generation
+      ansible.builtin.command:
+        argv:
+          - "{{ openclaw_k8s_kubectl_binary_path }}"
+          - --kubeconfig
+          - "{{ openclaw_k8s_kubeconfig_path }}"
+          - --context
+          - "{{ openclaw_k8s_kube_context }}"
+          - -n
+          - "{{ openclaw_k8s_namespace }}"
+          - exec
+          - "{{ openclaw_k8s_authtoken_pod.stdout | trim }}"
+          - -c
+          - gateway
+          - --
+          - script
+          - -qec
+          - "node dist/index.js gateway auth-token --show"
+          - /dev/null
+      register: openclaw_k8s_authtoken_capture2
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Extract the regenerated token
+      ansible.builtin.set_fact:
+        openclaw_k8s_authtoken_value: >-
+          {{ (openclaw_k8s_authtoken_capture2.stdout | default(''))
+             | regex_findall('[0-9a-f]{32,}')
+             | first | default('') }}
+      no_log: true
+
+- name: Assert a Gateway auth-token is available
+  ansible.builtin.assert:
+    that:
+      - openclaw_k8s_authtoken_value | length >= 32
+    fail_msg: >-
+      Could not obtain the Gateway auth-token. The Gateway reports no
+      configured shared token, and either generation was disabled or it
+      failed. Check the gateway log, or set
+      openclaw_k8s_authtoken_generate=true to let the deploy create one.
+  no_log: true
+
+- name: Read the currently escrowed auth-token from Bitwarden
+  ansible.builtin.command:
+    argv:
+      - bws
+      - secret
+      - list
+      - "{{ openclaw_k8s_bws_project_id }}"
+      - -o
+      - json
+  delegate_to: localhost
+  become: false
+  register: openclaw_k8s_bws_list
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Index the escrowed auth-token by key
+  ansible.builtin.set_fact:
+    openclaw_k8s_bws_records: >-
+      {{ (openclaw_k8s_bws_list.stdout | default('[]') | from_json) | default([], true) }}
+  no_log: true
+
+- name: Refuse an ambiguous escrow record
+  ansible.builtin.assert:
+    that:
+      - openclaw_k8s_bws_records | selectattr('key', 'equalto', openclaw_k8s_authtoken_escrow_key) | list | length <= 1
+    fail_msg: >-
+      More than one Bitwarden record is named
+      '{{ openclaw_k8s_authtoken_escrow_key }}'. Resolve the duplicate before
+      deploying; two records means the escrow is ambiguous.
+  no_log: true
+
+- name: Report the escrow state without revealing the token
+  ansible.builtin.debug:
+    msg: >-
+      escrowed '{{ openclaw_k8s_authtoken_escrow_key }}' in project
+      {{ openclaw_k8s_bws_project_id }}: record
+      {{ 'present' if (openclaw_k8s_bws_records | selectattr('key', 'equalto', openclaw_k8s_authtoken_escrow_key) | list | length == 1) else 'absent' }},
+      token length {{ openclaw_k8s_authtoken_value | length }}
+
+# Store BEFORE deliver. The escrow is only written when it is missing or no
+# longer matches the Gateway's own token, so a converging deploy does not
+# rewrite it and cannot silently rotate a credential.
+- name: Escrow the Gateway auth-token in Bitwarden
+  when: >-
+    (openclaw_k8s_bws_records | selectattr('key', 'equalto', openclaw_k8s_authtoken_escrow_key) | list | length == 0)
+    or ((openclaw_k8s_bws_records | selectattr('key', 'equalto', openclaw_k8s_authtoken_escrow_key) | list | first).value != openclaw_k8s_authtoken_value)
+  block:
+    - name: Create the escrow record
+      ansible.builtin.command:
+        argv:
+          - bws
+          - secret
+          - create
+          - "{{ openclaw_k8s_authtoken_escrow_key }}"
+          - "{{ openclaw_k8s_authtoken_value }}"
+          - "{{ openclaw_k8s_bws_project_id }}"
+          - --note
+          - >-
+            OpenClaw gateway auth-token (gateway.auth.token, resolved by
+            'openclaw gateway auth-token --show') for the release
+            '{{ openclaw_k8s_release_name }}' in namespace
+            '{{ openclaw_k8s_namespace }}'. Delivered as Secret/
+            {{ openclaw_k8s_existing_secret }} key
+            {{ openclaw_k8s_authtoken_secret_key }}.
+      delegate_to: localhost
+      become: false
+      register: openclaw_k8s_bws_create
+      changed_when: true
+      no_log: true
+
+    - name: Update the escrow record when it already existed but drifted
+      ansible.builtin.command:
+        argv:
+          - bws
+          - secret
+          - edit
+          - --value
+          - "{{ openclaw_k8s_authtoken_value }}"
+          - "{{ (openclaw_k8s_bws_records | selectattr('key', 'equalto', openclaw_k8s_authtoken_escrow_key) | list | first).id }}"
+      delegate_to: localhost
+      become: false
+      changed_when: true
+      no_log: true
+      when: openclaw_k8s_bws_records | selectattr('key', 'equalto', openclaw_k8s_authtoken_escrow_key) | list | length == 1
+
+# The delivered Secret and the escrow must agree, or the Gateway is running
+# with a token that is not the escrowed one.
+- name: Read the delivered gateway token from the Secret
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ openclaw_k8s_kubeconfig_path }}"
+    context: "{{ openclaw_k8s_kube_context }}"
+    api_version: v1
+    kind: Secret
+    namespace: "{{ openclaw_k8s_namespace }}"
+    name: "{{ openclaw_k8s_existing_secret }}"
+  register: openclaw_k8s_authtoken_secret
+  failed_when: false
+  no_log: true
+
+- name: Assert the delivered Secret carries the Gateway's own auth-token
+  ansible.builtin.assert:
+    that:
+      - openclaw_k8s_authtoken_secret.resources | length == 1
+      - openclaw_k8s_authtoken_secret.resources[0].data[openclaw_k8s_authtoken_secret_key] is defined
+      - openclaw_k8s_authtoken_secret.resources[0].data[openclaw_k8s_authtoken_secret_key] | b64decode | trim == openclaw_k8s_authtoken_value
+    fail_msg: >-
+      The delivered Secret does not carry the Gateway's effective auth-token.
+      Re-run playbooks/openclaw-k8s-secret.yml so the Secret is populated
+      from the escrowed record, then redeploy.
+  no_log: true
+
+- name: Report the verified escrow
+  ansible.builtin.debug:
+    msg: >-
+      Gateway auth-token is escrowed as
+      '{{ openclaw_k8s_authtoken_escrow_key }}' and matches the value
+      delivered in Secret/{{ openclaw_k8s_existing_secret }}.
