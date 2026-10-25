@@ -12,7 +12,7 @@ openclaw_k8s_kubernetes_venv: /opt/ansible-kubernetes
 openclaw_k8s_release_name: openclaw
 openclaw_k8s_namespace: openclaw
 openclaw_k8s_desired_state: present
-openclaw_k8s_chart_version: "0.2.0"
+openclaw_k8s_chart_version: "0.2.1"
 openclaw_k8s_chart_app_version: "2026.10.7"
 openclaw_k8s_chart_source: "{{ playbook_dir | dirname }}/charts/openclaw/{{ openclaw_k8s_chart_version }}"
 openclaw_k8s_chart_path: "/opt/openclaw-chart/{{ openclaw_k8s_chart_version }}"
@@ -80,6 +80,23 @@ openclaw_k8s_allowed_origins:
 # Tailscale Ingress return 502. The chart fails closed on this mismatch.
 openclaw_k8s_gateway_bind: "{{ 'lan' if (openclaw_k8s_exposure_enabled | bool) else 'loopback' }}"
 openclaw_k8s_gateway_auth_mode: token
+
+# Reverse proxies whose forwarded-client headers may be trusted. The gateway
+# fails closed with 403 proxy_attribution_required when a request carries
+# proxy headers from a source that is NOT listed here -- which is exactly what
+# the Tailscale operator's Ingress proxy produces.
+#
+# The operator's proxy pods take DYNAMIC IPs from the cluster pod CIDR, so
+# listing a single IP would break on every proxy reschedule. The pod CIDR is
+# the narrowest stable value for this single-tenant cluster; tighten it if the
+# operator's proxy pods are ever given a dedicated range.
+#
+# This must match the cluster's podCIDR exactly -- verify with
+#   kubectl get nodes -o jsonpath='{.items[0].spec.podCIDR}'
+# (currently 10.42.0.0/24 on noesis-praxis). A broader range trusts more
+# sources than necessary; a narrower one silently breaks the proxy path.
+openclaw_k8s_trusted_proxies:
+  - "10.42.0.0/24"
 openclaw_k8s_external_messaging_enabled: false
 openclaw_k8s_funnel_enabled: false
 

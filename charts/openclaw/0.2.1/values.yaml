@@ -1,0 +1,69 @@
+replicaCount: 1
+strategy: Recreate
+image:
+  repository: ghcr.io/openclaw/openclaw
+  tag: "2026.10.7-slim"
+  digest: sha256:fb26f0841659dc757f23feec9adeab51f11d76779a409db5d22e191b43841afa
+  pullPolicy: IfNotPresent
+# The seed/merge init container runs the SAME pinned application image as the
+# main container (it needs a JSON parser for the config merge), so this block
+# only carries the pull policy.
+initImage:
+  pullPolicy: IfNotPresent
+existingSecret: ""
+worker:
+  identity: ""
+  brokerEndpoint: ""
+  brokerSecretName: ""
+  brokerSecretKey: ""
+gateway:
+  bind: loopback
+  authMode: token
+  port: 18789
+  allowedOrigins: []
+  externalMessagingEnabled: false
+  # Reverse proxies whose X-Forwarded-For / X-Real-IP headers may be trusted.
+  # The gateway FAILS CLOSED (403 proxy_attribution_required) on any request
+  # that carries proxy headers from a source not listed here, so a request
+  # arriving through the Tailscale operator's proxy MUST list that proxy.
+  # Keep this as narrow as the deployment allows: the operator's proxy pods
+  # take dynamic IPs from the cluster pod CIDR, so a single IP would break
+  # on every reschedule.
+  trustedProxies: []
+service:
+  type: ClusterIP
+  port: 18789
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+ingress:
+  enabled: false
+  className: ""
+  # HOSTSPEC only (e.g. "noesis-openclaw"). The Tailscale operator appends the
+  # tailnet domain itself and mints the device under this name; never write a
+  # *.ts.net FQDN here.
+  host: ""
+  # The tailnet's MagicDNS domain (e.g. "tailf99a0.ts.net"). Required when
+  # ingress is enabled, because the Control UI enforces allowedOrigins against
+  # the browser's ACTUAL origin, which is https://<host>.<tailnetDomain> --
+  # not https://<host>. Without this the UI loads and then refuses requests.
+  tailnetDomain: ""
+  operatorNamespace: tailscale
+  # Names the proxy device must never claim. The Tailscale operator mints a
+  # device per Ingress, so claiming a name already in use HIJACKS that
+  # identity: the new proxy takes the name and the original endpoint stops
+  # resolving to its real backend. Supplied by the role from site inventory.
+  reservedHostnames: []
+networkPolicy:
+  enabled: true
+  allowHttpsEgress: true
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 2Gi

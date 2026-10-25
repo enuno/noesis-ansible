@@ -17,6 +17,7 @@ gateway:
   authMode: {{ openclaw_k8s_gateway_auth_mode | tojson }}
   port: {{ openclaw_k8s_service_port | int }}
   allowedOrigins: {{ openclaw_k8s_allowed_origins | tojson }}
+  trustedProxies: {{ openclaw_k8s_trusted_proxies | tojson }}
   externalMessagingEnabled: false
 service:
   type: ClusterIP

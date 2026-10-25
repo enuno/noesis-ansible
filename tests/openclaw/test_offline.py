@@ -12,7 +12,7 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[2]
 ROLE = REPO / "roles" / "openclaw_k8s"
-CHART = REPO / "charts" / "openclaw" / "0.2.0"
+CHART = REPO / "charts" / "openclaw" / "0.2.1"
 DEFAULTS = ROLE / "defaults" / "main.yml"
 EXAMPLE = REPO / "inventory" / "example" / "group_vars" / "openclaw_k3s.yml"
 VALUES_TEMPLATE = ROLE / "templates" / "values-openclaw.yml.j2"
@@ -84,7 +84,7 @@ def test_pins_and_persistence_defaults():
     defaults = load(DEFAULTS)
     chart = load(CHART / "Chart.yaml")
     values = load(CHART / "values.yaml")
-    assert chart["version"] == "0.2.0"
+    assert chart["version"] == "0.2.1"
     assert chart["appVersion"] == "2026.10.7"
     assert defaults["openclaw_k8s_image_digest"] == DIGEST
     assert values["image"]["digest"] == DIGEST
@@ -272,10 +272,76 @@ def test_public_exposure_keys_absent():
     assert defaults["openclaw_k8s_external_messaging_enabled"] is False
 
 
-def test_init_seeds_only_missing_files():
+def test_init_merges_chart_owned_config_keys():
+    """The seed must MERGE the chart-owned keys, not only seed a missing file.
+
+    Copying the seed only when openclaw.json is absent means a settings
+    change never reaches a running gateway: the file already exists on the
+    PVC, so the new seed is ignored and the change silently does nothing.
+    Overwriting the whole file instead would discard app-owned state
+    (channels, agents), so only the chart-owned top-level keys are replaced.
+    """
     deployment = (CHART / "templates" / "deployment.yaml").read_text(encoding="utf-8")
-    assert re.search(r"\[ -f .*openclaw\.json \] \|\| cp", deployment)
+    assert 'const OWNED = ["gateway", "cron"]' in deployment
+    assert 'live[key] = seed[key]' in deployment
+    assert "node --input-type=commonjs" in deployment
+    # The whole-file seed must be GONE -- it is what swallowed the change.
+    assert not re.search(r"\[ -f .*openclaw\.json \] \|\| cp", deployment)
+    # AGENTS.md is workspace content, not chart-owned config: still seed-once.
     assert re.search(r"\[ -f .*AGENTS\.md \] \|\| cp", deployment)
+
+
+def test_config_change_rolls_the_pod():
+    """A config change must roll the pod, or it never reaches the gateway."""
+    deployment = (CHART / "templates" / "deployment.yaml").read_text(encoding="utf-8")
+    assert "checksum/config:" in deployment
+    assert "configmap.yaml" in deployment
+    assert "sha256sum" in deployment
+
+
+def test_trusted_proxies_is_rendered_when_set():
+    """The gateway fails closed on proxy-shaped traffic from an untrusted
+    source, so a Tailscale-Ingress deployment must declare the proxy."""
+    helm = shutil.which("helm")
+    if helm is None:
+        return
+    out = subprocess.run(
+        [
+            helm, "template", "openclaw", str(CHART),
+            "--set", "existingSecret=example-openclaw-secret",
+            "--set", "gateway.trustedProxies[0]=10.42.0.0/24",
+        ],
+        capture_output=True, text=True, check=False,
+    )
+    assert out.returncode == 0, out.stderr
+    assert '"trustedProxies": ["10.42.0.0/24"]' in out.stdout
+
+    # And it must be absent (not rendered as an empty array) when unset.
+    bare = subprocess.run(
+        [helm, "template", "openclaw", str(CHART),
+         "--set", "existingSecret=example-openclaw-secret"],
+        capture_output=True, text=True, check=False,
+    )
+    assert bare.returncode == 0, bare.stderr
+    assert "trustedProxies" not in bare.stdout
+
+
+def test_chart_version_is_bumped_so_the_upgrade_applies():
+    """The Helm module skips an upgrade when the chart VERSION is unchanged.
+
+    Editing chart content without bumping the version makes the run report
+    ok/changed=0 and leaves the release on the old chart -- the change is
+    silently dropped. Pin the chart version here so a content edit without a
+    version bump fails the suite.
+    """
+    defaults = load(DEFAULTS)
+    chart = load(CHART / "Chart.yaml")
+    validation = (ROLE / "tasks" / "validate-inputs.yml").read_text(encoding="utf-8")
+    assert chart["version"] == defaults["openclaw_k8s_chart_version"]
+    assert defaults["openclaw_k8s_chart_version"] == "0.2.1"
+    assert "openclaw_k8s_chart_version == '0.2.1'" in validation
+    # The chart DIRECTORY name must match the version helm records.
+    assert CHART.name == chart["version"]
 
 
 def test_helm_rejects_missing_secret_and_public_service_type():

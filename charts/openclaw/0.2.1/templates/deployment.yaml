@@ -1,0 +1,186 @@
+{{- include "openclaw.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openclaw.fullname" . }}
+  labels:
+    {{- include "openclaw.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "openclaw.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openclaw.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Roll the pod when the seeded gateway config changes. Without this the
+        # ConfigMap update lands but the running gateway keeps the config it
+        # started with, so a settings change silently does nothing.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "openclaw.fullname" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: seed-config
+          # The merge above needs a JSON parser. busybox has neither jq nor
+          # node, so this init container runs the same pinned application
+          # image -- it is already pulled for the main container, so this adds
+          # no new image and no new dependency.
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.initImage.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /home/node/.openclaw/workspace /home/node/.openclaw/.cache
+              # Merge the chart-OWNED top-level keys into the live config.
+              #
+              # Copying the seed only when the file is missing (the upstream
+              # behaviour) means a settings change NEVER reaches a running
+              # gateway: the file already exists on the PVC, so the new seed
+              # is ignored and the change silently does nothing.
+              #
+              # Overwriting the whole file instead would discard state the
+              # app owns (channels, agents, plugin config). So merge only the
+              # keys this chart declares and leave everything else alone.
+              node --input-type=commonjs -e '
+                const fs = require("fs");
+                const OWNED = ["gateway", "cron"];
+                const seed = JSON.parse(fs.readFileSync("/seed/openclaw.json", "utf8"));
+                let live = {};
+                try { live = JSON.parse(fs.readFileSync("/home/node/.openclaw/openclaw.json", "utf8")); }
+                catch { live = {}; }
+                for (const key of OWNED) { if (key in seed) { live[key] = seed[key]; } }
+                fs.writeFileSync("/home/node/.openclaw/openclaw.json", JSON.stringify(live, null, 2) + "\n");
+              '
+              [ -f /home/node/.openclaw/workspace/AGENTS.md ] || cp /seed/AGENTS.md /home/node/.openclaw/workspace/AGENTS.md
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: home
+              mountPath: /home/node/.openclaw
+            - name: seed
+              mountPath: /seed
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: gateway
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["node", "/app/dist/index.js", "gateway", "run"]
+          ports:
+            - name: gateway
+              containerPort: {{ .Values.gateway.port }}
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: {{ required "existingSecret is required" .Values.existingSecret | quote }}
+          env:
+            - name: HOME
+              value: /home/node
+            - name: OPENCLAW_CONFIG_DIR
+              value: /home/node/.openclaw
+            - name: XDG_CACHE_HOME
+              value: /home/node/.openclaw/.cache
+            - name: NODE_ENV
+              value: production
+            - name: NOESIS_WORKER_IDENTITY
+              value: {{ .Values.worker.identity | quote }}
+            - name: NOESIS_BROKER_ENDPOINT
+              value: {{ .Values.worker.brokerEndpoint | quote }}
+            {{- if and .Values.worker.brokerSecretName .Values.worker.brokerSecretKey }}
+            - name: NOESIS_BROKER_REFERENCE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.worker.brokerSecretName | quote }}
+                  key: {{ .Values.worker.brokerSecretKey | quote }}
+            {{- end }}
+          # PROBE CONTRACTS - assert the JSON body, not just the status code,
+          # because the Control UI serves a catch-all 200 for unknown paths and
+          # a status-only check would pass forever against an image whose probe
+          # route does not exist.
+          #
+          # The routes return DIFFERENT keys (verified against the upstream
+          # handler src/gateway/server-http-probes.ts at this pinned tag):
+          #   /startupz -> {"ok": bool, "status": "started"|"starting"}
+          #   /readyz   -> {"ready": bool}
+          #   /healthz  -> {"ok": bool, "status": "live"}
+          # Asserting `.ready` against /startupz is ALWAYS false (key absent),
+          # which deadlocks the pod in a startup-probe failure loop. Keep each
+          # probe matched to its own key.
+          startupProbe:
+            exec:
+              command:
+                - node
+                - -e
+                - >-
+                  require('http').get('http://127.0.0.1:{{ .Values.gateway.port }}/startupz',r=>{let b='';r.on('data',d=>b+=d);r.on('end',()=>{try{const j=JSON.parse(b);process.exit(r.statusCode<400&&j.ok===true?0:1)}catch{process.exit(1)}})}).on('error',()=>process.exit(1))
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command:
+                - node
+                - -e
+                - >-
+                  require('http').get('http://127.0.0.1:{{ .Values.gateway.port }}/readyz',r=>{let b='';r.on('data',d=>b+=d);r.on('end',()=>{try{const j=JSON.parse(b);process.exit(r.statusCode<400&&j.ready===true?0:1)}catch{process.exit(1)}})}).on('error',()=>process.exit(1))
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - node
+                - -e
+                - >-
+                  require('http').get('http://127.0.0.1:{{ .Values.gateway.port }}/healthz',r=>{let b='';r.on('data',d=>b+=d);r.on('end',()=>{try{const j=JSON.parse(b);process.exit(r.statusCode<400&&j.ok===true?0:1)}catch{process.exit(1)}})}).on('error',()=>process.exit(1))
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: home
+              mountPath: /home/node/.openclaw
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: home
+          persistentVolumeClaim:
+            claimName: {{ include "openclaw.pvcName" . }}
+        - name: seed
+          configMap:
+            name: {{ include "openclaw.fullname" . }}-seed
+        - name: tmp
+          emptyDir: {}

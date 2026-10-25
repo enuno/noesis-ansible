@@ -116,6 +116,14 @@ Three things must agree, and the chart **fails closed** if they do not:
    `https://noesis-openclaw.tailf99a0.ts.net`, i.e. host **and** domain. The
    Control UI validates the origin the browser actually sends; a bare
    `https://noesis-openclaw` loads the UI and then refuses every request.
+4. **`gateway.trustedProxies` lists the proxy.** The operator's Ingress
+   forwards `X-Forwarded-For`, and the gateway **fails closed** with
+   `403 proxy_attribution_required` on any request carrying proxy headers from
+   a source it does not trust. Without this the UI loads but every request is
+   rejected. The value is the cluster's **pod CIDR** (`10.42.0.0/24` on
+   noesis-praxis), because the operator's proxy pods take dynamic IPs and a
+   single IP would break on every reschedule. Read the real value with
+   `kubectl get nodes -o jsonpath='{.items[0].spec.podCIDR}'`.
 
 `openclaw_k8s_reserved_hostnames` lists names the proxy must never claim
 (`tailscale-operator`, `noesis-praxis`, `noesis-lab`). The operator mints a
@@ -162,6 +170,31 @@ The chart **never creates a Secret** and the role never inlines a credential.
 
 ---
 
+## 4b. How a config change reaches the running gateway
+
+Two things stand between a chart edit and the running process. Both were
+found the hard way; both are asserted by the offline suite.
+
+**The seed must MERGE, not only seed.** The upstream pattern copies
+`openclaw.json` from a ConfigMap **only if the file is missing**. On a
+persistent volume the file always exists, so a settings change is silently
+ignored — the ConfigMap updates, the pod keeps the config it started with.
+The chart's init container therefore **merges the chart-owned top-level keys**
+(`gateway`, `cron`) into the live config and leaves everything else alone.
+Overwriting the whole file instead would discard app-owned state (channels,
+agents, plugin config).
+
+**The pod must roll.** A ConfigMap change does not restart anything, so the
+Deployment carries a `checksum/config` annotation over the rendered ConfigMap.
+Without it the merged config lands on disk but the gateway never re-reads it.
+
+**Bump the chart version.** `kubernetes.core.helm` **skips the upgrade when the
+chart version is unchanged**, even if the chart's content changed: the run
+reports `ok` / `changed=0` and the release keeps the old chart. Chart
+versions are immutable artifacts — every content change gets a new version
+(`charts/openclaw/0.2.0/` → `0.2.1/`), and the role pins
+`openclaw_k8s_chart_version`.
+
 ## 5. Verification
 
 What counts as evidence, in order:
@@ -180,8 +213,27 @@ kubectl -n tailscale logs deploy/tailscale-operator --tail=200 | grep -i opencla
 kubectl -n tailscale exec ts-openclaw-* -- \
   wget -q -S -O /dev/null http://10.43.84.137:18789/healthz
 
-# 4. the client path
+# 4. the client path -- expect 200 and the Control UI
 curl -s -o /dev/null -w '%{http_code}\n' https://noesis-openclaw.tailf99a0.ts.net/
+#   200
+curl -s https://noesis-openclaw.tailf99a0.ts.net/ | grep -o '<title>[^<]*</title>'
+#   <title>OpenClaw Control</title>
+```
+
+A `403` here is almost never an auth problem. Read the body — it names the
+cause:
+
+| Body | Meaning | Fix |
+| --- | --- | --- |
+| `proxy_attribution_required` | the proxy is not in `gateway.trustedProxies` | set it (see §3) |
+| anything else | — | check the gateway log |
+
+The gateway also logs the exact source it saw, which is how the trusted proxy
+address is identified:
+
+```
+[gateway] observed unattributable proxy-shaped traffic from 10.42.0.30;
+Configure gateway.trustedProxies narrowly ...
 ```
 
 DNS expectations (MagicDNS names are private — public resolvers return NXDOMAIN
@@ -247,7 +299,13 @@ asserted nothing.
 
 ---
 
-## 8. Known operational issue: Tailnet Lock
+## 8. Tailnet Lock (resolved — but it will recur)
+
+> **Resolved on 2026-10-25.** The proxy device was signed from the MacBook
+> (which holds the tailnet's trusted signing key `tlpub:96f144b3…`). The
+> Control UI is reachable at <https://noesis-openclaw.tailf99a0.ts.net/>.
+> Read the rest of this section before deploying the **next** Tailscale
+> Ingress: every new proxy device starts locked out until it is signed.
 
 The tailnet has **Tailnet Lock** enabled with a single trusted signing key
 (`tlpub:96f144b3…`). This host's own lock key (`tlpub:2e306822…`) is
