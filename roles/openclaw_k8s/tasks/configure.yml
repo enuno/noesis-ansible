@@ -25,9 +25,11 @@
 - name: Assert copied chart pin
   ansible.builtin.assert:
     that:
-      - "'version: 0.1.0' in (openclaw_k8s_chart_yaml.content | b64decode)"
-      - "'appVersion: \"2026.10.5\"' in (openclaw_k8s_chart_yaml.content | b64decode)"
-    fail_msg: Copied chart does not match version 0.1.0 / appVersion 2026.10.5.
+      - "('version: ' ~ openclaw_k8s_chart_version) in (openclaw_k8s_chart_yaml.content | b64decode)"
+      - "('appVersion: \"' ~ openclaw_k8s_chart_app_version ~ '\"') in (openclaw_k8s_chart_yaml.content | b64decode)"
+    fail_msg: >-
+      Copied chart does not match version {{ openclaw_k8s_chart_version }} /
+      appVersion {{ openclaw_k8s_chart_app_version }}.
 
 - name: Render non-secret OpenClaw values
   ansible.builtin.template:

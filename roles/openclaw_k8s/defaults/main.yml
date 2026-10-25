@@ -12,15 +12,22 @@ openclaw_k8s_kubernetes_venv: /opt/ansible-kubernetes
 openclaw_k8s_release_name: openclaw
 openclaw_k8s_namespace: openclaw
 openclaw_k8s_desired_state: present
-openclaw_k8s_chart_version: "0.1.0"
-openclaw_k8s_chart_app_version: "2026.10.5"
+openclaw_k8s_chart_version: "0.2.0"
+openclaw_k8s_chart_app_version: "2026.10.7"
 openclaw_k8s_chart_source: "{{ playbook_dir | dirname }}/charts/openclaw/{{ openclaw_k8s_chart_version }}"
 openclaw_k8s_chart_path: "/opt/openclaw-chart/{{ openclaw_k8s_chart_version }}"
 openclaw_k8s_stage_dir: /opt/openclaw-stage
 
+# Upstream release pin. Source of truth:
+#   https://api.github.com/repos/openclaw/openclaw/releases
+# v2026.10.7 is the latest non-prerelease, non-draft release (published
+# 2026-10-24). The `-slim` variant is the image upstream's own Kubernetes
+# manifests use. The digest is the multi-arch OCI index for that exact tag,
+# resolved from GHCR and confirmed to carry linux/amd64 + linux/arm64; the
+# chart deploys BY DIGEST so the tag cannot drift under the release.
 openclaw_k8s_image_repository: ghcr.io/openclaw/openclaw
-openclaw_k8s_image_tag: "2026.10.5"
-openclaw_k8s_image_digest: sha256:f40d1e66fd14d8c5b49c832f4100f83b53fdc01f5108f7db11de38fd0ee6dbe5
+openclaw_k8s_image_tag: "2026.10.7-slim"
+openclaw_k8s_image_digest: sha256:fb26f0841659dc757f23feec9adeab51f11d76779a409db5d22e191b43841afa
 openclaw_k8s_image_pull_policy: IfNotPresent
 
 openclaw_k8s_replica_count: 1
@@ -37,12 +44,41 @@ openclaw_k8s_persistence_access_mode: ReadWriteOnce
 openclaw_k8s_storage_class: ""
 openclaw_k8s_existing_claim: ""
 
+# --- Tailnet exposure via the Tailscale Kubernetes Operator ------------------
+# Exposure is opt-in per run (keep the restrictive default in the role), but
+# when enabled these are the values this deployment uses.
+#
+# The hostname names the SERVICE, never the server and never the operator's own
+# device. The operator mints the device under this exact name and appends the
+# tailnet domain itself, so this is a bare HOSTSPEC -- never a *.ts.net FQDN.
+# Resulting MagicDNS name: noesis-openclaw.<tailnet domain>.
 openclaw_k8s_exposure_enabled: false
-openclaw_k8s_ingress_class_name: ""
-openclaw_k8s_tailnet_hostname: ""
+openclaw_k8s_ingress_class_name: tailscale
+openclaw_k8s_tailnet_hostname: noesis-openclaw
+openclaw_k8s_tailnet_domain: tailf99a0.ts.net
 openclaw_k8s_tailscale_operator_namespace: tailscale
-openclaw_k8s_allowed_origins: []
-openclaw_k8s_gateway_bind: loopback
+
+# Names that must never be claimed by this service's proxy device. The operator
+# mints a device per Ingress, so claiming a name already in use HIJACKS that
+# identity: the new proxy takes the name and the original endpoint stops
+# resolving to its real backend. Reserved here are the operator's own device,
+# the Kubernetes node name, and the physical host's device.
+openclaw_k8s_reserved_hostnames:
+  - tailscale-operator
+  - noesis-praxis
+  - noesis-lab
+
+# The Control UI validates the browser's ACTUAL origin, which is the full
+# MagicDNS name -- not the bare hostspec. Derived rather than hand-written so
+# the two can never drift apart.
+openclaw_k8s_allowed_origins:
+  - "https://{{ openclaw_k8s_tailnet_hostname }}.{{ openclaw_k8s_tailnet_domain }}"
+
+# `lan` binds the gateway on all pod interfaces so the operator's proxy pod can
+# reach it through the ClusterIP Service. `loopback` (the correct default when
+# NOT exposed) is reachable only via `kubectl port-forward` and makes a
+# Tailscale Ingress return 502. The chart fails closed on this mismatch.
+openclaw_k8s_gateway_bind: "{{ 'lan' if (openclaw_k8s_exposure_enabled | bool) else 'loopback' }}"
 openclaw_k8s_gateway_auth_mode: token
 openclaw_k8s_external_messaging_enabled: false
 openclaw_k8s_funnel_enabled: false

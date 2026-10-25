@@ -1,0 +1,62 @@
+---
+# openclaw-deploy.yml — one entry point for all three upstream OpenClaw install
+# methods. Select with -e openclaw_deploy_method=<host|docker|k8s>.
+#
+#   ansible-playbook -i <inventory> playbooks/openclaw-deploy.yml \
+#     -e openclaw_deploy_method=host \
+#     -e openclaw_host_live_changes=true
+#
+#   ansible-playbook -i <inventory> playbooks/openclaw-deploy.yml \
+#     -e openclaw_deploy_method=docker \
+#     -e openclaw_docker_live_changes=true
+#
+#   ansible-playbook -i <inventory> playbooks/openclaw-deploy.yml \
+#     -e openclaw_deploy_method=k8s \
+#     -e openclaw_k8s_existing_secret=openclaw-secrets \
+#     -e openclaw_k8s_exposure_enabled=true \
+#     -e openclaw_k8s_kube_context=default \
+#     -e openclaw_k8s_storage_class=local-path \
+#     -e openclaw_k8s_live_checks=true
+#
+# Targets the openclaw_k3s inventory group by default; override the group with
+# -e openclaw_deploy_group=<group> when deploying to a different host.
+#
+# NOTE: this deploys UPSTREAM OpenClaw (github.com/openclaw/openclaw). The
+# separate playbooks/openclaw.yml deploys AlphaClaw (garrytan/alphaclaw), a
+# different product that happens to share the name. It is untouched.
+
+- name: Deploy OpenClaw
+  hosts: "{{ openclaw_deploy_group | default('openclaw_k3s') }}"
+  gather_facts: false
+  become: true
+  tags: [openclaw]
+  pre_tasks:
+    - name: Assert this is not the placeholder example host
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname != 'openclaw-k3s.example.invalid'
+        fail_msg: inventory/example is not a deploy target.
+
+    - name: Validate the OpenClaw deployment method
+      ansible.builtin.assert:
+        that:
+          - openclaw_deploy_method in ['host', 'docker', 'k8s']
+        fail_msg: >-
+          openclaw_deploy_method must be one of: host, docker, k8s. Got
+          '{{ openclaw_deploy_method | default("<unset>") }}'.
+
+  tasks:
+    - name: Deploy OpenClaw to a host via the vendor installer
+      ansible.builtin.include_role:
+        name: openclaw_host
+      when: openclaw_deploy_method == 'host'
+
+    - name: Deploy OpenClaw via Docker Compose
+      ansible.builtin.include_role:
+        name: openclaw_docker
+      when: openclaw_deploy_method == 'docker'
+
+    - name: Deploy OpenClaw to Kubernetes via Helm
+      ansible.builtin.include_role:
+        name: openclaw_k8s
+      when: openclaw_deploy_method == 'k8s'

@@ -44,7 +44,7 @@
       when: not (openclaw_k8s_live_checks | bool)
     - name: Read chart metadata for offline pin verification
       ansible.builtin.slurp:
-        src: "{{ playbook_dir | dirname }}/charts/openclaw/0.1.0/Chart.yaml"
+        src: "{{ playbook_dir | dirname }}/charts/openclaw/{{ openclaw_k8s_chart_version }}/Chart.yaml"
       delegate_to: localhost
       become: false
       register: openclaw_k8s_offline_chart
@@ -59,8 +59,8 @@
     - name: Assert offline chart, exposure, and Secret-reference policy
       ansible.builtin.assert:
         that:
-          - "'version: 0.1.0' in (openclaw_k8s_offline_chart.content | b64decode)"
-          - "'appVersion: \"2026.10.5\"' in (openclaw_k8s_offline_chart.content | b64decode)"
+          - "('version: ' ~ openclaw_k8s_chart_version) in (openclaw_k8s_offline_chart.content | b64decode)"
+          - "('appVersion: \"' ~ openclaw_k8s_chart_app_version ~ '\"') in (openclaw_k8s_offline_chart.content | b64decode)"
           - "'type: ClusterIP' in (openclaw_k8s_offline_values.content | b64decode)"
           - "'existingSecret:' in (openclaw_k8s_offline_values.content | b64decode)"
           - "'NodePort' not in (openclaw_k8s_offline_values.content | b64decode)"

@@ -1,0 +1,48 @@
+---
+# roles/openclaw_host/defaults/main.yml
+#
+# Host install of UPSTREAM OpenClaw (github.com/openclaw/openclaw) via the
+# vendor's own install.sh. This is a DIFFERENT product from roles/openclaw,
+# which deploys AlphaClaw (garrytan/alphaclaw) and is deliberately untouched.
+
+# --- release pin -----------------------------------------------------------
+# Latest non-prerelease upstream release. install.sh resolves "latest" from the
+# npm dist-tag by default; pinning an explicit version keeps runs reproducible.
+openclaw_host_version: "2026.10.7"
+openclaw_host_install_url: https://openclaw.ai/install.sh
+
+# `npm` is the vendor default. `git` builds from a source checkout instead.
+openclaw_host_install_method: npm
+
+# --- identity and paths ----------------------------------------------------
+openclaw_host_user: openclaw
+openclaw_host_group: openclaw
+openclaw_host_home: /opt/openclaw
+openclaw_host_state_dir: "{{ openclaw_host_home }}/.openclaw"
+openclaw_host_config_path: "{{ openclaw_host_state_dir }}/openclaw.json"
+
+# --- gateway ---------------------------------------------------------------
+openclaw_host_gateway_port: 18789
+# loopback is the safe default: the Control UI is unauthenticated-adjacent and
+# `lan` publishes it on every interface of the host. Only widen deliberately.
+openclaw_host_gateway_bind: loopback
+openclaw_host_gateway_auth_mode: token
+
+# Name of an environment file holding OPENCLAW_GATEWAY_TOKEN. The role NEVER
+# generates or inlines a credential; it refuses to run if this is unset.
+openclaw_host_env_file: /etc/openclaw/openclaw.env
+
+# --- service ---------------------------------------------------------------
+openclaw_host_service_name: openclaw-gateway
+openclaw_host_service_enabled: true
+openclaw_host_service_state: started
+
+# --- safety rails ----------------------------------------------------------
+# install.sh is piped to a shell. Keep it non-interactive and refuse onboarding
+# so a managed run can never block on a prompt or mutate an operator's account.
+openclaw_host_installer_args:
+  - --no-prompt
+  - --no-onboard
+
+# Live, state-changing work is opt-in per run, matching openclaw_k8s.
+openclaw_host_live_changes: false

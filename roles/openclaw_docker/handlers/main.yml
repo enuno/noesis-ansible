@@ -1,0 +1,11 @@
+---
+# roles/openclaw_docker/handlers/main.yml
+
+- name: Recreate openclaw compose stack
+  ansible.builtin.command:
+    argv:
+      - "{{ openclaw_docker_compose_cmd + ['up', '-d', '--remove-orphans', '--force-recreate'] }}"
+    chdir: "{{ openclaw_docker_root }}"
+  environment:
+    COMPOSE_PROJECT_NAME: "{{ openclaw_docker_project_name }}"
+  become: true

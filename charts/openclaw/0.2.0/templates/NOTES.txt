@@ -1,0 +1,5 @@
+OpenClaw {{ .Chart.AppVersion }} is installed from a Noesis-maintained chart.
+This is not an official OpenClaw Helm chart.
+State is on PVC {{ include "openclaw.pvcName" . }} and survives pod replacement.
+The seed ConfigMap only initializes missing files; it never overwrites persisted config.
+Monitor /readyz; pod startup/readiness probes use /startupz and liveness uses /healthz.

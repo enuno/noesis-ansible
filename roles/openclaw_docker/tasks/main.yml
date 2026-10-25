@@ -1,0 +1,125 @@
+---
+# roles/openclaw_docker/tasks/main.yml
+# Docker / Docker Compose install of upstream OpenClaw.
+
+- name: Validate OpenClaw Docker inputs offline
+  ansible.builtin.assert:
+    that:
+      - openclaw_docker_version is match('^[0-9]{4}\.[0-9]+\.[0-9]+$')
+      - openclaw_docker_image_repository == 'ghcr.io/openclaw/openclaw'
+      - openclaw_docker_image_tag == '2026.10.7-slim'
+      - openclaw_docker_image_digest is match('^sha256:[0-9a-f]{64}$')
+      - openclaw_docker_root is match('^/')
+      - openclaw_docker_compose_path is match('^/')
+      - openclaw_docker_env_path is match('^/')
+      - openclaw_docker_gateway_port | int > 0
+      - openclaw_docker_gateway_port | int < 65536
+      - openclaw_docker_gateway_bind in ['loopback', 'lan', 'tailnet', 'custom', 'auto']
+      - openclaw_docker_project_name is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+    fail_msg: OpenClaw Docker inputs failed closed offline validation.
+
+- name: Refuse to run live without an explicit opt-in
+  ansible.builtin.assert:
+    that:
+      - openclaw_docker_live_changes | bool
+    fail_msg: >-
+      Set openclaw_docker_live_changes=true to deploy the compose stack. This
+      run pulls images and starts containers on the target host.
+  when: not ansible_check_mode
+
+- name: Assert Docker and the compose plugin are present
+  ansible.builtin.command:
+    argv: "{{ openclaw_docker_compose_cmd + ['version'] }}"
+  register: openclaw_docker_compose_version
+  changed_when: false
+  failed_when: openclaw_docker_compose_version.rc != 0
+  become: true
+
+- name: Ensure the compose root and state directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0750"
+  loop:
+    - "{{ openclaw_docker_root }}"
+    - "{{ openclaw_docker_config_dir }}"
+    - "{{ openclaw_docker_workspace_dir }}"
+    - "{{ openclaw_docker_auth_profile_secret_dir }}"
+  become: true
+
+- name: Render the compose file
+  ansible.builtin.template:
+    src: compose.yaml.j2
+    dest: "{{ openclaw_docker_compose_path }}"
+    mode: "0640"
+  become: true
+  notify: Recreate openclaw compose stack
+
+# The token lives in .env, provisioned out of band. Never generated here.
+- name: Check for the pre-provisioned environment file
+  ansible.builtin.stat:
+    path: "{{ openclaw_docker_env_path }}"
+  register: openclaw_docker_envfile_stat
+  become: true
+
+- name: Refuse to start without the gateway token file
+  ansible.builtin.assert:
+    that:
+      - openclaw_docker_envfile_stat.stat.exists
+    fail_msg: >-
+      {{ openclaw_docker_env_path }} is absent. Provision it out of band with
+      OPENCLAW_GATEWAY_TOKEN=<value> (mode 0600); this role never generates or
+      inlines credentials.
+  when:
+    - not ansible_check_mode
+    - openclaw_docker_require_token | bool
+
+- name: Pull the pinned image
+  ansible.builtin.command:
+    argv:
+      - "{{ openclaw_docker_compose_cmd + ['pull', 'openclaw-gateway'] }}"
+    chdir: "{{ openclaw_docker_root }}"
+  register: openclaw_docker_pull
+  changed_when: openclaw_docker_pull.rc == 0
+  become: true
+  when: openclaw_docker_live_changes | bool
+  notify: Recreate openclaw compose stack
+
+- name: Bring the compose stack up
+  ansible.builtin.command:
+    argv:
+      - "{{ openclaw_docker_compose_cmd + ['up', '-d', '--remove-orphans'] }}"
+    chdir: "{{ openclaw_docker_root }}"
+  environment:
+    COMPOSE_PROJECT_NAME: "{{ openclaw_docker_project_name }}"
+  register: openclaw_docker_up
+  changed_when: openclaw_docker_up.rc == 0
+  become: true
+  when: openclaw_docker_live_changes | bool
+  notify: Recreate openclaw compose stack
+
+- name: Flush handlers so verification sees the running stack
+  ansible.builtin.meta: flush_handlers
+
+# Assert the JSON body, not just the status code: the Control UI answers 200
+# on unknown paths, so a status-only check passes against a broken gateway.
+- name: Verify the gateway answers its liveness probe
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ openclaw_docker_gateway_port }}/healthz"
+    return_content: true
+  register: openclaw_docker_health
+  retries: 20
+  delay: 5
+  until:
+    - openclaw_docker_health.status is defined
+    - openclaw_docker_health.status == 200
+    - (openclaw_docker_health.json | default({})).ok | default(false) | bool
+  when: not ansible_check_mode
+
+- name: Report the verified Docker deployment
+  ansible.builtin.debug:
+    msg: >-
+      OpenClaw {{ openclaw_docker_version }} compose stack is up, gateway bound
+      {{ openclaw_docker_gateway_bind }} and published on host port
+      {{ openclaw_docker_gateway_port }}.
+  when: not ansible_check_mode

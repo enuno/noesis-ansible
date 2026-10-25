@@ -1,0 +1,49 @@
+---
+# roles/openclaw_docker/defaults/main.yml
+#
+# Docker / Docker Compose install of UPSTREAM OpenClaw.
+# Mirrors upstream docker-compose.yml (v2026.10.7) with the `build:` stanza
+# removed so the pinned published image is used instead of a local build.
+
+# --- release pin -----------------------------------------------------------
+openclaw_docker_version: "2026.10.7"
+openclaw_docker_image_repository: ghcr.io/openclaw/openclaw
+openclaw_docker_image_tag: "2026.10.7-slim"
+openclaw_docker_image_digest: sha256:fb26f0841659dc757f23feec9adeab51f11d76779a409db5d22e191b43841afa
+openclaw_docker_image: >-
+  {{ openclaw_docker_image_repository }}@{{ openclaw_docker_image_digest }}
+
+# --- paths -----------------------------------------------------------------
+openclaw_docker_root: /opt/openclaw-docker
+openclaw_docker_compose_path: "{{ openclaw_docker_root }}/compose.yaml"
+openclaw_docker_env_path: "{{ openclaw_docker_root }}/.env"
+openclaw_docker_config_dir: "{{ openclaw_docker_root }}/state"
+openclaw_docker_workspace_dir: "{{ openclaw_docker_root }}/state/workspace"
+openclaw_docker_auth_profile_secret_dir: "{{ openclaw_docker_root }}/state/auth-profile-secrets"
+
+# --- ports -----------------------------------------------------------------
+# The gateway listens on 18789 inside the container. The host publish port is
+# what a client reaches.
+openclaw_docker_gateway_port: 18789
+openclaw_docker_bridge_port: 18790
+openclaw_docker_msteams_port: 3978
+
+# `lan` binds the gateway on all container interfaces so the published port is
+# actually reachable. `loopback` inside a container publishes a port nothing
+# can connect to, which is the classic compose footgun.
+openclaw_docker_gateway_bind: lan
+
+# --- compose ---------------------------------------------------------------
+openclaw_docker_project_name: openclaw
+# An ARGV LIST, not a string. Piping a string through the `first` filter
+# yields its first CHARACTER ("d"), not its first word -- so a string here
+# silently becomes `d compose ...` at run time.
+openclaw_docker_compose_cmd:
+  - docker
+  - compose
+
+# The token is provisioned out of band into .env. This role never generates or
+# inlines a credential.
+openclaw_docker_require_token: true
+
+openclaw_docker_live_changes: false

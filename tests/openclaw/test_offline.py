@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import re
 import shutil
 import subprocess
@@ -10,11 +12,11 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[2]
 ROLE = REPO / "roles" / "openclaw_k8s"
-CHART = REPO / "charts" / "openclaw" / "0.1.0"
+CHART = REPO / "charts" / "openclaw" / "0.2.0"
 DEFAULTS = ROLE / "defaults" / "main.yml"
 EXAMPLE = REPO / "inventory" / "example" / "group_vars" / "openclaw_k3s.yml"
 VALUES_TEMPLATE = ROLE / "templates" / "values-openclaw.yml.j2"
-DIGEST = "sha256:f40d1e66fd14d8c5b49c832f4100f83b53fdc01f5108f7db11de38fd0ee6dbe5"
+DIGEST = "sha256:fb26f0841659dc757f23feec9adeab51f11d76779a409db5d22e191b43841afa"
 
 
 def load(path: Path):
@@ -36,12 +38,54 @@ def render(overrides=None):
     return env.from_string(VALUES_TEMPLATE.read_text(encoding="utf-8")).render(**variables)
 
 
+def resolve_defaults(overrides=None, use_example=True):
+    """Resolve the role defaults the way Ansible does.
+
+    Role defaults may carry Jinja (the gateway bind depends on whether
+    exposure is enabled), so the literal YAML value is not the contract --
+    the RESOLVED value is. Evaluate them here rather than asserting on the
+    unrendered string.
+    """
+    variables = load(DEFAULTS)
+    if use_example:
+        variables.update(load(EXAMPLE))
+    variables.update(overrides or {})
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined, autoescape=False)
+    env.filters["bool"] = ansible_bool
+    env.filters["dirname"] = lambda p: os.path.dirname(str(p))
+    env.filters["basename"] = lambda p: os.path.basename(str(p))
+    env.filters["to_json"] = lambda v: json.dumps(v)
+    resolved = {}
+    for key, value in variables.items():
+        if isinstance(value, str):
+            try:
+                resolved[key] = env.from_string(value).render(**variables)
+            except Exception:
+                # Not every default is templatable outside Ansible (some
+                # reference role/playbook context). Those are irrelevant to the
+                # contract under test; keep the literal.
+                resolved[key] = value
+        elif isinstance(value, list):
+            items = []
+            for v in value:
+                if isinstance(v, str):
+                    try:
+                        v = env.from_string(v).render(**variables)
+                    except Exception:
+                        pass
+                items.append(v)
+            resolved[key] = items
+        else:
+            resolved[key] = value
+    return resolved
+
+
 def test_pins_and_persistence_defaults():
     defaults = load(DEFAULTS)
     chart = load(CHART / "Chart.yaml")
     values = load(CHART / "values.yaml")
-    assert chart["version"] == "0.1.0"
-    assert chart["appVersion"] == "2026.10.5"
+    assert chart["version"] == "0.2.0"
+    assert chart["appVersion"] == "2026.10.7"
     assert defaults["openclaw_k8s_image_digest"] == DIGEST
     assert values["image"]["digest"] == DIGEST
     assert defaults["openclaw_k8s_replica_count"] == 1
@@ -55,7 +99,13 @@ def test_defaults_fail_closed_and_require_inputs():
     defaults = load(DEFAULTS)
     validation = (ROLE / "tasks" / "validate-inputs.yml").read_text(encoding="utf-8")
     assert defaults["openclaw_k8s_exposure_enabled"] is False
-    assert defaults["openclaw_k8s_gateway_bind"] == "loopback"
+    # The bind default is conditional: restrictive unless exposure is on.
+    # Resolve the ROLE defaults alone: the example inventory pins bind=lan
+    # explicitly, so merging it would mask the default's own behaviour.
+    assert resolve_defaults({"openclaw_k8s_exposure_enabled": False},
+                            use_example=False)["openclaw_k8s_gateway_bind"] == "loopback"
+    assert resolve_defaults({"openclaw_k8s_exposure_enabled": True},
+                            use_example=False)["openclaw_k8s_gateway_bind"] == "lan"
     assert defaults["openclaw_k8s_existing_secret"] == ""
     assert defaults["openclaw_k8s_storage_class"] == ""
     assert defaults["openclaw_k8s_live_checks"] is False
@@ -69,10 +119,110 @@ def test_example_enables_tailscale_only_exposure():
     assert example["openclaw_k8s_exposure_enabled"] is True
     assert example["openclaw_k8s_ingress_class_name"] == "tailscale"
     assert example["openclaw_k8s_gateway_bind"] == "lan"
-    assert example["openclaw_k8s_tailnet_hostname"].endswith(".ts.net")
+
+
+def test_tailnet_hostname_is_a_bare_hostspec_and_origin_is_the_fqdn():
+    """The Control UI validates the browser's REAL origin.
+
+    The operator mints the device from a bare hostspec and appends the tailnet
+    domain itself, so the browser origin is
+    https://<host>.<tailnetDomain> -- NOT https://<host>. Asserting the bare
+    host let the UI load and then refuse every request.
+    """
+    example = load(EXAMPLE)
+    host = example["openclaw_k8s_tailnet_hostname"]
+    domain = example["openclaw_k8s_tailnet_domain"]
+    assert "." not in host, "ingress host must be a bare hostspec, not an FQDN"
+    assert domain and "." not in domain
     assert example["openclaw_k8s_allowed_origins"] == [
-        "https://" + example["openclaw_k8s_tailnet_hostname"]
+        "https://%s.%s" % (host, domain)
     ]
+
+
+def test_role_defaults_derive_the_same_fqdn_origin():
+    # Resolve the ROLE DEFAULTS alone. Merging the example inventory would
+    # let it mask the default's own value, and the assertion would go
+    # vacuous -- proven by mutation: an FQDN in the default went undetected.
+    resolved = resolve_defaults(use_example=False)
+    host = resolved["openclaw_k8s_tailnet_hostname"]
+    domain = resolved["openclaw_k8s_tailnet_domain"]
+    assert "." not in host, "the role default hostname must be a bare hostspec"
+    assert "." in domain
+    assert resolved["openclaw_k8s_allowed_origins"] == [
+        "https://%s.%s" % (host, domain)
+    ]
+
+
+def test_chart_requires_the_fqdn_origin_not_the_bare_host():
+    """The chart guard must reject the bare-host origin.
+
+    Rendered with a bare-host origin, the template has to FAIL -- otherwise
+    the Control UI rejects the real browser origin at run time.
+    """
+    helm = shutil.which("helm")
+    if helm is None:
+        return
+    bad = subprocess.run(
+        [
+            helm, "template", "openclaw", str(CHART),
+            "--set", "existingSecret=example-openclaw-secret",
+            "--set", "ingress.enabled=true",
+            "--set", "ingress.className=tailscale",
+            "--set", "ingress.host=noesis-openclaw",
+            "--set", "ingress.tailnetDomain=tailf99a0.ts.net",
+            "--set", "gateway.bind=lan",
+            "--set", "gateway.allowedOrigins[0]=https://noesis-openclaw",
+        ],
+        capture_output=True, text=True, check=False,
+    )
+    assert bad.returncode != 0
+    assert "must include the exact browser origin" in bad.stderr
+
+    good = subprocess.run(
+        [
+            helm, "template", "openclaw", str(CHART),
+            "--set", "existingSecret=example-openclaw-secret",
+            "--set", "ingress.enabled=true",
+            "--set", "ingress.className=tailscale",
+            "--set", "ingress.host=noesis-openclaw",
+            "--set", "ingress.tailnetDomain=tailf99a0.ts.net",
+            "--set", "gateway.bind=lan",
+            "--set", "gateway.allowedOrigins[0]=https://noesis-openclaw.tailf99a0.ts.net",
+        ],
+        capture_output=True, text=True, check=False,
+    )
+    assert good.returncode == 0, good.stderr
+
+
+def test_probe_contract_matches_the_upstream_json_keys():
+    """Each probe must assert the key its own route returns.
+
+    Upstream (src/gateway/server-http-probes.ts) returns
+    /startupz -> {"ok": bool} and /readyz -> {"ready": bool}. Asserting
+    `.ready` against /startupz is always false (the key is absent), which
+    deadlocks the pod in a startup-probe failure loop.
+    """
+    deployment = (CHART / "templates" / "deployment.yaml").read_text(encoding="utf-8")
+    startup = re.search(r"startupProbe:.*?/startupz.*?j\.(\w+)===true", deployment, re.S)
+    readiness = re.search(r"readinessProbe:.*?/readyz.*?j\.(\w+)===true", deployment, re.S)
+    liveness = re.search(r"livenessProbe:.*?/healthz.*?j\.(\w+)===true", deployment, re.S)
+    assert startup and startup.group(1) == "ok", "startup probe must assert j.ok"
+    assert readiness and readiness.group(1) == "ready", "readiness probe must assert j.ready"
+    assert liveness and liveness.group(1) == "ok", "liveness probe must assert j.ok"
+    # The readiness probe must not still point at /startupz.
+    assert re.search(r"readinessProbe:.*?/readyz", deployment, re.S)
+
+
+def test_reserved_hostnames_are_guarded():
+    """A proxy device that claims an existing name hijacks that identity."""
+    defaults = load(DEFAULTS)
+    reserved = defaults["openclaw_k8s_reserved_hostnames"]
+    assert "tailscale-operator" in reserved
+    assert "noesis-lab" in reserved
+    assert "noesis-praxis" in reserved
+    assert defaults["openclaw_k8s_tailnet_hostname"] not in reserved
+    validation = (ROLE / "tasks" / "validate-inputs.yml").read_text(encoding="utf-8")
+    assert "openclaw_k8s_reserved_hostnames" in validation
 
 
 def test_values_render_is_yaml_and_secret_reference_only():
@@ -158,3 +308,93 @@ def test_helm_rejects_missing_secret_and_public_service_type():
     )
     assert public.returncode != 0
     assert "service.type must be ClusterIP" in public.stderr
+
+
+def test_host_role_installs_via_the_vendor_installer():
+    role = REPO / "roles" / "openclaw_host"
+    defaults = load(role / "defaults" / "main.yml")
+    tasks = (role / "tasks" / "main.yml").read_text(encoding="utf-8")
+    assert defaults["openclaw_host_install_url"] == "https://openclaw.ai/install.sh"
+    assert defaults["openclaw_host_version"] == "2026.10.7"
+    assert defaults["openclaw_host_live_changes"] is False
+    assert defaults["openclaw_host_gateway_bind"] == "loopback"
+    # The credential is never generated or inlined by the role. The NAME may
+    # appear in comments and error messages; what must not appear is a task
+    # that ASSIGNS a literal token value.
+    assert "openclaw_host_env_file" in defaults
+    assert "openclaw_host_envfile_stat" in tasks
+    # No hardcoded secret: nothing that looks like a generated token literal.
+    assert not re.search(r"[0-9a-f]{32,}", tasks), "a token literal leaked into the role"
+    assert not re.search(r"OPENCLAW_GATEWAY_TOKEN\s*[:=]\s*[\"\']?(?!<|\{\{)\S", tasks)
+    # Live work must be opt-in.
+    assert "openclaw_host_live_changes | bool" in tasks
+
+
+def test_host_role_renders_valid_json_and_unit():
+    role = REPO / "roles" / "openclaw_host"
+    template = (role / "templates" / "openclaw.json.j2").read_text(encoding="utf-8")
+    # JSON has no comment syntax and no YAML document marker.
+    assert not template.lstrip().startswith("---")
+    assert not template.lstrip().startswith("#")
+    unit = (role / "templates" / "openclaw-gateway.service.j2").read_text(encoding="utf-8")
+    assert "EnvironmentFile=" in unit
+    assert "ExecStart=" in unit
+
+
+def test_docker_role_uses_the_digest_pinned_image():
+    role = REPO / "roles" / "openclaw_docker"
+    defaults = load(role / "defaults" / "main.yml")
+    assert defaults["openclaw_docker_image_digest"] == DIGEST
+    assert defaults["openclaw_docker_image_tag"] == "2026.10.7-slim"
+    assert defaults["openclaw_docker_live_changes"] is False
+    # A list, not a string: `first`/`join` on a string yields characters.
+    assert isinstance(defaults["openclaw_docker_compose_cmd"], list)
+    assert defaults["openclaw_docker_compose_cmd"] == ["docker", "compose"]
+    compose = (role / "templates" / "compose.yaml.j2").read_text(encoding="utf-8")
+    # The upstream compose file builds from source; this one uses the pin.
+    # Match an actual YAML key, not the word inside an explanatory comment.
+    assert not re.search(r"^\s*build:", compose, re.M)
+    assert "image.digest" in compose or "openclaw_docker_image" in compose
+
+
+def test_deploy_playbook_dispatches_all_three_methods():
+    playbook = (REPO / "playbooks" / "openclaw-deploy.yml").read_text(encoding="utf-8")
+    for method in ("host", "docker", "k8s"):
+        assert "openclaw_deploy_method == '%s'" % method in playbook
+    for role in ("openclaw_host", "openclaw_docker", "openclaw_k8s"):
+        assert "name: %s" % role in playbook
+
+
+def test_alphaclaw_role_is_untouched():
+    """roles/openclaw deploys AlphaClaw, a DIFFERENT product.
+
+    It must not be mistaken for upstream OpenClaw and rewritten.
+    """
+    legacy = load(REPO / "roles" / "openclaw" / "defaults" / "main.yml")
+    assert legacy["openclaw_image"] == "garrytan/alphaclaw:latest"
+    assert legacy["openclaw_port"] == 8090
+
+
+if __name__ == "__main__":
+    # A pytest-style suite with no runner is a SILENT NO-OP when executed as a
+    # script -- it exits 0 having asserted nothing. Run the checks here so the
+    # suite is meaningful in the repo's plain-`python3` convention.
+    import sys
+    import traceback
+
+    checks = [(n, f) for n, f in sorted(globals().items())
+              if n.startswith("test_") and callable(f)]
+    failures = []
+    for name, fn in checks:
+        try:
+            fn()
+            print("  ok   %s" % name)
+        except Exception:
+            failures.append(name)
+            print("  FAIL %s" % name)
+            traceback.print_exc()
+    print("\npassed: %d   failed: %d" % (len(checks) - len(failures), len(failures)))
+    if failures:
+        print("failed checks: %s" % ", ".join(failures))
+        sys.exit(1)
+    print("OFFLINE VALIDATION PASSED")

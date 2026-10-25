@@ -31,6 +31,7 @@ ingress:
   enabled: {{ openclaw_k8s_exposure_enabled | bool | tojson }}
   className: {{ openclaw_k8s_ingress_class_name | tojson }}
   host: {{ openclaw_k8s_tailnet_hostname | tojson }}
+  tailnetDomain: {{ openclaw_k8s_tailnet_domain | tojson }}
   operatorNamespace: {{ openclaw_k8s_tailscale_operator_namespace | tojson }}
 networkPolicy:
   enabled: true

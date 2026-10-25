@@ -1,0 +1,17 @@
+{
+  "gateway": {
+    "bind": {{ openclaw_host_gateway_bind | to_json }},
+    "port": {{ openclaw_host_gateway_port | int }},
+    "auth": {
+      "mode": {{ openclaw_host_gateway_auth_mode | to_json }}
+    },
+    "controlUi": {
+      "allowedOrigins": []
+    }
+  },
+  "agents": {
+    "defaults": {
+      "workspace": {{ (openclaw_host_state_dir ~ "/workspace") | to_json }}
+    }
+  }
+}

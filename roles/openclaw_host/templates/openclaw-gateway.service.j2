@@ -1,0 +1,30 @@
+[Unit]
+Description=OpenClaw Gateway (upstream openclaw/openclaw {{ openclaw_host_version }})
+Documentation=https://github.com/openclaw/openclaw
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ openclaw_host_user }}
+Group={{ openclaw_host_group }}
+WorkingDirectory={{ openclaw_host_home }}
+Environment=HOME={{ openclaw_host_home }}
+Environment=OPENCLAW_HOME={{ openclaw_host_home }}
+Environment=OPENCLAW_STATE_DIR={{ openclaw_host_state_dir }}
+Environment=OPENCLAW_CONFIG_PATH={{ openclaw_host_config_path }}
+Environment=OPENCLAW_GATEWAY_PORT={{ openclaw_host_gateway_port }}
+EnvironmentFile={{ openclaw_host_env_file }}
+ExecStart={{ openclaw_host_home }}/.local/bin/openclaw gateway --bind {{ openclaw_host_gateway_bind }} --port {{ openclaw_host_gateway_port }}
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+# The gateway needs only its own state directory.
+ProtectSystem=strict
+ProtectHome=false
+ReadWritePaths={{ openclaw_host_state_dir }}
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

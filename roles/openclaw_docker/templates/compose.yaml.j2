@@ -1,0 +1,100 @@
+---
+# roles/openclaw_docker/templates/compose.yaml.j2
+#
+# Derived from upstream docker-compose.yml (v2026.10.7). Changes from upstream:
+#   * `build: .` removed -- the pinned published image is used instead.
+#   * the image is pinned BY DIGEST, so a tag cannot drift under the release.
+#   * host paths are pinned to the role's directories instead of $HOME.
+
+services:
+  openclaw-gateway:
+    image: {{ openclaw_docker_image | to_json }}
+    env_file:
+      - path: {{ openclaw_docker_env_path | to_json }}
+        required: false
+    environment:
+      HOME: /home/node
+      OPENCLAW_HOME: /home/node
+      TERM: xterm-256color
+      # Pin container-side paths so host values from .env cannot leak into
+      # runtime code that resolves these inside the container (upstream #77436).
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      OPENCLAW_GATEWAY_PORT: "18789"
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      OPENCLAW_DISABLE_BONJOUR: ${OPENCLAW_DISABLE_BONJOUR:-}
+      TZ: ${OPENCLAW_TZ:-UTC}
+    volumes:
+      - "{{ openclaw_docker_config_dir }}:/home/node/.openclaw"
+      - "{{ openclaw_docker_workspace_dir }}:/home/node/.openclaw/workspace"
+      - "{{ openclaw_docker_auth_profile_secret_dir }}:/home/node/.config/openclaw"
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "{{ openclaw_docker_gateway_port }}:18789"
+      - "{{ openclaw_docker_bridge_port }}:18790"
+      - "{{ openclaw_docker_msteams_port }}:3978"
+    init: true
+    restart: unless-stopped
+    command:
+      [
+        "node",
+        "dist/index.js",
+        "gateway",
+        "--bind",
+        "{{ openclaw_docker_gateway_bind }}",
+        "--port",
+        "18789",
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "dist/docker-healthcheck.js",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  openclaw-cli:
+    image: {{ openclaw_docker_image | to_json }}
+    network_mode: "service:openclaw-gateway"
+    env_file:
+      - path: {{ openclaw_docker_env_path | to_json }}
+        required: false
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HOME: /home/node
+      OPENCLAW_HOME: /home/node
+      TERM: xterm-256color
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      OPENCLAW_GATEWAY_PORT: "18789"
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      BROWSER: echo
+      TZ: ${OPENCLAW_TZ:-UTC}
+    volumes:
+      - "{{ openclaw_docker_config_dir }}:/home/node/.openclaw"
+      - "{{ openclaw_docker_workspace_dir }}:/home/node/.openclaw/workspace"
+      - "{{ openclaw_docker_auth_profile_secret_dir }}:/home/node/.config/openclaw"
+    stdin_open: true
+    tty: true
+    init: true
+    entrypoint: ["node", "dist/index.js"]
+    depends_on:
+      - openclaw-gateway

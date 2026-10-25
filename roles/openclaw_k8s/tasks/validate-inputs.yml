@@ -14,11 +14,11 @@
       - openclaw_k8s_release_name | length <= 53
       - openclaw_k8s_namespace is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
       - openclaw_k8s_namespace | length <= 63
-      - openclaw_k8s_chart_version == '0.1.0'
-      - openclaw_k8s_chart_app_version == '2026.10.5'
+      - openclaw_k8s_chart_version == '0.2.0'
+      - openclaw_k8s_chart_app_version == '2026.10.7'
       - openclaw_k8s_image_repository == 'ghcr.io/openclaw/openclaw'
-      - openclaw_k8s_image_tag == '2026.10.5'
-      - openclaw_k8s_image_digest == 'sha256:f40d1e66fd14d8c5b49c832f4100f83b53fdc01f5108f7db11de38fd0ee6dbe5'
+      - openclaw_k8s_image_tag == '2026.10.7-slim'
+      - openclaw_k8s_image_digest == 'sha256:fb26f0841659dc757f23feec9adeab51f11d76779a409db5d22e191b43841afa'
       - openclaw_k8s_image_digest is match('^sha256:[0-9a-f]{64}$')
       - openclaw_k8s_replica_count | int == 1
       - openclaw_k8s_strategy == 'Recreate'
@@ -61,10 +61,13 @@
       - (not (openclaw_k8s_exposure_enabled | bool)) or openclaw_k8s_gateway_bind == 'lan'
       - (not (openclaw_k8s_exposure_enabled | bool)) or openclaw_k8s_ingress_class_name == 'tailscale'
       - (not (openclaw_k8s_exposure_enabled | bool)) or openclaw_k8s_tailnet_hostname | length > 0
-      - (not (openclaw_k8s_exposure_enabled | bool)) or openclaw_k8s_tailnet_hostname is match('^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$')
+      - (not (openclaw_k8s_exposure_enabled | bool)) or openclaw_k8s_tailnet_hostname is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - (not (openclaw_k8s_exposure_enabled | bool)) or openclaw_k8s_tailnet_hostname not in openclaw_k8s_reserved_hostnames
       - openclaw_k8s_tailscale_operator_namespace is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
       - (not (openclaw_k8s_exposure_enabled | bool)) or openclaw_k8s_allowed_origins | length > 0
-      - (not (openclaw_k8s_exposure_enabled | bool)) or ('https://' ~ openclaw_k8s_tailnet_hostname) in openclaw_k8s_allowed_origins
+      - (not (openclaw_k8s_exposure_enabled | bool)) or openclaw_k8s_tailnet_domain | length > 0
+      - (not (openclaw_k8s_exposure_enabled | bool)) or '.' not in openclaw_k8s_tailnet_hostname
+      - (not (openclaw_k8s_exposure_enabled | bool)) or ('https://' ~ openclaw_k8s_tailnet_hostname ~ '.' ~ openclaw_k8s_tailnet_domain) in openclaw_k8s_allowed_origins
       - openclaw_k8s_allowed_origins | select('match', '^https://') | list | length == openclaw_k8s_allowed_origins | length
       - "'*' not in (openclaw_k8s_allowed_origins | join(','))"
       - "'@' not in (openclaw_k8s_allowed_origins | join(','))"
