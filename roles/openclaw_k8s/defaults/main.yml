@@ -17,7 +17,7 @@ openclaw_k8s_kubernetes_venv: /opt/ansible-kubernetes
 openclaw_k8s_release_name: openclaw
 openclaw_k8s_namespace: openclaw
 openclaw_k8s_desired_state: present
-openclaw_k8s_chart_version: "0.3.1"
+openclaw_k8s_chart_version: "0.3.2"
 openclaw_k8s_chart_app_version: "2026.10.7"
 openclaw_k8s_chart_source: "{{ playbook_dir | dirname }}/charts/openclaw/{{ openclaw_k8s_chart_version }}"
 openclaw_k8s_chart_path: "/opt/openclaw-chart/{{ openclaw_k8s_chart_version }}"

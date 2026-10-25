@@ -17,7 +17,7 @@ onto the Noesis k3s cluster and onto plain hosts.
 | Upstream release | `v2026.10.7` (published 2026-10-24, latest non-prerelease) | `roles/openclaw_*/defaults/main.yml` |
 | Container image | `ghcr.io/openclaw/openclaw:2026.10.7-slim` | chart `values.yaml` |
 | Image digest | `sha256:fb26f0841659dc757f23feec9adeab51f11d76779a409db5d22e191b43841afa` | chart + all three roles |
-| Helm chart | `charts/openclaw/0.3.1` (Noesis-maintained, **not** an official upstream chart) | `charts/openclaw/` |
+| Helm chart | `charts/openclaw/0.3.2` (Noesis-maintained, **not** an official upstream chart) | `charts/openclaw/` |
 | Node runtime | Node 24.22.1+ / 26.12.1+ | upstream requirement |
 
 The digest is the **multi-architecture OCI index** for the tag, confirmed to
@@ -42,7 +42,7 @@ playbooks/openclaw-deploy.yml
 | --- | --- | --- |
 | `host` | `roles/openclaw_host` | `https://openclaw.ai/install.sh` (the vendor's own installer) |
 | `docker` | `roles/openclaw_docker` | upstream `docker-compose.yml`, adapted to a digest-pinned image |
-| `k8s` | `roles/openclaw_k8s` | Noesis Helm chart `charts/openclaw/0.3.1` |
+| `k8s` | `roles/openclaw_k8s` | Noesis Helm chart `charts/openclaw/0.3.2` |
 
 Every method is **fail-closed**: live, state-changing work is opt-in per run
 (`openclaw_host_live_changes` / `openclaw_docker_live_changes` /
@@ -387,7 +387,7 @@ What counts as evidence, in order:
 
 ```bash
 # 1. the release
-helm list -n openclaw                     # openclaw  openclaw-0.3.1  deployed
+helm list -n openclaw                     # openclaw  openclaw-0.3.2  deployed
 kubectl -n openclaw get pods              # 1/1 Running, 0 restarts
 
 # 2. the operator minted the identity
@@ -467,8 +467,8 @@ forever against an image whose probe route does not exist.
 
 ```bash
 python3 tests/openclaw/test_offline.py     # 18 checks
-helm lint charts/openclaw/0.3.1
-helm template openclaw charts/openclaw/0.3.1 \
+helm lint charts/openclaw/0.3.2
+helm template openclaw charts/openclaw/0.3.2 \
   --set existingSecret=openclaw-secrets \
   --set ingress.enabled=true --set ingress.className=tailscale \
   --set ingress.host=noesis-openclaw --set ingress.tailnetDomain=tailf99a0.ts.net \

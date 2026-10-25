@@ -1,0 +1,133 @@
+replicaCount: 1
+strategy: Recreate
+image:
+  repository: ghcr.io/openclaw/openclaw
+  tag: "2026.10.7-slim"
+  digest: sha256:fb26f0841659dc757f23feec9adeab51f11d76779a409db5d22e191b43841afa
+  pullPolicy: IfNotPresent
+# The seed/merge init container runs the SAME pinned application image as the
+# main container (it needs a JSON parser for the config merge), so this block
+# only carries the pull policy.
+initImage:
+  pullPolicy: IfNotPresent
+existingSecret: ""
+worker:
+  identity: ""
+  brokerEndpoint: ""
+  brokerSecretName: ""
+  brokerSecretKey: ""
+# --- plugins ---------------------------------------------------------------
+# Plugin packages installed into the Gateway state by the init container.
+# The package lands in <state>/extensions/<dirName> and persists on the PVC.
+plugins:
+  install:
+    - id: typesafe
+      spec: "@openclaw/typesafe@2026.10.7"
+  # The plugin allowlist. Merge into any other allowed plugins.
+  allow:
+    - typesafe
+  entries:
+    typesafe:
+      enabled: true
+      config:
+        apiKey:
+          source: store
+          provider: default
+          id: TYPESAFE_API_KEY
+
+# --- agents ----------------------------------------------------------------
+# `decisionModel` selects the decision-model role. An unset agent override
+# inherits agents.defaults.decisionModel; an empty override disables decisions
+# for that agent.
+agents:
+  ownership: explicit
+  defaults:
+    decisionModel: typesafe/jev-latest
+    # With `ownership: explicit` and more than one agent, owner-scoped
+    # commands (models status, workspace plugin discovery, heartbeat) have no
+    # implicit owner and fail with "model inspection has no explicit owner".
+    # Naming the system agent restores them. This does NOT enable heartbeats
+    # -- that needs agents.defaults.heartbeat.agentId, which stays unset so
+    # background heartbeats remain disabled.
+    systemAgent:
+      agentId: default
+  entries:
+    default:
+      name: OpenClaw Assistant
+      workspace: ~/.openclaw/workspace
+    research:
+      decisionModel: typesafe/jev-1.13.0
+
+# --- gateway secret store --------------------------------------------------
+# Values written into the Gateway's team-scoped secret store by the init
+# container. The value is taken from the container environment (populated from
+# the existingSecret via envFrom) and written with --value-file so it never
+# appears in argv.
+secretStore:
+  entries:
+    - name: TYPESAFE_API_KEY
+      envVar: TYPESAFE_API_KEY
+
+gateway:
+  bind: loopback
+  authMode: token
+  port: 18789
+  allowedOrigins: []
+  externalMessagingEnabled: false
+  # Reverse proxies whose X-Forwarded-For / X-Real-IP headers may be trusted.
+  # The gateway FAILS CLOSED (403 proxy_attribution_required) on any request
+  # that carries proxy headers from a source not listed here, so a request
+  # arriving through the Tailscale operator's proxy MUST list that proxy.
+  # Keep this as narrow as the deployment allows: the operator's proxy pods
+  # take dynamic IPs from the cluster pod CIDR, so a single IP would break
+  # on every reschedule.
+  trustedProxies: []
+service:
+  type: ClusterIP
+  port: 18789
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+ingress:
+  enabled: false
+  className: ""
+  # HOSTSPEC only (e.g. "noesis-openclaw"). The Tailscale operator appends the
+  # tailnet domain itself and mints the device under this name; never write a
+  # *.ts.net FQDN here.
+  host: ""
+  # The tailnet's MagicDNS domain (e.g. "tailf99a0.ts.net"). Required when
+  # ingress is enabled, because the Control UI enforces allowedOrigins against
+  # the browser's ACTUAL origin, which is https://<host>.<tailnetDomain> --
+  # not https://<host>. Without this the UI loads and then refuses requests.
+  tailnetDomain: ""
+  operatorNamespace: tailscale
+  # Names the proxy device must never claim. The Tailscale operator mints a
+  # device per Ingress, so claiming a name already in use HIJACKS that
+  # identity: the new proxy takes the name and the original endpoint stops
+  # resolving to its real backend. Supplied by the role from site inventory.
+  reservedHostnames: []
+networkPolicy:
+  enabled: true
+  allowHttpsEgress: true
+# Resource envelope for the gateway container.
+#
+# The gateway container was OOMKilled repeatedly at the previous 2Gi limit:
+# RSS climbed from ~400Mi to the 2Gi ceiling within ~90s of start-up, so the
+# pod never reached Ready and the Tailscale Ingress returned 502. The Node's
+# own diagnostics attribute the pressure to 16 worker threads
+# (workerHeapTotalBytes ~854MiB) rather than the main heap (~295MiB), so the
+# envelope is sized for the worker fan-out, not for the main-thread heap.
+#
+# Requests stay well below the limits so the pod is Burstable: the scheduler
+# reserves only what the process needs at steady state, while the ceiling
+# gives the worker pool room to finish its start-up before it is killed.
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi

@@ -12,7 +12,7 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[2]
 ROLE = REPO / "roles" / "openclaw_k8s"
-CHART = REPO / "charts" / "openclaw" / "0.3.1"
+CHART = REPO / "charts" / "openclaw" / "0.3.2"
 DEFAULTS = ROLE / "defaults" / "main.yml"
 EXAMPLE = REPO / "inventory" / "example" / "group_vars" / "openclaw_k3s.yml"
 VALUES_TEMPLATE = ROLE / "templates" / "values-openclaw.yml.j2"
@@ -84,7 +84,7 @@ def test_pins_and_persistence_defaults():
     defaults = load(DEFAULTS)
     chart = load(CHART / "Chart.yaml")
     values = load(CHART / "values.yaml")
-    assert chart["version"] == "0.3.1"
+    assert chart["version"] == "0.3.2"
     assert chart["appVersion"] == "2026.10.7"
     assert defaults["openclaw_k8s_image_digest"] == DIGEST
     assert values["image"]["digest"] == DIGEST
@@ -93,6 +93,27 @@ def test_pins_and_persistence_defaults():
     assert defaults["openclaw_k8s_persistence_enabled"] is True
     assert defaults["openclaw_k8s_persistence_size"] == "10Gi"
     assert defaults["openclaw_k8s_persistence_access_mode"] == "ReadWriteOnce"
+
+
+def test_gateway_resource_envelope_allows_worker_pool_startup():
+    """The gateway container needs room for its worker fan-out.
+
+    It was OOMKilled at the previous 2Gi limit: RSS climbed from ~400Mi to
+    the ceiling within ~90s of start-up, so the pod never reached Ready and
+    the Tailscale Ingress returned 502. The Node's own diagnostics attribute
+    the pressure to 16 worker threads (~854MiB of worker heap) rather than
+    the main heap (~295MiB). Pin the envelope so a future edit that silently
+    shrinks it fails here instead of in production.
+    """
+    values = load(CHART / "values.yaml")
+    limits = values["resources"]["limits"]
+    requests = values["resources"]["requests"]
+    assert limits["memory"] == "4Gi"
+    assert limits["cpu"] == "2"
+    # Burstable: requests must stay below limits, or the pod reserves the
+    # whole envelope and can starve other workloads on the single node.
+    assert requests["memory"] == "1Gi"
+    assert requests["cpu"] == "500m"
 
 
 def test_defaults_fail_closed_and_require_inputs():
@@ -340,8 +361,8 @@ def test_chart_version_is_bumped_so_the_upgrade_applies():
     chart = load(CHART / "Chart.yaml")
     validation = (ROLE / "tasks" / "validate-inputs.yml").read_text(encoding="utf-8")
     assert chart["version"] == defaults["openclaw_k8s_chart_version"]
-    assert defaults["openclaw_k8s_chart_version"] == "0.3.1"
-    assert "openclaw_k8s_chart_version == '0.3.1'" in validation
+    assert defaults["openclaw_k8s_chart_version"] == "0.3.2"
+    assert "openclaw_k8s_chart_version == '0.3.2'" in validation
     # The chart DIRECTORY name must match the version helm records.
     assert CHART.name == chart["version"]
 
