@@ -12,6 +12,7 @@ tailscale_k8s_actions:
   - install
   - remove-host
   - expose
+  - dns
   - validate
 
 # Chart pins (vendored; see charts/vendor/tailscale-operator/VENDOR.md)
@@ -41,6 +42,21 @@ tailscale_k8s_dashboard_hostname: noesis-praxis
 tailscale_k8s_dashboard_backend_namespace: hermes-agent
 tailscale_k8s_dashboard_backend_service: hermes-agent
 tailscale_k8s_dashboard_backend_port: 9119
+
+# In-cluster MagicDNS. DNSConfig creates the Tailscale nameserver and the
+# CoreDNS stub forwards only ts.net queries to it. The ingress list is
+# annotated so workloads can resolve the in-cluster Tailscale Ingress proxies
+# by their normal MagicDNS names.
+tailscale_k8s_dnsconfig_name: ts-dns
+tailscale_k8s_dns_nameserver_image_repo: tailscale/k8s-nameserver
+tailscale_k8s_dns_nameserver_image_tag: unstable
+tailscale_k8s_dns_coredns_namespace: kube-system
+tailscale_k8s_dns_coredns_configmap: coredns-custom
+tailscale_k8s_dns_ingresses:
+  - namespace: openclaw
+    name: openclaw
+  - namespace: n8n
+    name: n8n-main
 
 # Tags for the operator's own tailnet identity. MUST equal the tags borne by
 # the OAuth client — an OAuth client can only mint authkeys for tags it

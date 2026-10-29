@@ -19,6 +19,10 @@
   ansible.builtin.include_tasks: expose.yml
   when: "'expose' in tailscale_k8s_actions"
 
+- name: Enable in-cluster MagicDNS resolution
+  ansible.builtin.include_tasks: dns.yml
+  when: "'dns' in tailscale_k8s_actions"
+
 - name: Validate tailscale_k8s deployment
   ansible.builtin.include_tasks: validate.yml
   when: "'validate' in tailscale_k8s_actions"

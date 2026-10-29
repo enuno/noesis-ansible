@@ -49,4 +49,4 @@
         ansible_python_interpreter: "{{ hermes_kubernetes_venv }}/bin/python"
   roles:
     - role: tailscale_k8s
-      tailscale_k8s_actions: [install, remove-host, expose, validate]
+      tailscale_k8s_actions: [install, remove-host, expose, dns, validate]

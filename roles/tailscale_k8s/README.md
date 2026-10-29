@@ -44,6 +44,8 @@ tailnet client ──(WireGuard, tailnet-only)──> operator proxy pod (ns tai
   wait for operator readiness and CRDs.
 - `remove-host` — logout/disable/purge host tailscaled.
 - `expose` — apply the dashboard Ingress, wait for MagicDNS assignment.
+- `dns` — deploy the operator DNSConfig, wire the k3s CoreDNS `ts.net` stub,
+  and annotate Tailscale Ingresses for in-cluster MagicDNS resolution.
 - `validate` — read-only post-conditions.
 
 ## Uncertainties to confirm on first live run (SSH was down at authoring time)

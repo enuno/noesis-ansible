@@ -73,3 +73,39 @@
       - tailscale_k8s_validate_svc.resources | length == 1
       - tailscale_k8s_validate_svc.resources[0].spec.type == 'ClusterIP'
     fail_msg: "hermes-agent Service must remain ClusterIP; tailnet exposure comes only from the tailscale Ingress."
+
+- name: Read in-cluster Tailscale DNSConfig
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+    api_version: tailscale.com/v1alpha1
+    kind: DNSConfig
+    name: "{{ tailscale_k8s_dnsconfig_name }}"
+  register: tailscale_k8s_validate_dnsconfig
+  when: "'dns' in tailscale_k8s_actions"
+
+- name: Assert in-cluster MagicDNS nameserver is ready
+  ansible.builtin.assert:
+    that:
+      - tailscale_k8s_validate_dnsconfig.resources | length == 1
+      - tailscale_k8s_validate_dnsconfig.resources[0].status.nameserver.ip | default('') | length > 0
+    fail_msg: "Tailscale DNSConfig has no ready nameserver Service IP."
+  when: "'dns' in tailscale_k8s_actions"
+
+- name: Read k3s CoreDNS custom import ConfigMap
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+    api_version: v1
+    kind: ConfigMap
+    namespace: "{{ tailscale_k8s_dns_coredns_namespace }}"
+    name: "{{ tailscale_k8s_dns_coredns_configmap }}"
+  register: tailscale_k8s_validate_coredns_custom
+  when: "'dns' in tailscale_k8s_actions"
+
+- name: Assert CoreDNS forwards ts.net to the Tailscale nameserver
+  ansible.builtin.assert:
+    that:
+      - tailscale_k8s_validate_coredns_custom.resources | length == 1
+      - "'ts.net.server' in tailscale_k8s_validate_coredns_custom.resources[0].data"
+      - tailscale_k8s_validate_dnsconfig.resources[0].status.nameserver.ip in tailscale_k8s_validate_coredns_custom.resources[0].data['ts.net.server']
+  fail_msg: "CoreDNS is missing the managed ts.net stub for in-cluster MagicDNS."
+  when: "'dns' in tailscale_k8s_actions"

@@ -1,0 +1,89 @@
+---
+# Enable .ts.net resolution for workloads inside the cluster. CoreDNS is
+# configured through k3s' supported coredns-custom import, not by editing the
+# k3s-managed coredns ConfigMap directly.
+
+- name: Apply the singleton Tailscale DNSConfig
+  kubernetes.core.k8s:
+    kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+    state: present
+    definition:
+      apiVersion: tailscale.com/v1alpha1
+      kind: DNSConfig
+      metadata:
+        name: "{{ tailscale_k8s_dnsconfig_name }}"
+      spec:
+        nameserver:
+          image:
+            repo: "{{ tailscale_k8s_dns_nameserver_image_repo }}"
+            tag: "{{ tailscale_k8s_dns_nameserver_image_tag }}"
+
+- name: Wait for the Tailscale nameserver Service IP
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+    api_version: tailscale.com/v1alpha1
+    kind: DNSConfig
+    name: "{{ tailscale_k8s_dnsconfig_name }}"
+  register: tailscale_k8s_dnsconfig
+  until:
+    - tailscale_k8s_dnsconfig.resources | length == 1
+    - tailscale_k8s_dnsconfig.resources[0].status.nameserver.ip is defined
+    - tailscale_k8s_dnsconfig.resources[0].status.nameserver.ip | length > 0
+  retries: 30
+  delay: 5
+
+- name: Set the Tailscale nameserver Service IP
+  ansible.builtin.set_fact:
+    tailscale_k8s_dns_nameserver_ip: "{{ tailscale_k8s_dnsconfig.resources[0].status.nameserver.ip }}"
+
+- name: Configure the CoreDNS ts.net stub through k3s custom imports
+  kubernetes.core.k8s:
+    kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: "{{ tailscale_k8s_dns_coredns_configmap }}"
+        namespace: "{{ tailscale_k8s_dns_coredns_namespace }}"
+      data:
+        ts.net.server: |-
+          ts.net:53 {
+              errors
+              cache 30
+              forward . {{ tailscale_k8s_dns_nameserver_ip }}
+          }
+  register: tailscale_k8s_coredns_custom
+
+- name: Restart CoreDNS after changing the ts.net stub
+  ansible.builtin.command:
+    cmd: >-
+      {{ tailscale_k8s_k3s_binary }} kubectl --kubeconfig {{ tailscale_k8s_kubeconfig_path }}
+      -n {{ tailscale_k8s_dns_coredns_namespace }} rollout restart deployment/coredns
+  changed_when: true
+  when: tailscale_k8s_coredns_custom.changed
+
+- name: Wait for CoreDNS after the stub configuration change
+  ansible.builtin.command:
+    cmd: >-
+      {{ tailscale_k8s_k3s_binary }} kubectl --kubeconfig {{ tailscale_k8s_kubeconfig_path }}
+      -n {{ tailscale_k8s_dns_coredns_namespace }} rollout status deployment/coredns
+      --timeout={{ tailscale_k8s_timeout_seconds }}s
+  changed_when: false
+  when: tailscale_k8s_coredns_custom.changed
+
+- name: Annotate Tailscale Ingresses for in-cluster MagicDNS access
+  kubernetes.core.k8s:
+    kubeconfig: "{{ tailscale_k8s_kubeconfig_path }}"
+    state: patched
+    api_version: networking.k8s.io/v1
+    kind: Ingress
+    namespace: "{{ item.namespace }}"
+    name: "{{ item.name }}"
+    definition:
+      metadata:
+        annotations:
+          tailscale.com/experimental-forward-cluster-traffic-via-ingress: "true"
+  loop: "{{ tailscale_k8s_dns_ingresses }}"
+  loop_control:
+    label: "{{ item.namespace }}/{{ item.name }}"
