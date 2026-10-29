@@ -1,0 +1,44 @@
+---
+- name: Require local BWS prerequisites
+  ansible.builtin.assert:
+    that:
+      - unifi_mcp_organization_id | length > 0
+      - lookup('env', 'BWS_ACCESS_TOKEN') | length > 0
+    fail_msg: "Provide the organization UUID and controller-local BWS_ACCESS_TOKEN."
+  no_log: true
+
+- name: Resolve records without placing secret values in argv
+  ansible.builtin.command:
+    argv: ["{{ unifi_mcp_controller_python }}", "{{ role_path }}/../../scripts/unifi_bws_resolve.py"]
+    stdin: >-
+      {{ {'project_id': unifi_mcp_project_id,
+          'organization_id': unifi_mcp_organization_id,
+          'keys': (unifi_mcp_mode == 'docker_single') | ternary(
+            unifi_mcp_bws_keys | dict2items | rejectattr('key', 'in', ['UNIFI_FLEET_CREDENTIAL_KEY', 'POSTGRES_PASSWORD', 'RUNTIME_PASSWORD', 'REDIS_PASSWORD']) | items2dict,
+            unifi_mcp_bws_keys),
+          'record_ids': unifi_mcp_record_ids,
+          'create': unifi_mcp_allow_bws_create | bool} | to_json }}
+  environment:
+    BWS_ACCESS_TOKEN: "{{ lookup('env', 'BWS_ACCESS_TOKEN') }}"
+  register: unifi_mcp_bws_result
+  changed_when: (unifi_mcp_bws_result.stdout | from_json).created | length > 0
+  delegate_to: localhost
+  become: false
+  no_log: true
+
+- name: Retain resolved credentials in protected Ansible memory
+  ansible.builtin.set_fact:
+    unifi_mcp_secrets: "{{ (unifi_mcp_bws_result.stdout | from_json)['values'] }}"
+  no_log: true
+
+- name: Apply Docker single container
+  ansible.builtin.include_tasks: docker-single.yml
+  when: unifi_mcp_mode == 'docker_single'
+
+- name: Apply pinned Compose fleet
+  ansible.builtin.include_tasks: compose.yml
+  when: unifi_mcp_mode in ['compose_fleet', 'compose_fleet_scale']
+
+- name: Apply Kubernetes chart
+  ansible.builtin.include_tasks: kubernetes.yml
+  when: unifi_mcp_mode == 'kubernetes_helm'

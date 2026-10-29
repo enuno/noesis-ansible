@@ -1,0 +1,24 @@
+---
+- name: Validate pinned chart metadata and host
+  ansible.builtin.assert:
+    that:
+      - (lookup('file', unifi_mcp_chart_path ~ '/Chart.yaml') | from_yaml).version == unifi_mcp_chart_version
+      - (lookup('file', unifi_mcp_chart_path ~ '/Chart.yaml') | from_yaml).appVersion == unifi_mcp_app_version
+      - unifi_mcp_image_tag == '0.7.0-fleet'
+      - unifi_mcp_ingress_host is match('^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')
+      - unifi_mcp_ingress_host not in unifi_mcp_reserved_hostnames
+
+- name: Read selected kubeconfig
+  ansible.builtin.slurp:
+    src: "{{ unifi_mcp_kubeconfig }}"
+  register: unifi_mcp_kube_raw
+  no_log: true
+
+- name: Reject missing context or inconsistent approvals
+  ansible.builtin.assert:
+    that:
+      - unifi_mcp_context in (((unifi_mcp_kube_raw.content | b64decode | from_yaml).get('contexts') or []) | map(attribute='name') | list)
+      - not (unifi_mcp_allow_expose | bool) or (unifi_mcp_allow_apply | bool)
+      - not (unifi_mcp_allow_bws_create | bool) or (unifi_mcp_allow_apply | bool)
+    fail_msg: "Selected kube context missing or approvals inconsistent."
+  no_log: true

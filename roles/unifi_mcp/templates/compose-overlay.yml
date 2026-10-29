@@ -1,0 +1,63 @@
+# Overrides the upstream v0.7.0 fleet examples without editing them.
+# The upstream :***@postgres placeholder is replaced for every consumer.
+services:
+  postgres:
+    image: postgres:16.10-bookworm
+  migrate:
+    image: ghcr.io/enuno/unifi-mcp-server:0.7.0-fleet
+    build: !reset null
+    environment:
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:?migration URL required}
+  runtime-role:
+    image: postgres:16.10-bookworm
+    environment:
+      PGHOST: postgres
+      PGUSER: unifi_mcp
+      PGPASSWORD: ${POSTGRES_PASSWORD:?owner password required}
+      PGDATABASE: unifi_mcp
+      RUNTIME_PASSWORD: ${RUNTIME_PASSWORD:?runtime password required}
+    command: [psql, -v, ON_ERROR_STOP=1, -f, /role/runtime-role.sql]
+    volumes:
+      - ${UNIFI_MCP_ROLE_SQL:?role SQL required}:/role/runtime-role.sql:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  unifi-mcp:
+    image: ghcr.io/enuno/unifi-mcp-server:0.7.0-fleet
+    build: !reset null
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?runtime URL required}
+      REDIS_URL: ${REDIS_URL:?authenticated Redis URL required}
+      UNIFI_CLOUD_API_URL: ${UNIFI_CLOUD_API_URL:?cloud URL required}
+      UNIFI_AUDIT_CHAIN_KEY: ${UNIFI_AUDIT_CHAIN_KEY:?audit key required}
+      UNIFI_READ_ONLY: 'true'
+    depends_on:
+      runtime-role:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+  worker:
+    image: ghcr.io/enuno/unifi-mcp-server:0.7.0-fleet
+    build: !reset null
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?runtime URL required}
+      REDIS_URL: ${REDIS_URL:?authenticated Redis URL required}
+      UNIFI_CLOUD_API_URL: ${UNIFI_CLOUD_API_URL:?cloud URL required}
+      UNIFI_AUDIT_CHAIN_KEY: ${UNIFI_AUDIT_CHAIN_KEY:?audit key required}
+      UNIFI_READ_ONLY: 'true'
+    depends_on:
+      runtime-role:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+  redis:
+    image: redis:7.4.5-bookworm
+    command: [/bin/sh, -ec, 'umask 077; printf "requirepass %s\n" "$$REDIS_PASSWORD" > /tmp/redis.conf; exec redis-server /tmp/redis.conf']
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Redis password required}
+    volumes:
+      - redis-config:/tmp
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+volumes:
+  redis-config:

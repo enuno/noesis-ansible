@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: unifi-mcp-schema-bootstrap
+  namespace: {{ unifi_mcp_namespace }}
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: migrate
+          image: {{ unifi_mcp_image }}:{{ unifi_mcp_image_tag }}
+          command: [python, -m, src.fleet.cli, migrate]
+          env:
+            - name: MIGRATION_DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: {{ unifi_mcp_database_secret_name }}, key: MIGRATION_DATABASE_URL}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      containers:
+        - name: grants
+          image: {{ unifi_mcp_postgres_image }}
+          command: [psql, -v, ON_ERROR_STOP=1, -f, /sql/runtime-role.sql]
+          env:
+            - {name: PGHOST, value: unifi-mcp-postgres}
+            - {name: PGUSER, value: unifi}
+            - {name: PGDATABASE, value: unifi}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ unifi_mcp_database_secret_name }}, key: POSTGRES_PASSWORD}
+            - name: RUNTIME_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ unifi_mcp_database_secret_name }}, key: RUNTIME_PASSWORD}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: sql, mountPath: /sql, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: sql
+          configMap: {name: unifi-mcp-runtime-grants}
+        - name: tmp
+          emptyDir: {}

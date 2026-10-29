@@ -1,0 +1,29 @@
+---
+- name: Validate mode and explicit approvals before any lookup or mutation
+  ansible.builtin.assert:
+    that:
+      - unifi_mcp_enabled | bool
+      - unifi_mcp_mode in ['docker_single', 'compose_fleet', 'compose_fleet_scale', 'kubernetes_helm']
+      - unifi_mcp_mode != 'kubernetes_helm' or unifi_mcp_kubeconfig | length > 0
+      - unifi_mcp_mode != 'kubernetes_helm' or unifi_mcp_context | length > 0
+      - unifi_mcp_namespace is match('^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')
+      - unifi_mcp_release is match('^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')
+    fail_msg: "Explicit mode, enable flag, kubeconfig and context are required."
+
+- name: Verify upstream chart and Compose definitions against pinned revision
+  ansible.builtin.command:
+    argv: "{{ ['git', '-C', unifi_mcp_compose_source, 'diff', '--quiet', unifi_mcp_source_revision, '--', 'deploy/helm/unifi-mcp'] if unifi_mcp_mode == 'kubernetes_helm' else ['git', '-C', unifi_mcp_compose_source, 'diff', '--quiet', unifi_mcp_source_revision, '--', 'docker-compose.fleet.yml', 'docker-compose.fleet-scale.yml'] }}"
+  changed_when: false
+  check_mode: false
+  delegate_to: localhost
+  when: unifi_mcp_mode != 'docker_single'
+
+- name: Kubernetes prerequisites
+  ansible.builtin.include_tasks: kubernetes-preflight.yml
+  when: unifi_mcp_mode == 'kubernetes_helm'
+
+- name: Apply only with explicit approval
+  ansible.builtin.include_tasks: apply.yml
+  when:
+    - not ansible_check_mode
+    - unifi_mcp_allow_apply | bool

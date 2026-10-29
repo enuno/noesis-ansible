@@ -1,0 +1,55 @@
+---
+# Explicit target selector; all modes opt in to application.
+unifi_mcp_mode: ""
+unifi_mcp_enabled: false
+unifi_mcp_allow_bws_create: false
+unifi_mcp_allow_apply: false
+unifi_mcp_controller_python: /home/elvis/.local/share/noesis-unifi-controller-venv/bin/python
+unifi_mcp_force_schema_bootstrap: false
+unifi_mcp_compose_dir: /home/elvis/.local/share/unifi-mcp-compose
+unifi_mcp_compose_project: unifi-mcp
+unifi_mcp_compose_source: /home/elvis/projects/unifi-mcp-server
+unifi_mcp_runtime_secret_name: unifi-mcp-runtime-db
+unifi_mcp_database_secret_name: unifi-mcp-database
+unifi_mcp_redis_secret_name: unifi-mcp-redis-auth
+unifi_mcp_allow_expose: false
+unifi_mcp_kubeconfig: ""
+unifi_mcp_context: ""
+unifi_mcp_namespace: unifi-mcp
+unifi_mcp_release: unifi-mcp-server
+unifi_mcp_chart_path: "/home/elvis/projects/unifi-mcp-server/deploy/helm/unifi-mcp"
+unifi_mcp_source_revision: "6e478142bf5fcdb76a22c5ac8ed29040fe7c8ce5"
+unifi_mcp_chart_version: "0.1.5"
+unifi_mcp_app_version: "0.7.0"
+unifi_mcp_image: "ghcr.io/enuno/unifi-mcp-server"
+unifi_mcp_image_tag: "0.7.0-fleet"
+unifi_mcp_postgres_image: "postgres:16.10-bookworm"
+unifi_mcp_redis_image: "redis:7.4.5-bookworm"
+unifi_mcp_storage_class: local-path
+unifi_mcp_postgres_size: 8Gi
+unifi_mcp_redis_size: 2Gi
+unifi_mcp_secret_name: unifi-mcp-runtime
+unifi_mcp_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+# Supply organization id explicitly; never guess from a different project.
+unifi_mcp_organization_id: ""
+unifi_mcp_record_ids:
+  UNIFI_CLOUD_API_URL: fe3a9e8f-e0bf-4c4b-9f32-b45a001bd35b
+  UNIFI_CLOUD_API_KEY: b960c824-5e8f-4fb1-b9ba-b4ee011c8359
+  UNIFI_API_KEY: 6ddb90a7-bf48-4d5e-8cb6-b4cf00e3db3a
+  UNIFI_LOCAL_HOST: 4ab95544-f4f6-47c8-8a29-b45a001b9d2d
+unifi_mcp_bws_keys:
+  UNIFI_CLOUD_API_URL: UNIFI_CLOUD_API_URL
+  UNIFI_CLOUD_API_KEY: UNIFI_CLOUD_API_KEY
+  UNIFI_API_KEY: UNIFI_API_KEY
+  UNIFI_LOCAL_HOST: UNIFI_LOCAL_HOST
+  MCP_AUTH_TOKEN: UNIFI_MCP_PRAXIS_K3S_MCP_AUTH_TOKEN
+  UNIFI_AUDIT_CHAIN_KEY: UNIFI_MCP_PRAXIS_K3S_AUDIT_CHAIN_KEY
+  UNIFI_FLEET_CREDENTIAL_KEY: UNIFI_MCP_PRAXIS_K3S_FLEET_CREDENTIAL_KEY
+  POSTGRES_PASSWORD: UNIFI_MCP_PRAXIS_K3S_POSTGRES_PASSWORD
+  RUNTIME_PASSWORD: UNIFI_MCP_PRAXIS_K3S_RUNTIME_PASSWORD
+  REDIS_PASSWORD: UNIFI_MCP_PRAXIS_K3S_REDIS_PASSWORD
+unifi_mcp_ingress_host: unifi-mcp-server
+unifi_mcp_reserved_hostnames:
+  - tailscale-operator
+  - noesis-lab
+  - noesis-praxis

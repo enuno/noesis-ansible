@@ -1,0 +1,27 @@
+---
+- name: Reject Kubernetes-only exposure for Docker
+  ansible.builtin.assert:
+    that: not (unifi_mcp_allow_expose | bool)
+    fail_msg: "Docker single is loopback-only; Tailscale Ingress is Kubernetes-only."
+
+- name: Run pinned single container on loopback
+  community.docker.docker_container:
+    name: unifi-mcp-single
+    image: "{{ unifi_mcp_image }}:{{ unifi_mcp_image_tag }}"
+    state: started
+    restart_policy: unless-stopped
+    pull: true
+    published_ports:
+      - "127.0.0.1:3000:3000"
+    env:
+      UNIFI_API_KEY: "{{ unifi_mcp_secrets.UNIFI_API_KEY }}"
+      UNIFI_API_TYPE: local
+      UNIFI_LOCAL_HOST: "{{ unifi_mcp_secrets.UNIFI_LOCAL_HOST }}"
+      UNIFI_CLOUD_API_URL: "{{ unifi_mcp_secrets.UNIFI_CLOUD_API_URL }}"
+      MCP_AUTH_TOKEN: "fleet-admin:{{ unifi_mcp_secrets.MCP_AUTH_TOKEN }}"
+      MCP_SERVER_TRANSPORT: streamable_http
+      MCP_SERVER_HOST: 0.0.0.0
+      MCP_SERVER_PORT: '3000'
+      UNIFI_READ_ONLY: 'true'
+      UNIFI_AUDIT_CHAIN_KEY: "{{ unifi_mcp_secrets.UNIFI_AUDIT_CHAIN_KEY }}"
+  no_log: true

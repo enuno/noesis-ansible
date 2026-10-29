@@ -1,0 +1,212 @@
+---
+- name: Build application-only runtime payload
+  ansible.builtin.set_fact:
+    unifi_mcp_runtime_data:
+      UNIFI_API_KEY: "{{ unifi_mcp_secrets.UNIFI_API_KEY }}"
+      UNIFI_CLOUD_API_URL: "{{ unifi_mcp_secrets.UNIFI_CLOUD_API_URL }}"
+      MCP_AUTH_TOKEN: "fleet-admin:{{ unifi_mcp_secrets.MCP_AUTH_TOKEN }}"
+      UNIFI_AUDIT_CHAIN_KEY: "{{ unifi_mcp_secrets.UNIFI_AUDIT_CHAIN_KEY }}"
+      UNIFI_FLEET_CREDENTIAL_KEY: "{{ unifi_mcp_secrets.UNIFI_FLEET_CREDENTIAL_KEY }}"
+      DATABASE_URL: "postgresql://unifi_mcp_runtime:{{ unifi_mcp_secrets.RUNTIME_PASSWORD | urlencode }}@unifi-mcp-postgres:5432/unifi"
+      REDIS_URL: "redis://:{{ unifi_mcp_secrets.REDIS_PASSWORD | urlencode }}@unifi-mcp-redis:6379/0"
+  no_log: true
+
+- name: Build owner-only database payload
+  ansible.builtin.set_fact:
+    unifi_mcp_database_data:
+      POSTGRES_PASSWORD: "{{ unifi_mcp_secrets.POSTGRES_PASSWORD }}"
+      RUNTIME_PASSWORD: "{{ unifi_mcp_secrets.RUNTIME_PASSWORD }}"
+      MIGRATION_DATABASE_URL: "postgresql://unifi:{{ unifi_mcp_secrets.POSTGRES_PASSWORD | urlencode }}@unifi-mcp-postgres:5432/unifi"
+  no_log: true
+
+- name: Create namespace
+  kubernetes.core.k8s:
+    kubeconfig: "{{ unifi_mcp_kubeconfig }}"
+    context: "{{ unifi_mcp_context }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata: {name: "{{ unifi_mcp_namespace }}"}
+
+- name: Inspect current Secret delivery copies without disclosing values
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ unifi_mcp_kubeconfig }}"
+    context: "{{ unifi_mcp_context }}"
+    api_version: v1
+    kind: Secret
+    name: "{{ item.name }}"
+    namespace: "{{ unifi_mcp_namespace }}"
+  loop:
+    - {name: "{{ unifi_mcp_secret_name }}", payload: "{{ unifi_mcp_runtime_data }}"}
+    - {name: "{{ unifi_mcp_database_secret_name }}", payload: "{{ unifi_mcp_database_data }}"}
+    - {name: "{{ unifi_mcp_redis_secret_name }}", payload: "{{ {'REDIS_PASSWORD': unifi_mcp_secrets.REDIS_PASSWORD} }}"}
+  register: unifi_mcp_existing_secrets
+  no_log: true
+
+- name: Refuse implicit credential rotation against initialized storage or running pods
+  ansible.builtin.assert:
+    that:
+      - item.resources | length == 0 or
+        item.resources[0].data == (dict(item.item.payload.keys() |
+          zip(item.item.payload.values() | map('b64encode'))))
+    fail_msg: "A delivered Secret differs from Bitwarden; coordinate database changes and pod rollout separately."
+  loop: "{{ unifi_mcp_existing_secrets.results }}"
+  no_log: true
+
+- name: Deliver separate application and database secrets
+  kubernetes.core.k8s:
+    kubeconfig: "{{ unifi_mcp_kubeconfig }}"
+    context: "{{ unifi_mcp_context }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ item.name }}"
+        namespace: "{{ unifi_mcp_namespace }}"
+      type: Opaque
+      data: "{{ dict(item.payload.keys() | zip(item.payload.values() | map('b64encode'))) }}"
+  loop:
+    - {name: "{{ unifi_mcp_secret_name }}", payload: "{{ unifi_mcp_runtime_data }}"}
+    - {name: "{{ unifi_mcp_database_secret_name }}", payload: "{{ unifi_mcp_database_data }}"}
+    - {name: "{{ unifi_mcp_redis_secret_name }}", payload: "{{ {'REDIS_PASSWORD': unifi_mcp_secrets.REDIS_PASSWORD} }}"}
+  no_log: true
+  diff: false
+
+- name: Provision Postgres and Redis
+  kubernetes.core.k8s:
+    kubeconfig: "{{ unifi_mcp_kubeconfig }}"
+    context: "{{ unifi_mcp_context }}"
+    state: present
+    definition: "{{ lookup('template', 'fleet-resources.yml.j2') | from_yaml_all | list }}"
+  no_log: true
+  diff: false
+
+- name: Wait for Redis readiness
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ unifi_mcp_kubeconfig }}"
+    context: "{{ unifi_mcp_context }}"
+    api_version: apps/v1
+    kind: Deployment
+    name: unifi-mcp-redis
+    namespace: "{{ unifi_mcp_namespace }}"
+    wait: true
+    wait_condition: {type: Available, status: 'True'}
+    wait_timeout: 300
+
+- name: Wait for Postgres ready replica
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ unifi_mcp_kubeconfig }}"
+    context: "{{ unifi_mcp_context }}"
+    api_version: apps/v1
+    kind: StatefulSet
+    name: unifi-mcp-postgres
+    namespace: "{{ unifi_mcp_namespace }}"
+  register: unifi_mcp_postgres_status
+  until: >-
+    (unifi_mcp_postgres_status.resources | default([]) | length == 1) and
+    (unifi_mcp_postgres_status.resources[0].status.readyReplicas | default(0) | int == 1)
+  retries: 60
+  delay: 5
+
+- name: Store non-secret SQL grants in ConfigMap
+  kubernetes.core.k8s:
+    kubeconfig: "{{ unifi_mcp_kubeconfig }}"
+    context: "{{ unifi_mcp_context }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata: {name: unifi-mcp-runtime-grants, namespace: "{{ unifi_mcp_namespace }}"}
+      data:
+        runtime-role.sql: "{{ lookup('template', 'runtime-role.sql.j2') }}"
+  vars:
+    unifi_mcp_database_name: unifi
+
+- name: Inspect existing schema bootstrap job
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ unifi_mcp_kubeconfig }}"
+    context: "{{ unifi_mcp_context }}"
+    api_version: batch/v1
+    kind: Job
+    name: unifi-mcp-schema-bootstrap
+    namespace: "{{ unifi_mcp_namespace }}"
+  register: unifi_mcp_bootstrap_status
+  no_log: true
+
+- name: Require explicit intervention if prior schema bootstrap failed
+  ansible.builtin.assert:
+    that:
+      - unifi_mcp_bootstrap_status.resources | length == 0 or
+        (unifi_mcp_bootstrap_status.resources[0].status.succeeded | default(0) | int == 1) or
+        (unifi_mcp_force_schema_bootstrap | bool)
+    fail_msg: "Schema bootstrap failed previously; inspect the Job and explicitly opt into a retry."
+
+- name: Remove schema job only when deliberately forced
+  kubernetes.core.k8s:
+    kubeconfig: "{{ unifi_mcp_kubeconfig }}"
+    context: "{{ unifi_mcp_context }}"
+    state: absent
+    api_version: batch/v1
+    kind: Job
+    name: unifi-mcp-schema-bootstrap
+    namespace: "{{ unifi_mcp_namespace }}"
+    wait: true
+    wait_timeout: 120
+  when: unifi_mcp_force_schema_bootstrap | bool
+
+- name: Run migration as owner then grant runtime role before chart server exists
+  kubernetes.core.k8s:
+    kubeconfig: "{{ unifi_mcp_kubeconfig }}"
+    context: "{{ unifi_mcp_context }}"
+    state: present
+    definition: "{{ lookup('template', 'bootstrap-job.yml.j2') | from_yaml }}"
+  no_log: true
+  diff: false
+  when: unifi_mcp_force_schema_bootstrap | bool or unifi_mcp_bootstrap_status.resources | length == 0
+
+- name: Wait for successful migration and runtime grant
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ unifi_mcp_kubeconfig }}"
+    context: "{{ unifi_mcp_context }}"
+    api_version: batch/v1
+    kind: Job
+    name: unifi-mcp-schema-bootstrap
+    namespace: "{{ unifi_mcp_namespace }}"
+    wait: true
+    wait_condition: {type: Complete, status: 'True'}
+    wait_timeout: 600
+  no_log: true
+
+- name: Install pinned chart after schema and runtime grant
+  kubernetes.core.helm:
+    name: "{{ unifi_mcp_release }}"
+    chart_ref: "{{ unifi_mcp_chart_path }}"
+    release_namespace: "{{ unifi_mcp_namespace }}"
+    kubeconfig: "{{ unifi_mcp_kubeconfig }}"
+    context: "{{ unifi_mcp_context }}"
+    wait: true
+    timeout: 600s
+    values:
+      image: {repository: "{{ unifi_mcp_image }}", tag: "{{ unifi_mcp_image_tag }}"}
+      existingSecret: "{{ unifi_mcp_secret_name }}"
+      controller: {apiType: local, localHost: "{{ unifi_mcp_secrets.UNIFI_LOCAL_HOST }}", verifySsl: false}
+      server:
+        replicas: 2
+        statelessHttp: true
+        extraEnv:
+          UNIFI_READ_ONLY: 'true'
+          UNIFI_AUDIT_READS: 'true'
+      fleet:
+        enabled: true
+        migrate: false
+        workers: {replicas: 1}
+      persistence: {enabled: false}
+      service: {type: ClusterIP, port: 3000}
+      ingress: {enabled: false}
+  no_log: true
+
+- name: Expose only after escrow and install
+  ansible.builtin.include_tasks: expose.yml
+  when: unifi_mcp_allow_expose | bool

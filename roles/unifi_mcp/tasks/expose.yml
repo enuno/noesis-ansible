@@ -1,0 +1,36 @@
+---
+- name: Require completed Bitwarden resolution before tailnet exposure
+  ansible.builtin.assert:
+    that:
+      - unifi_mcp_bws_result is defined
+      - unifi_mcp_secrets.MCP_AUTH_TOKEN | length > 0
+      - unifi_mcp_ingress_host not in unifi_mcp_reserved_hostnames
+  no_log: true
+
+- name: Expose only through the Tailscale IngressClass
+  kubernetes.core.k8s:
+    kubeconfig: "{{ unifi_mcp_kubeconfig }}"
+    context: "{{ unifi_mcp_context }}"
+    state: present
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: "{{ unifi_mcp_release }}"
+        namespace: "{{ unifi_mcp_namespace }}"
+      spec:
+        ingressClassName: tailscale
+        tls:
+          - hosts: ["{{ unifi_mcp_ingress_host }}"]
+        rules:
+          - host: "{{ unifi_mcp_ingress_host }}"
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: "{{ unifi_mcp_release }}"
+                      port:
+                        name: http
+  delegate_to: localhost

@@ -1,0 +1,12 @@
+---
+# Local execution: BWS_ACCESS_TOKEN and the kubeconfig are controller-local.
+# Explicit -i inventory/praxis-k3s/hosts.ini selects one node by alias.
+- name: UniFi MCP deployment (four explicit modes)
+  hosts: k3s_server
+  connection: "{{ 'local' if unifi_mcp_mode == 'kubernetes_helm' else 'ssh' }}"
+  gather_facts: false
+  become: "{{ unifi_mcp_mode != 'kubernetes_helm' }}"
+  vars:
+    ansible_python_interpreter: "{{ unifi_mcp_controller_python if unifi_mcp_mode == 'kubernetes_helm' else '/usr/bin/python3' }}"
+  roles:
+    - unifi_mcp

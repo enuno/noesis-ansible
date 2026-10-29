@@ -1,0 +1,49 @@
+---
+- name: Reject Kubernetes ingress in Compose modes
+  ansible.builtin.assert:
+    that: not (unifi_mcp_allow_expose | bool)
+    fail_msg: "Compose binds loopback only; Tailscale Ingress is Kubernetes-only."
+
+- name: Prepare isolated Compose project directory
+  ansible.builtin.file:
+    path: "{{ unifi_mcp_compose_dir }}"
+    state: directory
+    mode: '0700'
+
+- name: Write non-secret runtime role grants
+  ansible.builtin.template:
+    src: runtime-role.sql.j2
+    dest: "{{ unifi_mcp_compose_dir }}/runtime-role.sql"
+    mode: '0600'
+  vars:
+    unifi_mcp_database_name: unifi_mcp
+
+- name: Supply secrets to Compose through process environment only
+  ansible.builtin.set_fact:
+    unifi_mcp_compose_env:
+      POSTGRES_PASSWORD: "{{ unifi_mcp_secrets.POSTGRES_PASSWORD }}"
+      RUNTIME_PASSWORD: "{{ unifi_mcp_secrets.RUNTIME_PASSWORD }}"
+      MIGRATION_DATABASE_URL: "postgresql://unifi_mcp:{{ unifi_mcp_secrets.POSTGRES_PASSWORD | urlencode }}@postgres:5432/unifi_mcp"
+      DATABASE_URL: "postgresql://unifi_mcp_runtime:{{ unifi_mcp_secrets.RUNTIME_PASSWORD | urlencode }}@postgres:5432/unifi_mcp"
+      REDIS_PASSWORD: "{{ unifi_mcp_secrets.REDIS_PASSWORD }}"
+      REDIS_URL: "redis://:{{ unifi_mcp_secrets.REDIS_PASSWORD | urlencode }}@redis:6379/0"
+      UNIFI_MCP_ROLE_SQL: "{{ unifi_mcp_compose_dir }}/runtime-role.sql"
+      UNIFI_API_KEY: "{{ unifi_mcp_secrets.UNIFI_API_KEY }}"
+      UNIFI_API_TYPE: local
+      UNIFI_LOCAL_HOST: "{{ unifi_mcp_secrets.UNIFI_LOCAL_HOST }}"
+      UNIFI_FLEET_CREDENTIAL_KEY: "{{ unifi_mcp_secrets.UNIFI_FLEET_CREDENTIAL_KEY }}"
+      UNIFI_CLOUD_API_URL: "{{ unifi_mcp_secrets.UNIFI_CLOUD_API_URL }}"
+      UNIFI_AUDIT_CHAIN_KEY: "{{ unifi_mcp_secrets.UNIFI_AUDIT_CHAIN_KEY }}"
+      MCP_AUTH_TOKEN: "fleet-admin:{{ unifi_mcp_secrets.MCP_AUTH_TOKEN }}"
+  no_log: true
+
+- name: Validate and launch upstream Compose plus safe overlay
+  ansible.builtin.command:
+    argv: >-
+      {{ ['docker', 'compose', '-p', unifi_mcp_compose_project,
+          '-f', unifi_mcp_compose_source ~ '/docker-compose.fleet.yml']
+          + (['-f', unifi_mcp_compose_source ~ '/docker-compose.fleet-scale.yml'] if unifi_mcp_mode == 'compose_fleet_scale' else [])
+          + ['-f', role_path ~ '/templates/compose-overlay.yml', 'up', '-d', '--wait', '--no-build'] }}
+    chdir: "{{ unifi_mcp_compose_source }}"
+  environment: "{{ unifi_mcp_compose_env }}"
+  no_log: true
