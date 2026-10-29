@@ -1,0 +1,202 @@
+---
+- name: Validate n8n deployment inputs
+  ansible.builtin.assert:
+    that:
+      - n8n_k8s_kubeconfig | length > 0
+      - n8n_k8s_context | length > 0
+      - n8n_k8s_bitwarden_project_id == '72974d0e-81af-4678-bab7-b46000985859'
+      - n8n_k8s_hostname is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - n8n_k8s_tailscale_ingress_class == 'tailscale'
+    fail_msg: Target, Bitwarden project, hostname, or tailnet ingress settings are invalid.
+
+- name: Verify target kubeconfig exists
+  ansible.builtin.stat:
+    path: "{{ n8n_k8s_kubeconfig }}"
+  register: n8n_k8s_kubeconfig_stat
+
+- name: Require target kubeconfig
+  ansible.builtin.assert:
+    that: n8n_k8s_kubeconfig_stat.stat.exists
+    fail_msg: "Kubeconfig {{ n8n_k8s_kubeconfig }} is not present on the managed host."
+
+- name: Read encryption secret id from Bitwarden project
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    {{ n8n_k8s_bws_path }} secret list {{ n8n_k8s_bitwarden_project_id }} -o table |
+    awk '$2 == "{{ n8n_k8s_encryption_bw_key }}" {print $1; exit}'
+  args:
+    executable: /bin/bash
+  environment:
+    BWS_ACCESS_TOKEN: "{{ n8n_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  register: n8n_k8s_encryption_id
+  changed_when: false
+  no_log: true
+
+- name: Read task runner secret id from Bitwarden project
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    {{ n8n_k8s_bws_path }} secret list {{ n8n_k8s_bitwarden_project_id }} -o table |
+    awk '$2 == "{{ n8n_k8s_runner_bw_key }}" {print $1; exit}'
+  args:
+    executable: /bin/bash
+  environment:
+    BWS_ACCESS_TOKEN: "{{ n8n_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  register: n8n_k8s_runner_id
+  changed_when: false
+  no_log: true
+
+- name: Require both n8n secrets to be escrowed
+  ansible.builtin.assert:
+    that:
+      - n8n_k8s_encryption_id.stdout | trim | length > 0
+      - n8n_k8s_runner_id.stdout | trim | length > 0
+    fail_msg: Bitwarden escrow is incomplete. Required n8n records are missing from the approved project.
+
+- name: Fetch encryption secret from Bitwarden
+  ansible.builtin.command:
+    argv: ["{{ n8n_k8s_bws_path }}", secret, get, "{{ n8n_k8s_encryption_id.stdout | trim }}", -o, json]
+  environment:
+    BWS_ACCESS_TOKEN: "{{ n8n_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  register: n8n_k8s_encryption_record
+  changed_when: false
+  no_log: true
+
+- name: Fetch task runner secret from Bitwarden
+  ansible.builtin.command:
+    argv: ["{{ n8n_k8s_bws_path }}", secret, get, "{{ n8n_k8s_runner_id.stdout | trim }}", -o, json]
+  environment:
+    BWS_ACCESS_TOKEN: "{{ n8n_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  register: n8n_k8s_runner_record
+  changed_when: false
+  no_log: true
+
+- name: Build runtime Secret definition from escrowed values
+  ansible.builtin.set_fact:
+    n8n_k8s_secret_definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ n8n_k8s_secret_name }}"
+        namespace: "{{ n8n_k8s_namespace }}"
+        labels:
+          app.kubernetes.io/managed-by: ansible-n8n-k8s
+      type: Opaque
+      stringData:
+        N8N_ENCRYPTION_KEY: "{{ (n8n_k8s_encryption_record.stdout | from_json).value }}"
+        N8N_RUNNERS_AUTH_TOKEN: "{{ (n8n_k8s_runner_record.stdout | from_json).value }}"
+        N8N_HOST: "{{ n8n_k8s_hostname }}.{{ n8n_k8s_tailnet_domain }}"
+        N8N_PORT: "5678"
+        N8N_PROTOCOL: https
+        N8N_EDITOR_BASE_URL: "https://{{ n8n_k8s_hostname }}.{{ n8n_k8s_tailnet_domain }}"
+        N8N_WEBHOOK_URL: "https://{{ n8n_k8s_hostname }}.{{ n8n_k8s_tailnet_domain }}/"
+  no_log: true
+
+- name: Create n8n namespace
+  kubernetes.core.k8s:
+    kubeconfig: "{{ n8n_k8s_kubeconfig }}"
+    context: "{{ n8n_k8s_context }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ n8n_k8s_namespace }}"
+        labels:
+          pod-security.kubernetes.io/enforce: restricted
+
+- name: Deliver escrowed secrets to Kubernetes
+  kubernetes.core.k8s:
+    kubeconfig: "{{ n8n_k8s_kubeconfig }}"
+    context: "{{ n8n_k8s_context }}"
+    state: present
+    apply: true
+    definition: "{{ n8n_k8s_secret_definition }}"
+  no_log: true
+
+- name: Render official n8n Helm values
+  ansible.builtin.template:
+    src: values.yml.j2
+    dest: /run/n8n-values.yml
+    mode: '0600'
+  no_log: true
+  changed_when: false
+
+- name: Install official n8n Helm chart
+  kubernetes.core.helm:
+    kubeconfig: "{{ n8n_k8s_kubeconfig }}"
+    context: "{{ n8n_k8s_context }}"
+    name: "{{ n8n_k8s_release_name }}"
+    chart_ref: "{{ n8n_k8s_chart_ref }}"
+    chart_version: "{{ n8n_k8s_chart_version }}"
+    release_namespace: "{{ n8n_k8s_namespace }}"
+    create_namespace: false
+    values_files:
+      - /run/n8n-values.yml
+    wait: true
+    timeout: "{{ n8n_k8s_helm_timeout }}s"
+    atomic: true
+    cleanup_on_fail: true
+    state: present
+  register: n8n_k8s_helm_result
+
+- name: Remove rendered values from target
+  ansible.builtin.file:
+    path: /run/n8n-values.yml
+    state: absent
+  changed_when: false
+
+- name: Wait for n8n deployment
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ n8n_k8s_kubeconfig }}"
+    context: "{{ n8n_k8s_context }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ n8n_k8s_namespace }}"
+    name: "{{ n8n_k8s_release_name }}-main"
+  register: n8n_k8s_deployment
+  retries: 60
+  delay: 10
+  until:
+    - n8n_k8s_deployment.resources | length == 1
+    - n8n_k8s_deployment.resources[0].status.availableReplicas | default(0) | int >= 1
+
+- name: Apply Tailscale Connector only when explicitly requested
+  kubernetes.core.k8s:
+    kubeconfig: "{{ n8n_k8s_kubeconfig }}"
+    context: "{{ n8n_k8s_context }}"
+    state: present
+    definition:
+      apiVersion: tailscale.com/v1alpha1
+      kind: Connector
+      metadata:
+        name: n8n-connector
+      spec:
+        subnetRouter:
+          advertiseRoutes: "{{ n8n_k8s_tailscale_connector_routes }}"
+  when:
+    - n8n_k8s_tailscale_connector_enabled | bool
+    - n8n_k8s_tailscale_connector_routes | length > 0
+  tags: [connector]
+
+- name: Read n8n Tailscale Ingress
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ n8n_k8s_kubeconfig }}"
+    context: "{{ n8n_k8s_context }}"
+    api_version: networking.k8s.io/v1
+    kind: Ingress
+    namespace: "{{ n8n_k8s_namespace }}"
+    name: "{{ n8n_k8s_release_name }}-main"
+  register: n8n_k8s_ingress
+  retries: 60
+  delay: 10
+  until:
+    - n8n_k8s_ingress.resources | length == 1
+    - n8n_k8s_ingress.resources[0].status.loadBalancer.ingress | default([]) | length > 0
+  when: n8n_k8s_tailscale_ingress_enabled | bool
+
+- name: Assert tailnet hostname was assigned
+  ansible.builtin.assert:
+    that:
+      - n8n_k8s_ingress.resources[0].status.loadBalancer.ingress[0].hostname == n8n_k8s_hostname ~ '.' ~ n8n_k8s_tailnet_domain
+    fail_msg: Tailscale did not assign the expected private hostname.
+  when: n8n_k8s_tailscale_ingress_enabled | bool

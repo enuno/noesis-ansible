@@ -1,0 +1,46 @@
+image:
+  repository: "{{ n8n_k8s_image_repository }}"
+  tag: "{{ n8n_k8s_image_tag }}"
+  pullPolicy: IfNotPresent
+queueMode:
+  enabled: false
+redis:
+  enabled: false
+database:
+  type: sqlite
+  useExternal: false
+taskRunners:
+  enabled: true
+  mode: external
+  authToken:
+    existingSecret: "{{ n8n_k8s_secret_name }}"
+    existingSecretKey: N8N_RUNNERS_AUTH_TOKEN
+replicaCount: 1
+strategy:
+  type: Recreate
+service:
+  type: ClusterIP
+  port: 5678
+ingress:
+  enabled: {{ n8n_k8s_tailscale_ingress_enabled | bool }}
+  className: "{{ n8n_k8s_tailscale_ingress_class }}"
+  hosts:
+    - host: "{{ n8n_k8s_hostname }}"
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - "{{ n8n_k8s_hostname }}"
+persistence:
+  enabled: true
+  size: "{{ n8n_k8s_persistence_size }}"
+  storageClassName: "{{ n8n_k8s_storage_class }}"
+config:
+  timezone: "{{ n8n_k8s_timezone }}"
+  extraEnv:
+    - name: N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS
+      value: "true"
+secretRefs:
+  existingSecret: "{{ n8n_k8s_secret_name }}"
+  env: {}

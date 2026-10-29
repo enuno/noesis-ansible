@@ -1,0 +1,30 @@
+---
+# Deploy n8n with the official n8n Helm chart and private Tailscale Operator Ingress.
+#
+# The official n8n chart is the production Kubernetes path. Tailscale's
+# Connector CRD is a subnet-router primitive, not an HTTP ingress primitive;
+# the service is exposed with the existing operator-managed tailscale Ingress,
+# which creates a dedicated tailnet proxy instance for n8n. Connector creation
+# remains an explicit opt-in for routing additional cluster CIDRs.
+#
+# Usage:
+#   ansible-playbook -i inventory/n8n-k8s/hosts.ini playbooks/n8n-k8s.yml --syntax-check
+#   ansible-playbook -i inventory/n8n-k8s/hosts.ini playbooks/n8n-k8s.yml --check
+#   ansible-playbook -i inventory/n8n-k8s/hosts.ini playbooks/n8n-k8s.yml
+
+- name: Deploy n8n to Kubernetes with private tailnet ingress
+  hosts: n8n_k8s
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
+  gather_facts: false
+  tags: [n8n, k8s]
+  pre_tasks:
+    - name: Require explicit Kubernetes target
+      ansible.builtin.assert:
+        that:
+          - n8n_k8s_kubeconfig | length > 0
+          - n8n_k8s_context | length > 0
+        fail_msg: n8n_k8s_kubeconfig and n8n_k8s_context must be explicit.
+  roles:
+    - role: n8n_k8s
+      tags: [n8n, k8s, deploy]

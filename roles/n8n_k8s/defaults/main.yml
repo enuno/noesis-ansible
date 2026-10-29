@@ -1,0 +1,26 @@
+---
+n8n_k8s_kubeconfig: /etc/rancher/k3s/k3s.yaml
+n8n_k8s_context: default
+n8n_k8s_namespace: n8n
+n8n_k8s_release_name: n8n
+n8n_k8s_chart_ref: oci://ghcr.io/n8n-io/n8n-helm-chart/n8n
+n8n_k8s_chart_version: "1.17.0"
+n8n_k8s_chart_digest: "sha256:87632113aefe2228090da8895ee3bd512a0f658f0c31854a6c66bd8aa65bb379"
+n8n_k8s_helm_timeout: 900
+n8n_k8s_hostname: n8n
+n8n_k8s_tailnet_domain: tailf99a0.ts.net
+n8n_k8s_image_repository: docker.n8n.io/n8nio/n8n
+n8n_k8s_image_tag: "2.44.5"
+n8n_k8s_timezone: UTC
+n8n_k8s_persistence_size: 10Gi
+n8n_k8s_storage_class: local-path
+n8n_k8s_encryption_bw_key: N8N_K3S_DEFAULT_ENCRYPTION_KEY
+n8n_k8s_runner_bw_key: N8N_K3S_DEFAULT_RUNNERS_AUTH_TOKEN
+n8n_k8s_bitwarden_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+n8n_k8s_bws_path: /usr/local/bin/bws
+n8n_k8s_bws_access_token: ""
+n8n_k8s_secret_name: n8n-secrets
+n8n_k8s_tailscale_ingress_enabled: true
+n8n_k8s_tailscale_ingress_class: tailscale
+n8n_k8s_tailscale_connector_enabled: false
+n8n_k8s_tailscale_connector_routes: []

@@ -1,0 +1,11 @@
+---
+n8n_k8s_kubeconfig: /etc/rancher/k3s/k3s.yaml
+n8n_k8s_context: default
+n8n_k8s_namespace: n8n
+n8n_k8s_release_name: n8n
+n8n_k8s_hostname: n8n
+n8n_k8s_tailnet_domain: tailf99a0.ts.net
+n8n_k8s_tailscale_ingress_enabled: true
+n8n_k8s_tailscale_ingress_class: tailscale
+n8n_k8s_tailscale_connector_enabled: false
+n8n_k8s_tailscale_connector_routes: []
