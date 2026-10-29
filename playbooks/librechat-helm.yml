@@ -1,0 +1,15 @@
+---
+# Requires an existing namespace and existing credentials Secret. This play
+# does not install k3s or select the current kubectl context implicitly.
+- name: Deploy LibreChat via the official OCI Helm chart
+  hosts: librechat_k8s
+  gather_facts: false
+  become: true
+  pre_tasks:
+    - name: Refuse placeholder hosts
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname is not search('example.invalid')
+        fail_msg: Replace the example inventory with an approved target.
+  roles:
+    - librechat_helm

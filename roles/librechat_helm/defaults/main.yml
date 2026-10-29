@@ -1,0 +1,24 @@
+---
+# Published upstream OCI chart from LibreChat v0.8.8 (chart appVersion).
+librechat_helm_chart_ref: oci://ghcr.io/librechat-ai/librechat-chart/librechat
+librechat_helm_chart_version: '2.0.17'
+librechat_helm_image_registry: registry.librechat.ai
+librechat_helm_image_repository: librechat-ai/librechat
+librechat_helm_image_tag: v0.8.8
+librechat_helm_kubeconfig: ''
+librechat_helm_context: ''
+librechat_helm_binary: /usr/local/bin/helm
+librechat_helm_namespace: librechat
+librechat_helm_release: librechat
+librechat_helm_secret: librechat-credentials-env
+librechat_helm_meili_secret: librechat-meili-secret
+librechat_helm_uploads_size: 10Gi
+librechat_helm_storage_class: ''
+librechat_helm_live_changes: false
+# Disabled by default. An operator must explicitly specify the class, host and
+# TLS policy in this map before making the service reachable outside the cluster.
+librechat_helm_ingress:
+  enabled: false
+librechat_helm_extra_config_env: {}
+librechat_helm_config_yaml: ''
+librechat_helm_timeout: 10m0s

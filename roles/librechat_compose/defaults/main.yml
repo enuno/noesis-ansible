@@ -1,0 +1,12 @@
+---
+# Core LibreChat stack at the upstream v0.8.8 contract. RAG, pgvector and the
+# admin panel are deliberately not installed; see docs/librechat-deployment.md.
+librechat_compose_release: v0.8.8
+librechat_compose_image: registry.librechat.ai/librechat-ai/librechat:v0.8.8
+librechat_compose_mongo_image: mongo:8.0.20
+librechat_compose_meili_image: getmeili/meilisearch:v1.35.1
+librechat_compose_root: /opt/librechat
+librechat_compose_bind_address: 127.0.0.1
+librechat_compose_port: 3080
+librechat_compose_project: librechat
+librechat_compose_live_changes: false

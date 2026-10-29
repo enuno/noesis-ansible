@@ -1,0 +1,284 @@
+---
+- name: Validate pinned LibreChat chart and explicit cluster target
+  ansible.builtin.assert:
+    that:
+      - librechat_helm_chart_ref == 'oci://ghcr.io/librechat-ai/librechat-chart/librechat'
+      - librechat_helm_chart_version == '2.0.17'
+      - librechat_helm_image_tag == 'v0.8.8'
+      - librechat_helm_kubeconfig is match('^/')
+      - librechat_helm_context | length > 0
+      - librechat_helm_namespace is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - librechat_helm_release is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - librechat_helm_secret | length > 0
+      - librechat_helm_meili_secret | length > 0
+      - librechat_helm_meili_secret != librechat_helm_secret
+      - librechat_helm_uploads_size is match('^[1-9][0-9]*(Mi|Gi|Ti)$')
+      - librechat_helm_ingress is mapping
+      - not (librechat_helm_ingress.enabled | default(false) | bool) or
+        ((librechat_helm_ingress.className | default('') | length > 0) and
+         (librechat_helm_ingress.hosts | default([]) | length > 0) and
+         (librechat_helm_ingress.hosts[0].host | default('') not in ['', 'chat.example.com']) and
+         ((librechat_helm_ingress.className | default('')) == 'tailscale' or
+          (librechat_helm_ingress.tls | default([]) | length > 0)))
+    fail_msg: >-
+      Pin LibreChat v0.8.8 / chart 2.0.17, specify kubeconfig and context,
+      and set a real ingress class and hostname if enabling exposure.
+
+- name: Validate every enabled ingress host, TLS binding, and path
+  ansible.builtin.assert:
+    that:
+      - item.host is match('^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$')
+      - item.host != 'chat.example.com'
+      - item.paths is sequence
+      - item.paths | length > 0
+      - (librechat_helm_ingress.className == 'tailscale') or
+        (item.host in (librechat_helm_ingress.tls | default([]) | map(attribute='hosts', default=[]) | flatten))
+    fail_msg: Each ingress host needs a real hostname, paths and TLS coverage (or Tailscale TLS).
+  loop: "{{ librechat_helm_ingress.hosts | default([]) }}"
+  when: librechat_helm_ingress.enabled | default(false) | bool
+
+- name: Validate every enabled ingress path
+  ansible.builtin.assert:
+    that:
+      - item.1.path | default('') | length > 0
+      - item.1.pathType | default('') in ['Prefix', 'Exact', 'ImplementationSpecific']
+  loop: "{{ librechat_helm_ingress.hosts | default([]) | subelements('paths') }}"
+  when: librechat_helm_ingress.enabled | default(false) | bool
+
+- name: Refuse live Kubernetes changes without explicit opt-in
+  ansible.builtin.assert:
+    that: librechat_helm_live_changes | bool
+    fail_msg: Set librechat_helm_live_changes=true for the approved target only.
+  when: not ansible_check_mode
+
+- name: Check that the target has a readable kubeconfig
+  ansible.builtin.stat:
+    path: "{{ librechat_helm_kubeconfig }}"
+  register: librechat_helm_kubeconfig_stat
+
+- name: Require the kubeconfig on the target host
+  ansible.builtin.assert:
+    that: librechat_helm_kubeconfig_stat.stat.isreg | default(false)
+    fail_msg: The target kubeconfig is absent or inaccessible.
+  when: not ansible_check_mode
+
+- name: Read kubeconfig context names
+  ansible.builtin.slurp:
+    src: "{{ librechat_helm_kubeconfig }}"
+  register: librechat_helm_kubeconfig_raw
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Refuse a context not present in the kubeconfig
+  ansible.builtin.assert:
+    that:
+      - librechat_helm_context in (((librechat_helm_kubeconfig_raw.content | b64decode | from_yaml).get('contexts') or []) | map(attribute='name') | list)
+    fail_msg: The specified kube context does not exist in this kubeconfig.
+  when: not ansible_check_mode
+
+- name: Check that Helm is installed on the target
+  ansible.builtin.stat:
+    path: "{{ librechat_helm_binary }}"
+  register: librechat_helm_binary_stat
+
+- name: Require Helm on the target
+  ansible.builtin.assert:
+    that:
+      - librechat_helm_binary_stat.stat.exists
+      - librechat_helm_binary_stat.stat.executable
+    fail_msg: Install Helm on the target before deployment.
+  when: not ansible_check_mode
+
+- name: Look up the already provisioned LibreChat credentials
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ librechat_helm_kubeconfig }}"
+    context: "{{ librechat_helm_context }}"
+    api_version: v1
+    kind: Secret
+    namespace: "{{ librechat_helm_namespace }}"
+    name: "{{ librechat_helm_secret }}"
+  register: librechat_helm_credentials
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Fail closed on missing or empty credential keys
+  ansible.builtin.assert:
+    that:
+      - librechat_helm_credentials.resources | length == 1
+      - (librechat_helm_credentials.resources[0].data | default({})).get('CREDS_KEY', '') | length > 0
+      - (librechat_helm_credentials.resources[0].data | default({})).get('CREDS_IV', '') | length > 0
+      - (librechat_helm_credentials.resources[0].data | default({})).get('JWT_SECRET', '') | length > 0
+      - (librechat_helm_credentials.resources[0].data | default({})).get('JWT_REFRESH_SECRET', '') | length > 0
+      - (librechat_helm_credentials.resources[0].data | default({})).get('MEILI_MASTER_KEY', '') | length > 0
+    fail_msg: >-
+      Provision the existing Secret with CREDS_KEY, CREDS_IV, JWT_SECRET,
+      JWT_REFRESH_SECRET and MEILI_MASTER_KEY before Helm installation.
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Look up the separately provisioned Meilisearch key
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ librechat_helm_kubeconfig }}"
+    context: "{{ librechat_helm_context }}"
+    api_version: v1
+    kind: Secret
+    namespace: "{{ librechat_helm_namespace }}"
+    name: "{{ librechat_helm_meili_secret }}"
+  register: librechat_helm_meili_credentials
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Fail closed on missing or overbroad Meilisearch Secret
+  ansible.builtin.assert:
+    that:
+      - librechat_helm_meili_credentials.resources | length == 1
+      - (librechat_helm_meili_credentials.resources[0].data | default({}) | dict2items | map(attribute='key') | list) == ['MEILI_MASTER_KEY']
+      - (librechat_helm_meili_credentials.resources[0].data | default({})).get('MEILI_MASTER_KEY', '') | length > 0
+      - >-
+        (librechat_helm_meili_credentials.resources[0].data | default({})).get('MEILI_MASTER_KEY', '') ==
+        (librechat_helm_credentials.resources[0].data | default({})).get('MEILI_MASTER_KEY', '')
+    fail_msg: Provision a separate Secret containing ONLY MEILI_MASTER_KEY.
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Compose the persistent uploads PVC spec
+  ansible.builtin.set_fact:
+    librechat_helm_uploads_pvc_spec: >-
+      {{ {'accessModes': ['ReadWriteOnce'],
+          'resources': {'requests': {'storage': librechat_helm_uploads_size}}}
+         | combine(({'storageClassName': librechat_helm_storage_class}
+                    if librechat_helm_storage_class | length > 0 else {})) }}
+  when: not ansible_check_mode
+
+- name: Provision a persistent uploads claim without deleting data
+  kubernetes.core.k8s:
+    kubeconfig: "{{ librechat_helm_kubeconfig }}"
+    context: "{{ librechat_helm_context }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        namespace: "{{ librechat_helm_namespace }}"
+        name: "{{ librechat_helm_release }}-uploads"
+      spec: "{{ librechat_helm_uploads_pvc_spec }}"
+  when: not ansible_check_mode
+
+- name: Install or upgrade the official LibreChat OCI chart
+  kubernetes.core.helm:
+    binary_path: "{{ librechat_helm_binary }}"
+    kubeconfig: "{{ librechat_helm_kubeconfig }}"
+    context: "{{ librechat_helm_context }}"
+    chart_ref: "{{ librechat_helm_chart_ref }}"
+    chart_version: "{{ librechat_helm_chart_version }}"
+    release_name: "{{ librechat_helm_release }}"
+    release_namespace: "{{ librechat_helm_namespace }}"
+    release_state: present
+    create_namespace: false
+    wait: true
+    atomic: true
+    timeout: "{{ librechat_helm_timeout }}"
+    reset_values: true
+    release_values:
+      fullnameOverride: "{{ librechat_helm_release }}"
+      image:
+        registry: "{{ librechat_helm_image_registry }}"
+        repository: "{{ librechat_helm_image_repository }}"
+        tag: "{{ librechat_helm_image_tag }}"
+      replicaCount: 1
+      podAnnotations:
+        checksum/librechat-credentials: "{{ (librechat_helm_credentials.resources[0].data | to_json(sort_keys=True)) | hash('sha256') }}"
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: "{{ librechat_helm_release }}-uploads"
+      volumeMounts:
+        - name: uploads
+          mountPath: /app/uploads
+      librechat:
+        existingSecretName: "{{ librechat_helm_secret }}"
+        configEnv: "{{ librechat_helm_extra_config_env }}"
+        configYamlContent: "{{ librechat_helm_config_yaml }}"
+        imageVolume:
+          enabled: true
+          size: 10Gi
+          accessModes: ReadWriteOnce
+          storageClassName: "{{ librechat_helm_storage_class }}"
+      global:
+        librechat:
+          existingSecretName: "{{ librechat_helm_secret }}"
+      mongodb:
+        enabled: true
+        auth:
+          enabled: false
+        persistence:
+          enabled: true
+          size: 8Gi
+          storageClass: "{{ librechat_helm_storage_class }}"
+      meilisearch:
+        enabled: true
+        podAnnotations:
+          checksum/meili-credentials: "{{ (librechat_helm_meili_credentials.resources[0].data | to_json(sort_keys=True)) | hash('sha256') }}"
+        persistence:
+          enabled: true
+          storageClass: "{{ librechat_helm_storage_class }}"
+        auth:
+          existingMasterKeySecret: "{{ librechat_helm_meili_secret }}"
+      redis:
+        enabled: false
+      librechat-rag-api:
+        enabled: false
+      ingress: "{{ librechat_helm_ingress }}"
+      service:
+        type: ClusterIP
+        port: 3080
+        targetPort: 3080
+        containerPort: 3080
+      livenessProbe:
+        httpGet:
+          path: /livez
+          port: 3080
+      readinessProbe:
+        httpGet:
+          path: /readyz
+          port: 3080
+  register: librechat_helm_install
+  when: not ansible_check_mode
+
+- name: Verify the chart release status
+  kubernetes.core.helm_info:
+    binary_path: "{{ librechat_helm_binary }}"
+    kubeconfig: "{{ librechat_helm_kubeconfig }}"
+    context: "{{ librechat_helm_context }}"
+    release_name: "{{ librechat_helm_release }}"
+    release_namespace: "{{ librechat_helm_namespace }}"
+  register: librechat_helm_release_info
+  when: not ansible_check_mode
+
+- name: Assert the release is deployed
+  ansible.builtin.assert:
+    that:
+      - librechat_helm_release_info.status.status | lower == 'deployed'
+      - librechat_helm_release_info.status.chart == 'librechat-2.0.17'
+      - librechat_helm_release_info.status.app_version == 'v0.8.8'
+    fail_msg: Helm did not report a deployed LibreChat release.
+  when: not ansible_check_mode
+
+- name: Read LibreChat Deployment readiness
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ librechat_helm_kubeconfig }}"
+    context: "{{ librechat_helm_context }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ librechat_helm_namespace }}"
+    name: "{{ librechat_helm_release }}"
+  register: librechat_helm_deployment
+  when: not ansible_check_mode
+
+- name: Assert the LibreChat pod is available
+  ansible.builtin.assert:
+    that:
+      - librechat_helm_deployment.resources | length == 1
+      - librechat_helm_deployment.resources[0].status.availableReplicas | default(0) | int >= 1
+    fail_msg: LibreChat Deployment is not available; inspect pods and events.
+  when: not ansible_check_mode

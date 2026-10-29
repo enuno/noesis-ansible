@@ -1,0 +1,54 @@
+# Adapted from LibreChat v0.8.8 docker-compose.yml: core chat, MongoDB,
+# Meilisearch. No mutable :latest tags, no host database/search ports.
+services:
+  api:
+    image: {{ librechat_compose_image | to_json }}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3080"
+      MONGO_URI: mongodb://mongodb:27017/LibreChat
+      MEILI_HOST: http://meilisearch:7700
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?provision_MEILI_MASTER_KEY_in_.env}
+      LIBRECHAT_TEMP_CREDENTIALS_PATH: /app/data/.env.temp
+    ports:
+      - "{{ librechat_compose_bind_address }}:{{ librechat_compose_port }}:3080"
+    depends_on:
+      - mongodb
+      - meilisearch
+    volumes:
+      - images:/app/client/public/images
+      - uploads:/app/uploads
+      - logs:/app/logs
+      - skill:/app/skill
+      - app_data:/app/data
+    security_opt:
+      - no-new-privileges:true
+  mongodb:
+    image: {{ librechat_compose_mongo_image | to_json }}
+    restart: unless-stopped
+    command: [mongod, --noauth, --bind_ip_all]
+    volumes:
+      - mongo_data:/data/db
+    security_opt:
+      - no-new-privileges:true
+  meilisearch:
+    image: {{ librechat_compose_meili_image | to_json }}
+    restart: unless-stopped
+    environment:
+      MEILI_NO_ANALYTICS: "true"
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?provision_MEILI_MASTER_KEY_in_.env}
+    volumes:
+      - meili_data:/meili_data
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  mongo_data:
+  meili_data:
+  images:
+  uploads:
+  logs:
+  skill:
+  app_data:
