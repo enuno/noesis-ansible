@@ -2,6 +2,9 @@
 - name: Validate LibreChat inputs and prerequisites
   ansible.builtin.import_tasks: validate-inputs.yml
 
+- name: Configure operator-managed tailnet egress before the app upgrade
+  ansible.builtin.import_tasks: tailnet-egress.yml
+
 - name: Configure LibreChat files or storage
   ansible.builtin.import_tasks: configure.yml
 

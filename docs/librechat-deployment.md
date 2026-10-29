@@ -93,6 +93,61 @@ ReadWriteOnce images/uploads volumes detach before replacement on multi-node
 clusters (expect brief downtime). Other optional feature state (RAG, logs,
 skills) is not covered by these two PVCs.
 
+### Optional Tailscale Operator egress (Helm only)
+
+This is cluster-to-tailnet egress, NOT Tailscale ingress and NOT a transparent
+VPN or internet exit node for the whole pod. The Tailscale Kubernetes Operator
+must already be installed and able to create egress proxies. The role checks
+the ready Deployment `tailscale/tailscale-operator` before making any egress
+Service changes; override `librechat_helm_tailnet_operator_namespace` and
+`librechat_helm_tailnet_operator_deployment` if your installation uses other
+coordinates. Supply an explicit
+list of destinations, each with its full device or Tailscale Service MagicDNS
+FQDN and TCP port, in the operator-controlled inventory (the example below
+uses non-operational placeholders):
+
+    librechat_helm_tailnet_egress_services:
+      - name: model-gateway
+        target_fqdn: gateway.your-tailnet.ts.net
+        port: 8080
+    librechat_helm_tailnet_egress_proxy_group: egress-proxies
+
+For production HA, provision a cluster-scoped `tailscale.com/v1alpha1`
+`ProxyGroup` named `egress-proxies` with `spec.type: egress` and a reviewed
+replica count before running this role. The role verifies an existing group;
+it does not create or remove it. Leave the group variable empty for the
+operator's single-proxy standalone mode. `[]` (the default) creates no
+Service and leaves all current traffic untouched. Each configured target
+creates a namespaced `ExternalName` Service with
+`tailscale.com/tailnet-fqdn` and, if selected,
+`tailscale.com/proxy-group`. The operator rewrites `spec.externalName`; Ansible
+only supplies a placeholder on first creation and never writes that field on
+an existing Service. The role waits for `ProxyReady=True` in standalone mode
+or `TailscaleEgressSvcReady=True` with a ProxyGroup before upgrading
+LibreChat. Removing an item from the list does NOT remove
+an existing Service or proxy: removal needs a separate, approved cleanup.
+The role refuses to overwrite an unrelated Service or silently change its
+existing target, conflicting IP-target annotation, TCP port or proxy mode.
+Migrate a target or port with a new Service name and explicitly switch
+LibreChat's endpoint after verification; never rely on a stale Ready
+condition from the old target.
+
+Configure LibreChat to use the in-cluster Service explicitly, for example by
+pointing a trusted custom endpoint `baseURL` in `librechat_helm_config_yaml`
+to `http://model-gateway.librechat.svc.cluster.local:8080/v1` and supplying
+its provider key through the existing protected LibreChat Secret. The egress
+Service alone does not reroute LibreChat's existing providers. If the app's
+private-address SSRF guard applies to that endpoint, narrowly allowlist only
+`model-gateway.librechat.svc.cluster.local:8080` using LibreChat's
+`endpoints.allowedAddresses`; do not disable the guard globally. HTTPS to a
+Kubernetes Service name requires a certificate valid for that name; use a
+proper TLS proxy or the operator's MagicDNS integration when end-to-end TLS
+and the tailnet hostname are required. Confirm the operator's access grants
+permit the proxy identity to reach this target, then test the actual
+provider request from LibreChat; a ready Service alone proves only proxy
+reconciliation, not provider functionality. Current Tailscale reference:
+https://tailscale.com/docs/kubernetes-operator/egress/access-tailnet-service
+
 ## Preview and deploy
 
 Copy the placeholder inventory to a private operator location, replace every

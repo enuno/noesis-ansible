@@ -8,3 +8,6 @@ librechat_compose_live_changes: false
 librechat_helm_live_changes: false
 librechat_helm_kubeconfig: ''
 librechat_helm_context: ''
+# Explicit target list required before operator-managed cluster egress is created.
+librechat_helm_tailnet_egress_services: []
+librechat_helm_tailnet_egress_proxy_group: ''
