@@ -67,6 +67,33 @@ hermes_agent_dashboard_tailscale_namespace: tailscale
 hermes_agent_dashboard_trusted_pod_cidr: ""
 # One-time config reseed switch. Set true for one approved deploy, then false.
 hermes_agent_bootstrap_overwrite: false
+# Session-signing key for the basic auth provider (HERMES_DASHBOARD_BASIC_AUTH_SECRET).
+# Empty = the pod mints a fresh key per start and every restart invalidates
+# all existing dashboard sessions. Supplied from Bitwarden when
+# hermes_agent_bws_enabled is true, otherwise vault-injected.
+hermes_agent_dashboard_session_secret: ""
+
+# --- Bitwarden Secrets Manager (dashboard credentials) ---------------------
+# The dashboard username/password/session secret live in Bitwarden under the
+# k3s-prefixed keys, not in this repository or in Ansible Vault. Values are
+# resolved on the controller and never placed in argv or in Helm values.
+hermes_agent_bws_enabled: false
+hermes_agent_bws_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+hermes_agent_bws_organization_id: "93331de5-fa6e-44ab-8aee-b3840034e681"
+# Controller-local python with the bitwarden_sdk installed. The SDK is never
+# installed on the target host.
+hermes_agent_bws_python: /home/elvis/.local/share/noesis-unifi-controller-venv/bin/python
+hermes_agent_bws_resolver: "{{ playbook_dir }}/../../scripts/hermes_bws_resolve.py"
+# Pinned Bitwarden record ids (UUID) per logical key. Pinning makes an
+# ambiguous or duplicated key a hard failure instead of a silent wrong pick.
+hermes_agent_bws_record_ids:
+  username: "8bbba776-ddcf-44a9-9248-b4f0007dfa78"
+  password: "f3002092-bdb9-4694-b184-b4f0007dfac3"
+  session_secret: "5da5229a-2310-432a-812b-b4f0007dfb10"
+hermes_agent_bws_keys:
+  username: HERMES_K3S_DASHBOARD_USERNAME
+  password: HERMES_K3S_DASHBOARD_PASSWORD
+  session_secret: HERMES_K3S_DASHBOARD_SESSION_SECRET
 
 # --- Provider credentials (vault-injected) ---------------------------------
 # Dict of env keys for the externally managed provider Secret, e.g.

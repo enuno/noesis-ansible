@@ -71,6 +71,12 @@ hermes_agent_dashboard_trusted_proxies:
   - 10.42.0.1/32
   - 10.42.0.0/24
 
+# The dashboard username/password/session-signing secret live in Bitwarden
+# (project 72974d0e-81af-4678-bab7-b46000985859 "noosphere") under the
+# k3s-prefixed HERMES_K3S_DASHBOARD_* keys, not in Ansible Vault. The role
+# resolves them on the controller through the Bitwarden SDK.
+hermes_agent_bws_enabled: true
+
 # --- Remote kubectl over the tailnet -------------------------------------------
 # The API server already LISTENS on *:6443 and the serving certificate already
 # carries this node's tailscale0 address (k3s auto-detects node IPs), so

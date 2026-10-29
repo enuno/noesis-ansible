@@ -55,6 +55,15 @@ extraEnv:
       secretKeyRef:
         name: "{{ hermes_agent_release_name }}-provider"
         key: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
+{% if hermes_agent_dashboard_session_secret | length > 0 %}
+  # Stable session-signing key: without it the pod regenerates the key on
+  # every start and invalidates every existing dashboard session.
+  - name: HERMES_DASHBOARD_BASIC_AUTH_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: "{{ hermes_agent_release_name }}-provider"
+        key: HERMES_DASHBOARD_BASIC_AUTH_SECRET
+{% endif %}
 
 dashboard:
   enabled: {{ hermes_agent_dashboard_enabled | bool | lower }}

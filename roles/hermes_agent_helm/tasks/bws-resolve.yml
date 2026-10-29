@@ -1,0 +1,47 @@
+---
+# Resolve the dashboard credentials from Bitwarden Secrets Manager on the
+# controller. Values travel through stdin and Ansible facts only - never in
+# argv, never in a Helm release value, never on the target host.
+
+- name: Assert the controller-local Bitwarden resolver is present
+  ansible.builtin.stat:
+    path: "{{ hermes_agent_bws_resolver }}"
+  register: hermes_agent_bws_resolver_stat
+  delegate_to: localhost
+  become: false
+
+- name: Fail when the Bitwarden resolver script is missing
+  ansible.builtin.assert:
+    that:
+      - hermes_agent_bws_resolver_stat.stat.exists
+      - hermes_agent_bws_resolver_stat.stat.executable or hermes_agent_bws_resolver_stat.stat.isreg
+    fail_msg: >-
+      hermes_agent_bws_resolver ({{ hermes_agent_bws_resolver }}) is missing on the
+      controller. The dashboard credentials live in Bitwarden; there is no vault
+      fallback for them.
+  when: hermes_agent_bws_enabled | bool
+
+- name: Resolve dashboard records without placing secret values in argv
+  ansible.builtin.command:
+    argv: ["{{ hermes_agent_bws_python }}", "{{ hermes_agent_bws_resolver }}"]
+    stdin: >-
+      {{ {'project_id': hermes_agent_bws_project_id,
+          'organization_id': hermes_agent_bws_organization_id,
+          'keys': hermes_agent_bws_keys,
+          'record_ids': hermes_agent_bws_record_ids} | to_json }}
+  environment:
+    BWS_ACCESS_TOKEN: "{{ lookup('env', 'BWS_ACCESS_TOKEN') }}"
+  register: hermes_agent_bws_result
+  changed_when: false
+  delegate_to: localhost
+  become: false
+  no_log: true
+  when: hermes_agent_bws_enabled | bool
+
+- name: Retain resolved dashboard credentials in protected Ansible memory
+  ansible.builtin.set_fact:
+    hermes_agent_dashboard_username: "{{ (hermes_agent_bws_result.stdout | from_json)['values']['username'] }}"
+    hermes_agent_dashboard_password: "{{ (hermes_agent_bws_result.stdout | from_json)['values']['password'] }}"
+    hermes_agent_dashboard_session_secret: "{{ (hermes_agent_bws_result.stdout | from_json)['values']['session_secret'] }}"
+  no_log: true
+  when: hermes_agent_bws_enabled | bool

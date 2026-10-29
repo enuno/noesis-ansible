@@ -1,5 +1,8 @@
 ---
 # roles/hermes_agent_helm/tasks/main.yml
+- name: Resolve dashboard credentials from Bitwarden
+  ansible.builtin.include_tasks: bws-resolve.yml
+
 - name: Validate inputs and target prerequisites
   ansible.builtin.include_tasks: validate-inputs.yml
 

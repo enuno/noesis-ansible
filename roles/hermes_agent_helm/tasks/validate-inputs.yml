@@ -20,6 +20,17 @@
     fail_msg: "hermes_agent_dashboard_password must be at least 16 characters."
   no_log: true
 
+- name: Assert dashboard session-signing secret is supplied
+  ansible.builtin.assert:
+    that:
+      - hermes_agent_dashboard_session_secret | length >= 32
+    fail_msg: >-
+      hermes_agent_dashboard_session_secret must be at least 32 characters.
+      Without it the pod regenerates the session-signing key on every start
+      and every restart invalidates all existing dashboard sessions.
+  no_log: true
+  when: hermes_agent_dashboard_enabled | bool
+
 - name: Assert provider credentials map is supplied and provider-only
   ansible.builtin.assert:
     that:
