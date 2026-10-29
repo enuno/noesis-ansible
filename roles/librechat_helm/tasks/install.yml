@@ -1,0 +1,83 @@
+---
+- name: Install or upgrade the official LibreChat OCI chart
+  kubernetes.core.helm:
+    binary_path: "{{ librechat_helm_binary }}"
+    kubeconfig: "{{ librechat_helm_kubeconfig }}"
+    context: "{{ librechat_helm_context }}"
+    chart_ref: "{{ librechat_helm_chart_ref }}"
+    chart_version: "{{ librechat_helm_chart_version }}"
+    release_name: "{{ librechat_helm_release }}"
+    release_namespace: "{{ librechat_helm_namespace }}"
+    release_state: present
+    create_namespace: false
+    wait: true
+    atomic: true
+    timeout: "{{ librechat_helm_timeout }}"
+    reset_values: true
+    release_values:
+      fullnameOverride: "{{ librechat_helm_release }}"
+      image:
+        registry: "{{ librechat_helm_image_registry }}"
+        repository: "{{ librechat_helm_image_repository }}"
+        tag: "{{ librechat_helm_image_tag }}"
+      replicaCount: 1
+      updateStrategy:
+        type: Recreate
+      podAnnotations:
+        checksum/librechat-credentials: "{{ (librechat_helm_credentials.resources[0].data | to_json(sort_keys=True)) | hash('sha256') }}"
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: "{{ librechat_helm_release }}-uploads"
+      volumeMounts:
+        - name: uploads
+          mountPath: /app/uploads
+      librechat:
+        existingSecretName: "{{ librechat_helm_secret }}"
+        configEnv: "{{ librechat_helm_extra_config_env }}"
+        configYamlContent: "{{ librechat_helm_config_yaml }}"
+        imageVolume:
+          enabled: true
+          size: 10Gi
+          accessModes: ReadWriteOnce
+          storageClassName: "{{ librechat_helm_storage_class }}"
+      global:
+        librechat:
+          existingSecretName: "{{ librechat_helm_secret }}"
+      mongodb:
+        enabled: true
+        auth:
+          enabled: false
+        persistence:
+          enabled: true
+          size: 8Gi
+          storageClass: "{{ librechat_helm_storage_class }}"
+      meilisearch:
+        enabled: true
+        podAnnotations:
+          checksum/meili-credentials: "{{ (librechat_helm_meili_credentials.resources[0].data | to_json(sort_keys=True)) | hash('sha256') }}"
+        persistence:
+          enabled: true
+          storageClass: "{{ librechat_helm_storage_class }}"
+        auth:
+          existingMasterKeySecret: "{{ librechat_helm_meili_secret }}"
+      redis:
+        enabled: false
+      librechat-rag-api:
+        enabled: false
+      ingress: "{{ librechat_helm_ingress }}"
+      service:
+        type: ClusterIP
+        port: 3080
+        targetPort: 3080
+        containerPort: 3080
+      livenessProbe:
+        httpGet:
+          path: /livez
+          port: 3080
+      readinessProbe:
+        httpGet:
+          path: /readyz
+          port: 3080
+  register: librechat_helm_install
+  when: not ansible_check_mode

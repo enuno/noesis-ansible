@@ -1,98 +1,12 @@
 ---
-- name: Validate LibreChat Compose inputs
-  ansible.builtin.assert:
-    that:
-      - librechat_compose_release == 'v0.8.8'
-      - librechat_compose_image == 'registry.librechat.ai/librechat-ai/librechat:v0.8.8'
-      - librechat_compose_root is match('^/[^ ]+$')
-      - librechat_compose_project is match('^[a-z][a-z0-9_-]*$')
-      - librechat_compose_port | int > 0
-      - librechat_compose_port | int < 65536
-      - librechat_compose_bind_address == '127.0.0.1'
-    fail_msg: LibreChat Compose inputs must be pinned and loopback-only.
+- name: Validate LibreChat inputs and prerequisites
+  ansible.builtin.import_tasks: validate-inputs.yml
 
-- name: Refuse live Compose changes without explicit opt-in
-  ansible.builtin.assert:
-    that: librechat_compose_live_changes | bool
-    fail_msg: Set librechat_compose_live_changes=true for this specific deployment.
-  when: not ansible_check_mode
+- name: Configure LibreChat files or storage
+  ansible.builtin.import_tasks: configure.yml
 
-- name: Check Docker Compose on the managed host
-  ansible.builtin.command:
-    argv: [docker, compose, version]
-  register: librechat_compose_cli
-  changed_when: false
-  when: not ansible_check_mode
+- name: Install LibreChat
+  ansible.builtin.import_tasks: install.yml
 
-- name: Create LibreChat Compose directory
-  ansible.builtin.file:
-    path: "{{ librechat_compose_root }}"
-    state: directory
-    mode: '0750'
-
-- name: Render LibreChat Compose manifest
-  ansible.builtin.template:
-    src: compose.yaml.j2
-    dest: "{{ librechat_compose_root }}/compose.yaml"
-    mode: '0640'
-
-- name: Inspect pre-provisioned LibreChat credentials
-  ansible.builtin.stat:
-    path: "{{ librechat_compose_root }}/.env"
-  register: librechat_compose_env_stat
-
-- name: Require a protected credentials file
-  ansible.builtin.assert:
-    that:
-      - librechat_compose_env_stat.stat.isreg | default(false)
-      - (librechat_compose_env_stat.stat.mode | default('')) == '0600'
-      - (librechat_compose_env_stat.stat.uid | default(-1) | int) == 0
-    fail_msg: >-
-      Provision {{ librechat_compose_root }}/.env out of band (mode 0600)
-      with CREDS_KEY, CREDS_IV, JWT_SECRET, JWT_REFRESH_SECRET and
-      MEILI_MASTER_KEY; this role does not generate or rotate credentials.
-  when: not ansible_check_mode
-
-- name: Read LibreChat credentials without displaying them
-  ansible.builtin.slurp:
-    src: "{{ librechat_compose_root }}/.env"
-  register: librechat_compose_env_raw
-  no_log: true
-  when: not ansible_check_mode
-
-- name: Validate required credentials are present and nonempty
-  ansible.builtin.assert:
-    that:
-      - (librechat_compose_env_raw.content | b64decode) is search('(?m)^CREDS_KEY=.+$')
-      - (librechat_compose_env_raw.content | b64decode) is search('(?m)^CREDS_IV=.+$')
-      - (librechat_compose_env_raw.content | b64decode) is search('(?m)^JWT_SECRET=.+$')
-      - (librechat_compose_env_raw.content | b64decode) is search('(?m)^JWT_REFRESH_SECRET=.+$')
-      - (librechat_compose_env_raw.content | b64decode) is search('(?m)^MEILI_MASTER_KEY=.+$')
-    fail_msg: One or more required LibreChat secrets are missing or empty.
-  no_log: true
-  when: not ansible_check_mode
-
-- name: Bring up pinned LibreChat Compose services
-  community.docker.docker_compose_v2:
-    project_src: "{{ librechat_compose_root }}"
-    project_name: "{{ librechat_compose_project }}"
-    files: [compose.yaml]
-    state: present
-    pull: missing
-    wait: true
-    wait_timeout: 180
-  no_log: true
-  when: not ansible_check_mode
-
-- name: Verify LibreChat reports ready on the managed host
-  ansible.builtin.uri:
-    url: "http://127.0.0.1:{{ librechat_compose_port }}/readyz"
-    status_code: 200
-    return_content: true
-  register: librechat_compose_health
-  retries: 20
-  delay: 6
-  until:
-    - librechat_compose_health.status | default(0) == 200
-    - librechat_compose_health.content | default('') == 'OK'
-  when: not ansible_check_mode
+- name: Validate LibreChat deployment
+  ansible.builtin.import_tasks: validate.yml

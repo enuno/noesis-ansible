@@ -1,8 +1,12 @@
 # LibreChat deployment (prepared, not activated)
 
-This repo supplies two separate, opt-in Ansible entry points. They do not run
-from `site.yml` / `master-stack.yml`. Neither installs a Docker daemon, k3s, or
-Helm; install those prerequisites by your approved host baseline first. Both
+This repo supplies two separate, opt-in Ansible entry points. They are also
+wired into `master-stack.yml` (and thus `site.yml`) as Phase 11/12, but both
+orchestrator paths require their own default-off `noesispraxis_enable_librechat_*`
+toggle AND the corresponding `librechat_*_live_changes` gate. Prefer the
+standalone playbooks for targeted operations: `site.yml` runs other phases and
+is not a LibreChat-only command. Neither path installs a Docker daemon, k3s,
+or Helm; install those prerequisites by your approved host baseline first. Both
 paths deploy the core LibreChat web app with MongoDB and Meilisearch. RAG,
 pgvector and the admin panel are intentionally disabled/not included; their
 `latest` images and database credentials in the upstream Compose example are
@@ -84,10 +88,22 @@ chart and the registry images including Bitnami legacy MongoDB. `librechat.image
 Meilisearch PVCs need a working default storage class (or set
 `librechat_helm_storage_class`). The upload claim defaults to 10Gi and is
 retained if the Helm release is removed; back it up and never prune it as a
-routine cleanup. Other optional feature state (RAG, logs, skills) is not
-covered by these two PVCs.
+routine cleanup. The single-replica chart uses `Recreate` on upgrades so its
+ReadWriteOnce images/uploads volumes detach before replacement on multi-node
+clusters (expect brief downtime). Other optional feature state (RAG, logs,
+skills) is not covered by these two PVCs.
 
 ## Preview and deploy
+
+Copy the placeholder inventory to a private operator location, replace every
+`.example.invalid` host, and set the kubeconfig/context on the actual Helm
+executor. The included `group_vars/all.yml` keeps both orchestrator toggles
+and both live-change gates false. For an orchestrated run, target only one
+role with `--tags librechat-compose` or `--tags librechat-helm` and explicitly
+set the matching `noesispraxis_enable_librechat_*` toggle as well as the
+matching `librechat_*_live_changes` flag. The shared bootstrap and validation
+phases carry `always` tags; review their effects before using the full
+orchestrator on a production inventory. A tag alone will not deploy LibreChat.
 
 Preview offline syntax with the example inventory (no SSH or Kubernetes calls):
 
