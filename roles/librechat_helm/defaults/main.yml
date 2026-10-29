@@ -21,4 +21,12 @@ librechat_helm_ingress:
   enabled: false
 librechat_helm_extra_config_env: {}
 librechat_helm_config_yaml: ''
+# Optional operator-managed egress to named tailnet targets. Empty means no
+# tailnet Service is created; no existing application traffic is rerouted.
+# Entries: {name: model-gateway, target_fqdn: gateway.tailnet.ts.net, port: 8080}
+librechat_helm_tailnet_egress_services: []
+# Existing egress ProxyGroup (cluster-scoped). Empty uses standalone proxies.
+librechat_helm_tailnet_egress_proxy_group: ''
+librechat_helm_tailnet_operator_namespace: tailscale
+librechat_helm_tailnet_operator_deployment: tailscale-operator
 librechat_helm_timeout: 10m0s
