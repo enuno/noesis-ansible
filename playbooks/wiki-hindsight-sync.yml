@@ -1,0 +1,22 @@
+---
+# Standalone playbook for the wiki -> Hindsight sync.
+#
+# Review-only: it installs nothing until wiki_hindsight_sync_activate is
+# explicitly true. It is not wired into master-stack.yml.
+#
+# Apply with:
+#   ansible-playbook -i inventory/local/hosts.ini playbooks/wiki-hindsight-sync.yml \
+#     -e wiki_hindsight_sync_activate=true
+- name: "Wiki -> Hindsight memory sync"
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
+  hosts: local
+  gather_facts: false
+  tags: [wiki-hindsight-sync]
+  vars:
+    wiki_hindsight_sync_activate: false
+    wiki_hindsight_sync_user: elvis
+  tasks:
+    - name: Install the wiki-hindsight-sync collector and schedule
+      ansible.builtin.include_role:
+        name: wiki_hindsight_sync

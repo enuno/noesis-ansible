@@ -1,0 +1,31 @@
+---
+# Review-only role. It is not referenced by any playbook in this repository.
+#
+# Activation is refused unless `wiki_hindsight_sync_activate` is explicitly
+# true. Setting that variable is an operator action and is not granted by
+# the presence of this role.
+#
+# The collector itself lives in this role's files/ directory. The role
+# installs it, installs the reviewed scope file, and (only when activated)
+# installs a crontab line for user `elvis`.
+#
+# The API key is read from the environment at run time and is never written
+# to disk by this role or by the collector.
+
+wiki_hindsight_sync_activate: false
+wiki_hindsight_sync_user: elvis
+wiki_hindsight_sync_timezone: America/Denver
+wiki_hindsight_sync_minute: 25
+wiki_hindsight_sync_hour: 3
+wiki_hindsight_sync_repo: /home/elvis/projects/noesis-ansible
+wiki_hindsight_sync_install_dir: /home/elvis/.local/lib/noesis/wiki-hindsight-sync
+wiki_hindsight_sync_state_dir: /home/elvis/.local/share/noesis/wiki-hindsight-sync
+wiki_hindsight_sync_log: /home/elvis/.local/log/noesis/wiki-hindsight-sync.log
+wiki_hindsight_sync_wiki_root: /home/elvis/wiki
+wiki_hindsight_sync_bank: hermes
+wiki_hindsight_sync_endpoint: https://api.hindsight.vectorize.io
+wiki_hindsight_sync_namespace: noesis-wiki
+wiki_hindsight_sync_python: /usr/bin/python3
+wiki_hindsight_sync_max_documents: 0
+# Seconds the collector may run before it is killed.
+wiki_hindsight_sync_max_runtime_s: 3600

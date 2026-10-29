@@ -1,0 +1,91 @@
+---
+- name: Refuse unapproved wiki-hindsight-sync schedule activation
+  ansible.builtin.assert:
+    that:
+      - wiki_hindsight_sync_activate | bool
+    fail_msg: >-
+      wiki_hindsight_sync is review-only. Activation requires
+      wiki_hindsight_sync_activate=true after a separate operator approval.
+      This role does not install a crontab unless that variable is set.
+
+- name: Ensure the install directory exists
+  ansible.builtin.file:
+    path: "{{ wiki_hindsight_sync_install_dir }}"
+    state: directory
+    owner: "{{ wiki_hindsight_sync_user }}"
+    group: "{{ wiki_hindsight_sync_user }}"
+    mode: "0700"
+  when: wiki_hindsight_sync_activate | bool
+
+- name: Ensure the state directory exists
+  ansible.builtin.file:
+    path: "{{ wiki_hindsight_sync_state_dir }}"
+    state: directory
+    owner: "{{ wiki_hindsight_sync_user }}"
+    group: "{{ wiki_hindsight_sync_user }}"
+    mode: "0700"
+  when: wiki_hindsight_sync_activate | bool
+
+- name: Ensure the log directory exists
+  ansible.builtin.file:
+    path: "{{ wiki_hindsight_sync_log | dirname }}"
+    state: directory
+    owner: "{{ wiki_hindsight_sync_user }}"
+    group: "{{ wiki_hindsight_sync_user }}"
+    mode: "0700"
+  when: wiki_hindsight_sync_activate | bool
+
+- name: Install the collector
+  ansible.builtin.copy:
+    src: "wiki_hindsight_sync/"
+    dest: "{{ wiki_hindsight_sync_install_dir }}/"
+    owner: "{{ wiki_hindsight_sync_user }}"
+    group: "{{ wiki_hindsight_sync_user }}"
+    mode: "0700"
+  when: wiki_hindsight_sync_activate | bool
+
+- name: Install the reviewed scope file
+  ansible.builtin.copy:
+    src: "wiki_hindsight_sync/scope.json"
+    dest: "{{ wiki_hindsight_sync_install_dir }}/scope.json"
+    owner: "{{ wiki_hindsight_sync_user }}"
+    group: "{{ wiki_hindsight_sync_user }}"
+    mode: "0600"
+  when: wiki_hindsight_sync_activate | bool
+
+- name: Install the runner wrapper
+  ansible.builtin.template:
+    src: run-sync.sh.j2
+    dest: "{{ wiki_hindsight_sync_install_dir }}/run-sync.sh"
+    owner: "{{ wiki_hindsight_sync_user }}"
+    group: "{{ wiki_hindsight_sync_user }}"
+    mode: "0700"
+  when: wiki_hindsight_sync_activate | bool
+
+- name: Install the crontab fragment
+  ansible.builtin.cron:
+    name: wiki-hindsight-sync
+    user: "{{ wiki_hindsight_sync_user }}"
+    minute: "{{ wiki_hindsight_sync_minute }}"
+    hour: "{{ wiki_hindsight_sync_hour }}"
+    job: >-
+      PATH=/usr/bin:/bin HOME=/home/{{ wiki_hindsight_sync_user }}
+      /bin/bash {{ wiki_hindsight_sync_install_dir }}/run-sync.sh
+      --state-dir {{ wiki_hindsight_sync_state_dir }}
+      --wiki-root {{ wiki_hindsight_sync_wiki_root }}
+      --bank {{ wiki_hindsight_sync_bank }}
+      --endpoint {{ wiki_hindsight_sync_endpoint }}
+      --namespace {{ wiki_hindsight_sync_namespace }}
+      --scope-file {{ wiki_hindsight_sync_install_dir }}/scope.json
+      --max-documents {{ wiki_hindsight_sync_max_documents }}
+      --timeout {{ wiki_hindsight_sync_max_runtime_s }}
+    state: present
+  when: wiki_hindsight_sync_activate | bool
+
+- name: Report that the role is installed but inactive
+  ansible.builtin.debug:
+    msg: >-
+      wiki_hindsight_sync is installed but its schedule is not active.
+      Set wiki_hindsight_sync_activate=true and re-run to install the
+      crontab line. The API key must be present in HINDSIGHT_API_KEY for
+      the scheduled run; this role never writes it to disk.

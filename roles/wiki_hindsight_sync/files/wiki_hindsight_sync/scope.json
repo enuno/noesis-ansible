@@ -1,0 +1,221 @@
+{
+  "namespace": "noesis-wiki",
+  "reviewed_on": "2026-10-27",
+  "exclude_sensitive_trees": true,
+  "max_bytes": 400000,
+  "rules": [
+    {
+      "path": "noesispraxis",
+      "kind": "dir",
+      "classification": "agent-identity",
+      "reason": "NoesisPraxis identity, boundaries, and the Aeon soul-sync bridge"
+    },
+    {
+      "path": "identity",
+      "kind": "dir",
+      "classification": "agent-identity",
+      "reason": "Agent identity constitution, agent card, DID, verifiable credentials"
+    },
+    {
+      "path": "identity/verifiable-credentials.md",
+      "kind": "file",
+      "classification": "agent-identity",
+      "reason": "Verifiable-credential drafts; named explicitly because the filename matches the secret-filename heuristic but the content is a concept page"
+    },
+    {
+      "path": "hermes/concepts",
+      "kind": "dir",
+      "classification": "platform-architecture",
+      "reason": "Hermes runtime architecture, memory model, backup and cron behavior"
+    },
+    {
+      "path": "honcho/architecture",
+      "kind": "dir",
+      "classification": "memory-architecture",
+      "reason": "Honcho memory-model architecture (predecessor substrate, kept for provenance)"
+    },
+    {
+      "path": "honcho/standards",
+      "kind": "dir",
+      "classification": "memory-standards",
+      "reason": "Memory ingestion and retrieval standards already adopted by Noesis"
+    },
+    {
+      "path": "honcho/operations",
+      "kind": "dir",
+      "classification": "runbook",
+      "reason": "Memory operational runbooks"
+    },
+    {
+      "path": "honcho/integrations",
+      "kind": "dir",
+      "classification": "platform-architecture",
+      "reason": "Documented Noesis stack integration via Honcho"
+    },
+    {
+      "path": "honcho/configuration",
+      "kind": "dir",
+      "classification": "platform-architecture",
+      "reason": "Agent memory profile and API/MCP configuration reference"
+    },
+    {
+      "path": "orchestration/osint-workers/docs",
+      "kind": "dir",
+      "classification": "runbook",
+      "reason": "OSINT worker gateway and worker runbooks and policy"
+    },
+    {
+      "path": "infrastructure",
+      "kind": "dir",
+      "classification": "runbook",
+      "reason": "Host infrastructure procedures (Let's Encrypt and Cloudflare)"
+    },
+    {
+      "path": "ops",
+      "kind": "dir",
+      "classification": "operational-lesson",
+      "reason": "Operations incident and cleanup records"
+    },
+    {
+      "path": "ops/disk-cleanup-2026-08-28.md",
+      "kind": "file",
+      "classification": "operational-lesson",
+      "reason": "The disk cleanup session that actually happened on 2026-08-28",
+      "event_time": "2026-08-28"
+    },
+    {
+      "path": "noesispraxis/self-reflection-2026-08-10.md",
+      "kind": "file",
+      "classification": "operational-lesson",
+      "reason": "Self-reflection cycle snapshot for 2026-08-10",
+      "event_time": "2026-08-10"
+    },
+    {
+      "path": "noesispraxis/self-reflection-2026-09-16.md",
+      "kind": "file",
+      "classification": "operational-lesson",
+      "reason": "Self-reflection cycle snapshot for 2026-09-16",
+      "event_time": "2026-09-16"
+    },
+    {
+      "path": "telemetry",
+      "kind": "dir",
+      "classification": "agent-identity",
+      "reason": "AFFECT_LOG is one of the three files the agent card at wiki/.well-known/agent.json names as verification source_of_truth"
+    },
+    {
+      "path": "noesis-ansible.md",
+      "kind": "file",
+      "classification": "platform-architecture",
+      "reason": "Ansible control-plane component inventory and status"
+    },
+    {
+      "path": "concepts/noesis-agent-fleet-architecture.md",
+      "kind": "file",
+      "classification": "accepted-decision",
+      "reason": "Supervisor and worker fleet blueprint with rationale"
+    },
+    {
+      "path": "concepts/hermes-core-governance.md",
+      "kind": "file",
+      "classification": "accepted-decision",
+      "reason": "Core governance and approval-gate rules"
+    },
+    {
+      "path": "concepts/noesis-praxis-memory-strategy.md",
+      "kind": "file",
+      "classification": "accepted-decision",
+      "reason": "NoesisPraxis memory strategy and retention policy"
+    },
+    {
+      "path": "concepts/omh-multi-agent-orchestration.md",
+      "kind": "file",
+      "classification": "accepted-decision",
+      "reason": "Multi-agent orchestration model"
+    },
+    {
+      "path": "concepts/claude-code-bridge.md",
+      "kind": "file",
+      "classification": "accepted-decision",
+      "reason": "Claude Code delegation bridge protocol"
+    },
+    {
+      "path": "concepts/sovereign-ai-agent-stack.md",
+      "kind": "file",
+      "classification": "accepted-decision",
+      "reason": "Sovereign agent stack identity and payments architecture"
+    },
+    {
+      "path": "concepts/mcp-server-unifi.md",
+      "kind": "file",
+      "classification": "platform-architecture",
+      "reason": "UniFi MCP server architecture and tool surface"
+    },
+    {
+      "path": "concepts/hermes-architecture.md",
+      "kind": "file",
+      "classification": "platform-architecture",
+      "reason": "Hermes core component responsibilities"
+    },
+    {
+      "path": "concepts/hermes-deployment.md",
+      "kind": "file",
+      "classification": "runbook",
+      "reason": "Hermes deployment procedure"
+    },
+    {
+      "path": "concepts/hermes-troubleshooting.md",
+      "kind": "file",
+      "classification": "runbook",
+      "reason": "Hermes symptom, cause, and fix troubleshooting table"
+    },
+    {
+      "path": "concepts/building-hermes-from-zero.md",
+      "kind": "file",
+      "classification": "operational-lesson",
+      "reason": "Lessons from building the Hermes runtime"
+    },
+    {
+      "path": "concepts/agent-durability-recovery-idempotency.md",
+      "kind": "file",
+      "classification": "operational-lesson",
+      "reason": "Durability, recovery, and idempotency guidance"
+    },
+    {
+      "path": "concepts/agent-harness-failure-modes.md",
+      "kind": "file",
+      "classification": "operational-lesson",
+      "reason": "Agent harness failure modes and mitigations"
+    },
+    {
+      "path": "projects/erc8004-noesispraxis-runbook.md",
+      "kind": "file",
+      "classification": "runbook",
+      "reason": "ERC-8004 identity and A2A Agent Card deployment runbook"
+    },
+    {
+      "path": "projects/hermes-agent.md",
+      "kind": "file",
+      "classification": "platform-architecture",
+      "reason": "Hermes Agent hub page with provenance"
+    },
+    {
+      "path": "projects/mission-control.md",
+      "kind": "file",
+      "classification": "platform-architecture",
+      "reason": "Mission Control project summary"
+    },
+    {
+      "path": "projects/buzz.md",
+      "kind": "file",
+      "classification": "platform-architecture",
+      "reason": "Buzz project summary"
+    },
+    {
+      "path": "projects/contextlattice.md",
+      "kind": "file",
+      "classification": "platform-architecture",
+      "reason": "Context Lattice project summary"
+    }
+  ]
+}
