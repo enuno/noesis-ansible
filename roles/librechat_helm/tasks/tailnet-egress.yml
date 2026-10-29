@@ -105,6 +105,10 @@
       - item.resources | length == 0 or
         (item.resources | length == 1 and
          item.resources[0].spec.type == 'ExternalName' and
+         item.resources[0].spec.ports | default([]) | length == 1 and
+         item.resources[0].spec.ports[0].port | int == item.item.port | int and
+         item.resources[0].spec.ports[0].name | default('') == 'tcp' and
+         item.resources[0].spec.ports[0].protocol | default('') == 'TCP' and
          item.resources[0].metadata.labels['app.kubernetes.io/managed-by'] | default('') == 'noesis-ansible' and
          item.resources[0].metadata.labels['app.kubernetes.io/instance'] | default('') == librechat_helm_release and
          item.resources[0].metadata.annotations['tailscale.com/tailnet-fqdn'] | default('') == item.item.target_fqdn and
@@ -112,7 +116,7 @@
          item.resources[0].metadata.annotations['tailscale.com/ts-tailnet-target-ip'] | default('') == '' and
          item.resources[0].metadata.annotations['tailscale.com/proxy-group'] | default('') ==
            librechat_helm_tailnet_egress_proxy_group)
-    fail_msg: An existing Service is foreign, has a different target/proxy mode, or has a conflicting IP target; use a new Service name for migrations.
+    fail_msg: An existing Service is foreign or differs in target, TCP port, or proxy mode; use a new Service name for migrations.
   loop: "{{ librechat_helm_tailnet_existing.results | default([]) }}"
   loop_control:
     label: "{{ item.item.name }}"

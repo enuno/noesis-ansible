@@ -127,9 +127,10 @@ or `TailscaleEgressSvcReady=True` with a ProxyGroup before upgrading
 LibreChat. Removing an item from the list does NOT remove
 an existing Service or proxy: removal needs a separate, approved cleanup.
 The role refuses to overwrite an unrelated Service or silently change its
-existing target, conflicting IP-target annotation or proxy mode. Migrate a
-target with a new Service name and explicitly switch LibreChat's endpoint
-after verification; never rely on a stale Ready condition from the old target.
+existing target, conflicting IP-target annotation, TCP port or proxy mode.
+Migrate a target or port with a new Service name and explicitly switch
+LibreChat's endpoint after verification; never rely on a stale Ready
+condition from the old target.
 
 Configure LibreChat to use the in-cluster Service explicitly, for example by
 pointing a trusted custom endpoint `baseURL` in `librechat_helm_config_yaml`
