@@ -1,0 +1,22 @@
+---
+- name: Compose the persistent uploads PVC spec
+  ansible.builtin.set_fact:
+    librechat_helm_uploads_pvc_spec: >-
+      {{ {'accessModes': ['ReadWriteOnce'],
+          'resources': {'requests': {'storage': librechat_helm_uploads_size}}}
+         | combine(({'storageClassName': librechat_helm_storage_class}
+                    if librechat_helm_storage_class | length > 0 else {})) }}
+  when: not ansible_check_mode
+- name: Provision a persistent uploads claim without deleting data
+  kubernetes.core.k8s:
+    kubeconfig: "{{ librechat_helm_kubeconfig }}"
+    context: "{{ librechat_helm_context }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        namespace: "{{ librechat_helm_namespace }}"
+        name: "{{ librechat_helm_release }}-uploads"
+      spec: "{{ librechat_helm_uploads_pvc_spec }}"
+  when: not ansible_check_mode

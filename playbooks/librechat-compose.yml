@@ -1,0 +1,15 @@
+---
+# Supply an inventory with exactly the intended host under [librechat_compose].
+# The role refuses live changes unless -e librechat_compose_live_changes=true.
+- name: Deploy LibreChat core via Docker Compose
+  hosts: librechat_compose
+  gather_facts: false
+  become: true
+  pre_tasks:
+    - name: Refuse placeholder hosts
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname is not search('example.invalid')
+        fail_msg: Replace the example inventory with an approved target.
+  roles:
+    - librechat_compose

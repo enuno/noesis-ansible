@@ -1,0 +1,12 @@
+---
+- name: Validate LibreChat inputs and prerequisites
+  ansible.builtin.import_tasks: validate-inputs.yml
+
+- name: Configure LibreChat files or storage
+  ansible.builtin.import_tasks: configure.yml
+
+- name: Install LibreChat
+  ansible.builtin.import_tasks: install.yml
+
+- name: Validate LibreChat deployment
+  ansible.builtin.import_tasks: validate.yml

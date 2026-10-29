@@ -1,7 +1,7 @@
 ---
 # master-stack.yml — Phase-oriented master orchestrator for NoesisPraxis
 # Run individual phases via tags: bootstrap, foundation, security, runtime,
-# macos, telegram, tailscale, sync, validate, backup
+# macos, telegram, tailscale, sync, validate, backup, librechat
 
 - name: "PHASE 0 — Bootstrap"
   become: true
@@ -264,3 +264,38 @@
       ansible.builtin.include_role:
         name: validation
       when: noesispraxis_enable_validation | default(true) | bool
+
+# Both roles are reachable from site.yml but remain inert unless an operator
+# selects the exact target group AND supplies both opt-in gates. They do not
+# inherit a host from the local/all plays above.
+- name: "PHASE 11 — LibreChat Compose (opt-in)"
+  hosts: librechat_compose
+  become: true
+  gather_facts: false
+  tags: [librechat, librechat-compose]
+  tasks:
+    - name: Include LibreChat Compose on approved hosts
+      ansible.builtin.include_role:
+        name: librechat_compose
+        apply:
+          tags: [librechat, librechat-compose]
+      when:
+        - noesispraxis_enable_librechat_compose | default(false) | bool
+        - librechat_compose_live_changes | default(false) | bool
+      tags: [librechat, librechat-compose]
+
+- name: "PHASE 12 — LibreChat Helm (opt-in)"
+  hosts: librechat_k8s
+  become: true
+  gather_facts: false
+  tags: [librechat, librechat-helm]
+  tasks:
+    - name: Include LibreChat Helm on approved hosts
+      ansible.builtin.include_role:
+        name: librechat_helm
+        apply:
+          tags: [librechat, librechat-helm]
+      when:
+        - noesispraxis_enable_librechat_helm | default(false) | bool
+        - librechat_helm_live_changes | default(false) | bool
+      tags: [librechat, librechat-helm]

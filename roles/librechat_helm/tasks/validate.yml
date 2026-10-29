@@ -1,0 +1,35 @@
+---
+- name: Verify the chart release status
+  kubernetes.core.helm_info:
+    binary_path: "{{ librechat_helm_binary }}"
+    kubeconfig: "{{ librechat_helm_kubeconfig }}"
+    context: "{{ librechat_helm_context }}"
+    release_name: "{{ librechat_helm_release }}"
+    release_namespace: "{{ librechat_helm_namespace }}"
+  register: librechat_helm_release_info
+  when: not ansible_check_mode
+- name: Assert the release is deployed
+  ansible.builtin.assert:
+    that:
+      - librechat_helm_release_info.status.status | lower == 'deployed'
+      - librechat_helm_release_info.status.chart == 'librechat-2.0.17'
+      - librechat_helm_release_info.status.app_version == 'v0.8.8'
+    fail_msg: Helm did not report a deployed LibreChat release.
+  when: not ansible_check_mode
+- name: Read LibreChat Deployment readiness
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ librechat_helm_kubeconfig }}"
+    context: "{{ librechat_helm_context }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ librechat_helm_namespace }}"
+    name: "{{ librechat_helm_release }}"
+  register: librechat_helm_deployment
+  when: not ansible_check_mode
+- name: Assert the LibreChat pod is available
+  ansible.builtin.assert:
+    that:
+      - librechat_helm_deployment.resources | length == 1
+      - librechat_helm_deployment.resources[0].status.availableReplicas | default(0) | int >= 1
+    fail_msg: LibreChat Deployment is not available; inspect pods and events.
+  when: not ansible_check_mode
