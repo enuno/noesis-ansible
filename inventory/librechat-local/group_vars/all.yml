@@ -1,0 +1,25 @@
+---
+# Local k3s deployment only. No secret values are stored in this inventory.
+librechat_helm_kubeconfig: /etc/rancher/k3s/k3s.yaml
+librechat_helm_context: default
+librechat_helm_namespace: librechat
+librechat_helm_release: librechat
+librechat_helm_live_changes: false
+librechat_helm_tailnet_egress_services: []
+librechat_helm_ingress:
+  enabled: true
+  className: tailscale
+  hosts:
+    - host: librechat
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts: [librechat]
+      secretName: ''
+librechat_helm_extra_config_env:
+  ALLOW_REGISTRATION: 'true'
+  DOMAIN_CLIENT: https://librechat.tailf99a0.ts.net
+  DOMAIN_SERVER: https://librechat.tailf99a0.ts.net
+  MEILI_HOST: http://librechat-meilisearch.librechat.svc.cluster.local.:7700
+  MONGO_URI: mongodb://librechat-mongodb.librechat.svc.cluster.local.:27017/LibreChat
