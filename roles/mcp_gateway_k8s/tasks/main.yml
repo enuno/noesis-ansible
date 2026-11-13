@@ -1,0 +1,48 @@
+---
+# Phase order is load-bearing.
+#
+# The upstream chart GENERATES every credential itself (shared-secret,
+# oauth-provider-secret, the Keycloak admin/client/postgres credentials,
+# mongo-credentials). They cannot be pre-escrowed the way a role-generated
+# password can, because they do not exist until the release has run - so
+# escrow comes AFTER install here rather than before it, and it is the only
+# copy of those values that survives a namespace wipe.
+#
+# Escrow still runs BEFORE exposure: a credential that is reachable from the
+# tailnet before it is backed up is a credential that can be lost while in
+# use.
+
+- name: Include MCP Gateway Registry install
+  ansible.builtin.include_tasks: install.yml
+  tags: [mcp_gateway, k8s, install]
+
+# Gated on the project id rather than a separate boolean, matching the
+# sibling k8s roles: the escrow tasks assert the id equals the required
+# project, so an unset id means "not configured for escrow here" while a
+# wrong one is a hard failure rather than a write into the wrong project.
+- name: Include MCP Gateway Registry credential escrow
+  ansible.builtin.include_tasks: bw_escrow.yml
+  when: mcp_gateway_k8s_bw_project_id | default('') | length > 0
+  tags: [mcp_gateway, k8s, secrets]
+
+- name: Include MCP Gateway Registry tailnet exposure
+  ansible.builtin.include_tasks: expose_tailscale.yml
+  when: mcp_gateway_k8s_expose_enabled | bool
+  tags: [mcp_gateway, k8s, expose]
+
+- name: Include MCP Gateway Registry validate
+  ansible.builtin.include_tasks: validate.yml
+  tags: [mcp_gateway, k8s, validate]
+
+- name: Include MCP Gateway Registry backup
+  ansible.builtin.include_tasks: backup.yml
+  tags: [mcp_gateway, k8s, backup]
+
+# Operator-invoked recovery, never part of an ordinary converge. It needs an
+# explicit target revision and it mutates the live release, so it is gated on
+# its own flag as well as its tag - a tag alone would still run it on any
+# untagged invocation, which is exactly when nobody intended a rollback.
+- name: Include MCP Gateway Registry rollback
+  ansible.builtin.include_tasks: rollback.yml
+  when: mcp_gateway_k8s_rollback_enabled | bool
+  tags: [mcp_gateway, k8s, rollback]

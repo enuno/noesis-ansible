@@ -1,0 +1,633 @@
+---
+# Deploy / upgrade the upstream mcp-gateway-registry stack chart.
+#
+# Ordering matters here:
+#   1. preflight (nothing is mutated until the target is proven usable)
+#   2. source pin  (the chart comes from a pinned upstream git SHA)
+#   3. namespace
+#   4. helm upgrade --install
+#   5. wait + verify workloads
+
+- name: Validate MCP Gateway Registry preflight before any mutation
+  ansible.builtin.assert:
+    that:
+      - mcp_gateway_k8s_enabled | bool
+      - mcp_gateway_k8s_kubeconfig | length > 0
+      - mcp_gateway_k8s_context | length > 0
+      - mcp_gateway_k8s_namespace | length > 0
+      - mcp_gateway_k8s_release_name | length > 0
+      - mcp_gateway_k8s_git_version is match('^[0-9a-f]{40}$')
+      - mcp_gateway_k8s_image_tag != "latest"
+      - mcp_gateway_k8s_image_tag is match('^[0-9]+\.[0-9]+\.[0-9]+$')
+      - mcp_gateway_k8s_mongodb_replicas == 1
+      - mcp_gateway_k8s_ingress_host is match('^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')
+    fail_msg: >-
+      MCP Gateway Registry preflight failed. Require mcp_gateway_k8s_enabled=true,
+      an explicit kubeconfig AND context, a full 40-hex upstream git SHA, and
+      an exact (non-latest) image tag. Never select a kubectl context
+      implicitly. mongodb.replicas must be 1 on a single-node cluster.
+  tags: [mcp_gateway, k8s, install]
+
+- name: Refuse an ingress hostname the tailnet operator already owns
+  ansible.builtin.assert:
+    that:
+      - mcp_gateway_k8s_ingress_host not in mcp_gateway_k8s_reserved_hostnames
+    fail_msg: >-
+      The tailnet hostname label {{ mcp_gateway_k8s_ingress_host }} is already
+      in use on this tailnet. Reserved: {{ mcp_gateway_k8s_reserved_hostnames | join(', ') }}.
+  when: mcp_gateway_k8s_expose_enabled | bool
+  tags: [mcp_gateway, k8s, install, expose]
+
+- name: Read the effective task user's access to the kubeconfig
+  ansible.builtin.stat:
+    path: "{{ mcp_gateway_k8s_kubeconfig }}"
+  register: mcp_gateway_k8s_kubeconfig_stat
+  tags: [mcp_gateway, k8s, install]
+
+- name: Fail with an actionable message when the kubeconfig is unreadable
+  ansible.builtin.fail:
+    msg: >-
+      The effective task user cannot read {{ mcp_gateway_k8s_kubeconfig }}
+      (exists: {{ mcp_gateway_k8s_kubeconfig_stat.stat.exists }},
+      readable: {{ mcp_gateway_k8s_kubeconfig_stat.stat.readable | default(false) }}).
+      On this k3s host that is the root-owned /etc/rancher/k3s/k3s.yaml, which
+      these plays read because they run with become: true. Do not switch to a
+      per-user ~/.kube/config instead: those are mode 0660 inside a 0700 home
+      and unreadable by the ansible account.
+  when: not (mcp_gateway_k8s_kubeconfig_stat.stat.exists | default(false)
+             and mcp_gateway_k8s_kubeconfig_stat.stat.readable | default(false))
+  tags: [mcp_gateway, k8s, install]
+
+- name: Ensure the upstream source checkout directory exists
+  ansible.builtin.file:
+    path: "{{ mcp_gateway_k8s_src_dir }}"
+    state: directory
+    mode: "0755"
+  tags: [mcp_gateway, k8s, install]
+
+- name: Check out the pinned upstream mcp-gateway-registry revision
+  ansible.builtin.git:
+    repo: "{{ mcp_gateway_k8s_git_repo }}"
+    dest: "{{ mcp_gateway_k8s_src_dir }}"
+    version: "{{ mcp_gateway_k8s_git_version }}"
+    force: true
+  become: true
+  tags: [mcp_gateway, k8s, install]
+
+# `rev-parse` is a read, and ansible.builtin.git has no equivalent - it
+# performs checkouts, it does not report an arbitrary rev. Reading the
+# worktree back independently is the whole point: it proves what is ON DISK
+# rather than trusting the module's own report of what it did.
+- name: Report the upstream revision actually checked out  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: git -C {{ mcp_gateway_k8s_src_dir }} rev-parse HEAD
+  register: mcp_gateway_k8s_git_head
+  changed_when: false
+  # Read-only, and the pin assertion below consumes its output. --check skips
+  # `command` by default, which left stdout empty and failed the assertion -
+  # so the preview could never get past this task and previewed nothing.
+  check_mode: false
+  become: true
+  tags: [mcp_gateway, k8s, install]
+
+- name: Verify the checkout is exactly the pinned revision
+  ansible.builtin.assert:
+    that:
+      - (mcp_gateway_k8s_git_head.stdout | default('') | trim) == mcp_gateway_k8s_git_version
+    fail_msg: >-
+      Upstream checkout is at
+      '{{ mcp_gateway_k8s_git_head.stdout | default('') | trim }}' but
+      the pin is {{ mcp_gateway_k8s_git_version }}. Refusing to deploy an
+      unpinned tree.
+  tags: [mcp_gateway, k8s, install]
+
+# The upstream umbrella chart declares dependencies on external repositories
+# (bitnamicharts keycloak, mongodb-kubernetes, openbao) plus sibling
+# file:// charts. Upstream gitignores Chart.lock and the vendored .tgz files,
+# so a fresh clone has neither and Helm cannot resolve the chart at all.
+#
+# `helm dependency update` re-downloads EVERY dependency, so a single
+# transient 504 from GitHub (the mongodb-kubernetes tarball is served from a
+# github.com release URL) fails the whole deploy even when every package is
+# already vendored and valid. The steps below therefore treat the network
+# fetch as best-effort and verify the OUTCOME (`helm dependency list` says
+# every dependency is "ok"), which is what actually matters to Helm.
+- name: Check the current state of the chart dependencies
+  ansible.builtin.command:
+    cmd: helm dependency list {{ mcp_gateway_k8s_src_dir }}/{{ mcp_gateway_k8s_chart_path }}
+  register: mcp_gateway_k8s_dep_list_before
+  changed_when: false
+  failed_when: false
+  # Read-only; the set_fact below consumes it.
+  check_mode: false
+  become: true
+  tags: [mcp_gateway, k8s, install]
+
+- name: Record which chart dependencies are already resolved
+  ansible.builtin.set_fact:
+    mcp_gateway_k8s_deps_unresolved: >-
+      {{ mcp_gateway_k8s_dep_list_before.stdout_lines | default([])
+         | reject('search', '^NAME\s') | reject('search', '\s+ok\s*$') | list }}
+  tags: [mcp_gateway, k8s, install]
+
+- name: Resolve the upstream Helm chart dependencies
+  ansible.builtin.command:
+    cmd: helm dependency update {{ mcp_gateway_k8s_src_dir }}/{{ mcp_gateway_k8s_chart_path }}
+  register: mcp_gateway_k8s_helm_deps
+  changed_when: "'Saving' in (mcp_gateway_k8s_helm_deps.stdout | default(''))"
+  failed_when: false
+  become: true
+  when: mcp_gateway_k8s_deps_unresolved | length > 0
+  tags: [mcp_gateway, k8s, install]
+
+- name: Re-check the chart dependencies after the fetch attempt
+  ansible.builtin.command:
+    cmd: helm dependency list {{ mcp_gateway_k8s_src_dir }}/{{ mcp_gateway_k8s_chart_path }}
+  register: mcp_gateway_k8s_dep_list_after
+  changed_when: false
+  failed_when: false
+  # Read-only; the dependency assertion below consumes it. Note the WRITE in
+  # between (`helm dependency update`) deliberately does NOT get this - it
+  # must stay skipped in a preview.
+  check_mode: false
+  become: true
+  tags: [mcp_gateway, k8s, install]
+
+- name: Verify every chart dependency resolved successfully
+  ansible.builtin.assert:
+    that:
+      - mcp_gateway_k8s_dep_list_after.stdout_lines | default([])
+        | select('search', '\s+ok\s*$') | list | length == 8
+      - mcp_gateway_k8s_dep_list_after.stdout_lines | default([])
+        | reject('search', '^NAME\s') | reject('search', '\s+ok\s*$') | list | length == 0
+    fail_msg: >-
+      Not every upstream chart dependency resolved. 'helm dependency list'
+      reported:
+      {{ mcp_gateway_k8s_dep_list_after.stdout_lines | default([]) | join(' | ') }}.
+      The upstream umbrella chart needs keycloak, mongodb-kubernetes,
+      auth-server, registry, mcpgw, keycloak-configure, mongodb-configure and
+      openbao. A transient 504 from the github.com release URL that serves
+      mongodb-kubernetes is the usual cause; re-run to retry the fetch.
+  tags: [mcp_gateway, k8s, install]
+
+- name: Verify every chart dependency was resolved to a package
+  ansible.builtin.find:
+    paths: "{{ mcp_gateway_k8s_src_dir }}/{{ mcp_gateway_k8s_chart_path }}/charts"
+    patterns: "*.tgz"
+  register: mcp_gateway_k8s_chart_deps
+  tags: [mcp_gateway, k8s, install]
+
+- name: Fail when the chart dependency packages are missing
+  ansible.builtin.assert:
+    that:
+      - mcp_gateway_k8s_chart_deps.matched | default(0) >= 8
+    fail_msg: >-
+      Only {{ mcp_gateway_k8s_chart_deps.matched | default(0) }} chart
+      dependency packages are present under
+      {{ mcp_gateway_k8s_src_dir }}/{{ mcp_gateway_k8s_chart_path }}/charts.
+      The upstream umbrella chart needs keycloak, mongodb-kubernetes,
+      auth-server, registry, mcpgw, keycloak-configure, mongodb-configure and
+      openbao.
+  tags: [mcp_gateway, k8s, install]
+
+- name: Ensure the release namespace exists
+  kubernetes.core.k8s:
+    kubeconfig: "{{ mcp_gateway_k8s_kubeconfig }}"
+    context: "{{ mcp_gateway_k8s_context }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ mcp_gateway_k8s_namespace }}"
+        labels:
+          app.kubernetes.io/name: mcp-gateway-registry
+          app.kubernetes.io/managed-by: ansible
+  tags: [mcp_gateway, k8s, install]
+
+- name: Read the node's allocatable capacity for the resource budget check
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ mcp_gateway_k8s_kubeconfig }}"
+    context: "{{ mcp_gateway_k8s_context }}"
+    kind: Node
+    name: "{{ mcp_gateway_k8s_node_name }}"
+  register: mcp_gateway_k8s_node_info
+  tags: [mcp_gateway, k8s, install]
+
+# Kubernetes reports CPU in EITHER "4" (cores) or "4000m" (millicores),
+# depending on the value, so the comparison has to normalise both sides to
+# millicores before comparing them.
+#
+# Split across TWO set_fact tasks on purpose. Ansible resolves every argument
+# of a task before applying any of them, so a key cannot reference a sibling
+# key defined in the same set_fact - doing that fails with
+# "'..._cpu_per_member_m' is undefined" on the real run, not just in --check.
+- name: Compute the per-member MongoDB CPU request in millicores
+  ansible.builtin.set_fact:
+    mcp_gateway_k8s_mongodb_cpu_per_member_m: >-
+      {{ [
+           mcp_gateway_k8s_mongodb_mongod_cpu_request,
+           mcp_gateway_k8s_mongodb_agent_cpu_request,
+           mcp_gateway_k8s_mongodb_sidecar_cpu_request
+         ] | map('regex_replace', 'm$', '') | map('int') | sum }}
+  tags: [mcp_gateway, k8s, install]
+
+- name: Compute the requested and allocatable CPU in millicores
+  ansible.builtin.set_fact:
+    # NOTE on Jinja precedence: a filter binds tighter than "+", so each
+    # group that must be filtered has to be parenthesised explicitly.
+    mcp_gateway_k8s_cpu_requested_m: >-
+      {{ [
+           mcp_gateway_k8s_registry_cpu_request,
+           mcp_gateway_k8s_auth_server_cpu_request,
+           mcp_gateway_k8s_mcpgw_cpu_request,
+           mcp_gateway_k8s_keycloak_cpu_request,
+           mcp_gateway_k8s_postgres_cpu_request,
+           mcp_gateway_k8s_operator_cpu_request
+         ] | map('regex_replace', 'm$', '') | map('int') | sum
+         + ((mcp_gateway_k8s_mongodb_replicas | int)
+            * (mcp_gateway_k8s_mongodb_cpu_per_member_m | int)) }}
+    mcp_gateway_k8s_cpu_allocatable_m: >-
+      {{ (mcp_gateway_k8s_node_info.resources[0].status.allocatable.cpu is search('m$'))
+         | ternary(
+             (mcp_gateway_k8s_node_info.resources[0].status.allocatable.cpu | regex_replace('m$', '') | int),
+             ((mcp_gateway_k8s_node_info.resources[0].status.allocatable.cpu | float) * 1000) | int) }}
+  tags: [mcp_gateway, k8s, install]
+
+# The node's allocatable capacity is NOT the headroom. Comparing the stack
+# against total allocatable ignores every pod already scheduled here, so the
+# check passes on a node with nothing left to give. Sum what is already
+# committed - excluding this release's own namespace, so an UPGRADE does not
+# count the stack against itself - and budget against the remainder.
+- name: Read every pod scheduled on the target node
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ mcp_gateway_k8s_kubeconfig }}"
+    context: "{{ mcp_gateway_k8s_context }}"
+    kind: Pod
+  register: mcp_gateway_k8s_node_pods
+  check_mode: false
+  tags: [mcp_gateway, k8s, install]
+
+- name: Collect the resource requests already committed on the node
+  ansible.builtin.set_fact:
+    mcp_gateway_k8s_committed_cpu_raw: >-
+      {{ mcp_gateway_k8s_node_pods.resources | default([])
+         | selectattr('spec.nodeName', 'defined')
+         | selectattr('spec.nodeName', 'equalto', mcp_gateway_k8s_node_name)
+         | rejectattr('metadata.namespace', 'equalto', mcp_gateway_k8s_namespace)
+         | selectattr('status.phase', 'in', ['Running', 'Pending'])
+         | map(attribute='spec.containers') | flatten
+         | map(attribute='resources.requests.cpu', default='0') | list }}
+    mcp_gateway_k8s_committed_mem_raw: >-
+      {{ mcp_gateway_k8s_node_pods.resources | default([])
+         | selectattr('spec.nodeName', 'defined')
+         | selectattr('spec.nodeName', 'equalto', mcp_gateway_k8s_node_name)
+         | rejectattr('metadata.namespace', 'equalto', mcp_gateway_k8s_namespace)
+         | selectattr('status.phase', 'in', ['Running', 'Pending'])
+         | map(attribute='spec.containers') | flatten
+         | map(attribute='resources.requests.memory', default='0') | list }}
+  tags: [mcp_gateway, k8s, install]
+
+# Kubernetes quantities carry a suffix and mix binary and decimal units, so
+# each form is summed separately and converted. "1" means one core; "100m"
+# means a tenth. "400M" is decimal megabytes and is NOT "400Mi".
+- name: Normalise the committed requests to millicores and MiB
+  ansible.builtin.set_fact:
+    mcp_gateway_k8s_committed_cpu_m: >-
+      {{ (mcp_gateway_k8s_committed_cpu_raw | select('search', 'm$')
+          | map('regex_replace', 'm$', '') | map('int') | sum)
+         + ((mcp_gateway_k8s_committed_cpu_raw | reject('search', 'm$')
+             | map('float') | sum) * 1000) | int }}
+    mcp_gateway_k8s_committed_mem_mi: >-
+      {{ (mcp_gateway_k8s_committed_mem_raw | select('search', 'Mi$')
+          | map('regex_replace', 'Mi$', '') | map('int') | sum)
+         + ((mcp_gateway_k8s_committed_mem_raw | select('search', 'Gi$')
+             | map('regex_replace', 'Gi$', '') | map('float') | sum) * 1024) | int
+         + ((mcp_gateway_k8s_committed_mem_raw | select('search', 'Ki$')
+             | map('regex_replace', 'Ki$', '') | map('float') | sum) / 1024) | int
+         + ((mcp_gateway_k8s_committed_mem_raw | select('match', '^[0-9.]+M$')
+             | map('regex_replace', 'M$', '') | map('float') | sum) * 0.95367) | int
+         + ((mcp_gateway_k8s_committed_mem_raw | select('match', '^[0-9.]+G$')
+             | map('regex_replace', 'G$', '') | map('float') | sum) * 953.67) | int }}
+  tags: [mcp_gateway, k8s, install]
+
+- name: Compute the stack's own memory request in MiB
+  ansible.builtin.set_fact:
+    # Two facts, neither referencing the other, so they can share a task.
+    mcp_gateway_k8s_app_mem_mi: >-
+      {{ [mcp_gateway_k8s_registry_mem_request,
+          mcp_gateway_k8s_auth_server_mem_request,
+          mcp_gateway_k8s_mcpgw_mem_request,
+          mcp_gateway_k8s_keycloak_mem_request,
+          mcp_gateway_k8s_postgres_mem_request,
+          mcp_gateway_k8s_operator_mem_request]
+         | select('search', 'Mi$') | map('regex_replace', 'Mi$', '')
+         | map('int') | sum }}
+    mcp_gateway_k8s_mongo_mem_per_member_mi: >-
+      {{ ([mcp_gateway_k8s_mongodb_mongod_mem_request,
+           mcp_gateway_k8s_mongodb_agent_mem_request,
+           mcp_gateway_k8s_mongodb_sidecar_mem_request]
+          | select('search', 'Mi$') | map('regex_replace', 'Mi$', '')
+          | map('int') | sum)
+         + ([mcp_gateway_k8s_mongodb_mongod_mem_request,
+             mcp_gateway_k8s_mongodb_agent_mem_request,
+             mcp_gateway_k8s_mongodb_sidecar_mem_request]
+            | select('match', '^[0-9.]+M$') | map('regex_replace', 'M$', '')
+            | map('float') | sum * 0.95367) | int }}
+    mcp_gateway_k8s_mem_allocatable_mi: >-
+      {{ ((mcp_gateway_k8s_node_info.resources[0].status.allocatable.memory
+           | regex_replace('Ki$', '') | int) / 1024) | int }}
+  tags: [mcp_gateway, k8s, install]
+
+- name: Total the stack's memory request across its members
+  ansible.builtin.set_fact:
+    mcp_gateway_k8s_mem_requested_mi: >-
+      {{ (mcp_gateway_k8s_app_mem_mi | int)
+         + ((mcp_gateway_k8s_mongodb_replicas | int)
+            * (mcp_gateway_k8s_mongo_mem_per_member_mi | int)) }}
+  tags: [mcp_gateway, k8s, install]
+
+- name: Assert the requested stack budget fits the node's REMAINING capacity
+  ansible.builtin.assert:
+    that:
+      - (mcp_gateway_k8s_cpu_requested_m | int)
+        <= (mcp_gateway_k8s_cpu_allocatable_m | int) - (mcp_gateway_k8s_committed_cpu_m | int)
+      - (mcp_gateway_k8s_mem_requested_mi | int)
+        <= (mcp_gateway_k8s_mem_allocatable_mi | int) - (mcp_gateway_k8s_committed_mem_mi | int)
+    fail_msg: >-
+      The stack does not fit the remaining capacity on
+      {{ mcp_gateway_k8s_node_name }}.
+      CPU: wants {{ mcp_gateway_k8s_cpu_requested_m }}m, free
+      {{ (mcp_gateway_k8s_cpu_allocatable_m | int) - (mcp_gateway_k8s_committed_cpu_m | int) }}m
+      ({{ mcp_gateway_k8s_cpu_allocatable_m }}m allocatable minus
+      {{ mcp_gateway_k8s_committed_cpu_m }}m already committed).
+      Memory: wants {{ mcp_gateway_k8s_mem_requested_mi }}Mi, free
+      {{ (mcp_gateway_k8s_mem_allocatable_mi | int) - (mcp_gateway_k8s_committed_mem_mi | int) }}Mi
+      ({{ mcp_gateway_k8s_mem_allocatable_mi }}Mi allocatable minus
+      {{ mcp_gateway_k8s_committed_mem_mi }}Mi already committed).
+      This node already runs other releases; scheduling this stack anyway
+      risks evicting them. Lower the mcp_gateway_k8s_*_request values or add
+      capacity.
+    success_msg: >-
+      Stack fits: CPU {{ mcp_gateway_k8s_cpu_requested_m }}m of
+      {{ (mcp_gateway_k8s_cpu_allocatable_m | int) - (mcp_gateway_k8s_committed_cpu_m | int) }}m free,
+      memory {{ mcp_gateway_k8s_mem_requested_mi }}Mi of
+      {{ (mcp_gateway_k8s_mem_allocatable_mi | int) - (mcp_gateway_k8s_committed_mem_mi | int) }}Mi free.
+  tags: [mcp_gateway, k8s, install]
+
+- name: Report the resource budget against the node capacity
+  ansible.builtin.debug:
+    msg:
+      - >-
+        CPU: stack {{ mcp_gateway_k8s_cpu_requested_m }}m, committed
+        {{ mcp_gateway_k8s_committed_cpu_m }}m, allocatable
+        {{ mcp_gateway_k8s_cpu_allocatable_m }}m.
+      - >-
+        Memory: stack {{ mcp_gateway_k8s_mem_requested_mi }}Mi, committed
+        {{ mcp_gateway_k8s_committed_mem_mi }}Mi, allocatable
+        {{ mcp_gateway_k8s_mem_allocatable_mi }}Mi.
+      - >-
+        Requests are a SCHEDULING floor, not a usage ceiling - check real
+        free memory on the host before trusting this on a busy node.
+  tags: [mcp_gateway, k8s, install]
+
+- name: Render the Helm values for the upstream stack chart
+  ansible.builtin.set_fact:
+    mcp_gateway_k8s_helm_values:
+      global:
+        # The upstream chart derives the registry's public URL, the
+        # Keycloak issuer URL and the trusted-host allowlist from
+        # global.domain. In path routing mode that is the BARE host (no
+        # /registry suffix), because the browser-facing auth paths
+        # (/oauth2/*, /realms/*) are siblings of /registry on one host.
+        domain: "{{ mcp_gateway_k8s_ingress_host }}.{{ mcp_gateway_k8s_tailnet_domain }}"
+        image:
+          registry: "{{ mcp_gateway_k8s_image_registry }}"
+          tag: "{{ mcp_gateway_k8s_image_tag }}"
+          pullPolicy: IfNotPresent
+        # The upstream chart's own version field is frozen at 0.1.0 for every
+        # release, so Helm cannot see an upstream change on its own. The
+        # upstream-sanctioned git-SHA marker makes the release values change
+        # whenever the pin changes, which is what actually forces the
+        # upgrade to run.
+        chartVersion: "{{ mcp_gateway_k8s_git_version }}"
+        generateSecrets: true
+        ingress:
+          className: "{{ mcp_gateway_k8s_ingress_class }}"
+          scheme: internal
+          tls: true
+          routingMode: path
+          paths:
+            registry: /registry
+        authProvider:
+          type: keycloak
+      openbao:
+        enabled: false
+      registry:
+        app:
+          replicas: 1
+          # Upstream ships anonymous usage telemetry ON: a startup ping plus a
+          # daily heartbeat (charts/.../values.yaml, mcpTelemetryDisabled and
+          # mcpTelemetryOptOut both default false). Disable both - this host
+          # should not phone home about a private deployment, and opting out
+          # of only the heartbeat still sends the startup ping.
+          mcpTelemetryDisabled: true
+          mcpTelemetryOptOut: true
+          # Cloud-detection probes the link-local metadata endpoint
+          # (169.254.169.254). There is no IMDS here, so the probe can only
+          # wait for a timeout on every start.
+          mcpTelemetryImdsProbeDisabled: true
+        # The upstream registry Ingress is ALB-shaped: it carries
+        # alb.ingress.kubernetes.io/* annotations and declares no spec.tls.
+        # The Tailscale operator ignores rules whose host differs from the
+        # TLS host, so that Ingress can never produce a working backend.
+        # Disable it and let tasks/expose_tailscale.yml own the exposure.
+        ingress:
+          enabled: false
+        resources:
+          requests:
+            cpu: "{{ mcp_gateway_k8s_registry_cpu_request }}"
+            memory: "{{ mcp_gateway_k8s_registry_mem_request }}"
+          limits:
+            cpu: "1"
+            memory: 1Gi
+        nodeSelector:
+          kubernetes.io/hostname: "{{ mcp_gateway_k8s_node_name }}"
+      auth-server:
+        app:
+          replicas: 1
+        ingress:
+          enabled: false
+        resources:
+          requests:
+            cpu: "{{ mcp_gateway_k8s_auth_server_cpu_request }}"
+            memory: "{{ mcp_gateway_k8s_auth_server_mem_request }}"
+          limits:
+            cpu: "1"
+            memory: 1Gi
+        nodeSelector:
+          kubernetes.io/hostname: "{{ mcp_gateway_k8s_node_name }}"
+      mcpgw:
+        enabled: true
+        app:
+          replicas: 1
+        resources:
+          requests:
+            cpu: "{{ mcp_gateway_k8s_mcpgw_cpu_request }}"
+            memory: "{{ mcp_gateway_k8s_mcpgw_mem_request }}"
+          limits:
+            cpu: "500m"
+            memory: 512Mi
+        nodeSelector:
+          kubernetes.io/hostname: "{{ mcp_gateway_k8s_node_name }}"
+      keycloak:
+        create: true
+        ingress:
+          enabled: false
+        resources:
+          requests:
+            cpu: "{{ mcp_gateway_k8s_keycloak_cpu_request }}"
+            memory: "{{ mcp_gateway_k8s_keycloak_mem_request }}"
+          limits:
+            cpu: "750m"
+            memory: 768Mi
+        # The Bitnami PostgreSQL subchart reads its container sizing from
+        # postgresql.primary.resources, NOT postgresql.resources.
+        postgresql:
+          primary:
+            resources:
+              requests:
+                cpu: "{{ mcp_gateway_k8s_postgres_cpu_request }}"
+                memory: "{{ mcp_gateway_k8s_postgres_mem_request }}"
+              limits:
+                cpu: "250m"
+                memory: 192Mi
+        nodeSelector:
+          kubernetes.io/hostname: "{{ mcp_gateway_k8s_node_name }}"
+      mongodb:
+        enabled: true
+        replicas: "{{ mcp_gateway_k8s_mongodb_replicas }}"
+        version: "{{ mcp_gateway_k8s_mongodb_version }}"
+      mongodb-kubernetes:
+        operator:
+          enableClusterMongoDBRoles: false
+          telemetry:
+            installClusterRole: false
+          # The operator chart reads its Deployment sizing from
+          # operator.resources.
+          resources:
+            requests:
+              cpu: "{{ mcp_gateway_k8s_operator_cpu_request }}"
+              memory: "{{ mcp_gateway_k8s_operator_mem_request }}"
+            limits:
+              cpu: "500m"
+              memory: 512Mi
+          nodeSelector:
+            kubernetes.io/hostname: "{{ mcp_gateway_k8s_node_name }}"
+  tags: [mcp_gateway, k8s, install]
+
+- name: Deploy the MongoDB resource post-renderer to the target host
+  ansible.builtin.copy:
+    src: mongodb_resources.py
+    dest: "{{ mcp_gateway_k8s_post_renderer_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  tags: [mcp_gateway, k8s, install]
+
+- name: Install or upgrade the MCP Gateway Registry stack
+  kubernetes.core.helm:
+    kubeconfig: "{{ mcp_gateway_k8s_kubeconfig }}"
+    context: "{{ mcp_gateway_k8s_context }}"
+    name: "{{ mcp_gateway_k8s_release_name }}"
+    chart_ref: "{{ mcp_gateway_k8s_src_dir }}/{{ mcp_gateway_k8s_chart_path }}"
+    release_namespace: "{{ mcp_gateway_k8s_namespace }}"
+    create_namespace: false
+    wait: true
+    wait_for_jobs: true
+    timeout: "{{ mcp_gateway_k8s_timeout }}s"
+    atomic: true
+    cleanup_on_fail: true
+    state: present
+    values: "{{ mcp_gateway_k8s_helm_values }}"
+    # The upstream chart exposes no values knob for the MongoDB member
+    # container resources, and the operator's own defaults (500m CPU per
+    # container, three containers per pod) do not fit this node. The
+    # post-renderer injects the container list the operator merges.
+    post_renderer: "{{ mcp_gateway_k8s_post_renderer_path }}"
+  environment:
+    MCP_GATEWAY_NODE_NAME: "{{ mcp_gateway_k8s_node_name }}"
+    MCP_GATEWAY_MONGOD_CPU: "{{ mcp_gateway_k8s_mongodb_mongod_cpu_request }}"
+    MCP_GATEWAY_MONGOD_MEM: "{{ mcp_gateway_k8s_mongodb_mongod_mem_request }}"
+    MCP_GATEWAY_MONGO_AGENT_CPU: "{{ mcp_gateway_k8s_mongodb_agent_cpu_request }}"
+    MCP_GATEWAY_MONGO_AGENT_MEM: "{{ mcp_gateway_k8s_mongodb_agent_mem_request }}"
+    MCP_GATEWAY_MONGO_SIDECAR_CPU: "{{ mcp_gateway_k8s_mongodb_sidecar_cpu_request }}"
+    MCP_GATEWAY_MONGO_SIDECAR_MEM: "{{ mcp_gateway_k8s_mongodb_sidecar_mem_request }}"
+    MCP_GATEWAY_MONGO_INIT_CPU: "{{ mcp_gateway_k8s_mongodb_init_cpu_request }}"
+    MCP_GATEWAY_MONGO_INIT_MEM: "{{ mcp_gateway_k8s_mongodb_init_mem_request }}"
+  no_log: true
+  register: mcp_gateway_k8s_release
+  tags: [mcp_gateway, k8s, install]
+
+- name: Report the release revision that was installed
+  ansible.builtin.debug:
+    msg:
+      - "release: {{ mcp_gateway_k8s_release_name }} (namespace {{ mcp_gateway_k8s_namespace }})"
+      - "upstream revision: {{ mcp_gateway_k8s_git_version }}"
+      - "changed: {{ mcp_gateway_k8s_release.changed | default(false) }}"
+  tags: [mcp_gateway, k8s, install]
+
+- name: Wait for every stack pod to report its containers ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ mcp_gateway_k8s_kubeconfig }}"
+    context: "{{ mcp_gateway_k8s_context }}"
+    kind: Pod
+    namespace: "{{ mcp_gateway_k8s_namespace }}"
+  register: mcp_gateway_k8s_pods
+  retries: "{{ mcp_gateway_k8s_ingress_retries }}"
+  delay: "{{ mcp_gateway_k8s_ingress_delay }}"
+  # The retry has to live on the task that RE-READS the cluster. An `until`
+  # on a following assert re-evaluates the same already-registered variable
+  # every attempt, so it can never change its mind - it just burns every
+  # retry and then fails.
+  #
+  # Key casing is camelCase: kubernetes.core returns the API object
+  # verbatim, so `status.container_statuses` is NOT defined and a predicate
+  # written against the snake_case name tests an absent attribute.
+  until: >-
+    mcp_gateway_k8s_pods.resources | default([]) | length > 0
+    and (mcp_gateway_k8s_pods.resources | default([])
+         | rejectattr('status.containerStatuses', 'defined')
+         | list | length) == 0
+    and (mcp_gateway_k8s_pods.resources | default([])
+         | map(attribute='status.containerStatuses', default=[])
+         | flatten | rejectattr('ready') | list | length) == 0
+  # --check never installs the release, so there are no pods to become
+  # ready; without this the preview spends retries x delay failing.
+  when: not ansible_check_mode
+  tags: [mcp_gateway, k8s, install]
+
+- name: Require every stack pod to be ready
+  ansible.builtin.assert:
+    that:
+      - mcp_gateway_k8s_pods.resources | default([]) | length > 0
+      - (mcp_gateway_k8s_pods.resources | default([])
+         | map(attribute='status.containerStatuses', default=[])
+         | flatten | rejectattr('ready') | list | length) == 0
+    fail_msg: >-
+      Not every pod in {{ mcp_gateway_k8s_namespace }} is ready. Inspect with
+      'kubectl -n {{ mcp_gateway_k8s_namespace }} get pods'. The operator
+      deployment, the MongoDB operator's StatefulSet, Keycloak, PostgreSQL
+      and the three application pods are all part of this release. Unready:
+      {{ mcp_gateway_k8s_pods.resources | default([])
+         | map(attribute='status.containerStatuses', default=[])
+         | flatten | rejectattr('ready')
+         | map(attribute='name') | join(', ') }}.
+    success_msg: >-
+      All {{ mcp_gateway_k8s_pods.resources | default([])
+             | map(attribute='status.containerStatuses', default=[])
+             | flatten | list | length }} containers across
+      {{ mcp_gateway_k8s_pods.resources | default([]) | length }} pods are ready.
+  when: not ansible_check_mode
+  tags: [mcp_gateway, k8s, install]

@@ -1,0 +1,49 @@
+---
+# mcp-gateway-k8s.yml — MCP Gateway & Registry via the UPSTREAM Helm stack
+# (agentic-community/mcp-gateway-registry), deployed to the k3s cluster on
+# this host and exposed privately through the EXISTING Tailscale Kubernetes
+# Operator.
+#
+# Usage:
+#   ansible-playbook -i inventory/mcp-gateway-k8s/hosts.ini playbooks/mcp-gateway-k8s.yml --syntax-check
+#   ansible-playbook -i inventory/mcp-gateway-k8s/hosts.ini playbooks/mcp-gateway-k8s.yml --check
+#   ansible-playbook -i inventory/mcp-gateway-k8s/hosts.ini playbooks/mcp-gateway-k8s.yml \
+#     -e mcp_gateway_k8s_enabled=true -e mcp_gateway_k8s_expose_enabled=true
+#
+# Tags:
+#   install  fetch the pinned upstream chart and install/upgrade the release
+#   expose   create the operator-managed tailnet Ingress
+#   validate read back the release, pods, services and health
+#   backup   capture Helm state + MongoDB + PostgreSQL dumps
+#   secrets  escrow the release's Secrets into Bitwarden Secrets Manager
+#   rollback roll the release back to an explicit revision (gated, opt-in)
+#
+# Scope: this play owns the mcp-gateway release ONLY.
+# Does not modify MCPJungle. The two are separate MCP registries that coexist
+# on this cluster in their own namespaces and own Helm releases, and a change
+# here must never reach across to the other - so this play never sets or reads
+# MCPJungle's variables, and MCPJungle's own playbook owns that release.
+
+- name: Deploy MCP Gateway & Registry to Kubernetes with tailnet-private exposure
+  hosts: mcp_gateway_k8s
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
+  gather_facts: true
+  tags: [mcp_gateway, k8s]
+
+  # There must be exactly ONE pre_tasks block: a second one silently
+  # discards the first (Ansible keeps the last definition), which is how
+  # the fail-fast target assertion went missing before.
+  pre_tasks:
+    - name: Refuse to run without an explicit target context
+      ansible.builtin.assert:
+        that:
+          - mcp_gateway_k8s_kubeconfig | length > 0
+          - mcp_gateway_k8s_context | length > 0
+        fail_msg: >-
+          mcp_gateway_k8s_kubeconfig and mcp_gateway_k8s_context must both be
+          set explicitly. Ansible must never silently select the current
+          kubectl context.
+
+  roles:
+    - role: mcp_gateway_k8s

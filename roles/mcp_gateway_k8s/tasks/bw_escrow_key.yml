@@ -1,0 +1,27 @@
+---
+# Escrow ONE Kubernetes Secret's keys into Bitwarden Secrets Manager.
+#
+# Idempotent by design: each key is looked up in the project index built by
+# bw_escrow.yml, and the existing record is EDITED when found.
+# `bws secret create` is only used when no record exists for that key, so
+# re-running the escrow updates in place instead of failing or duplicating.
+#
+# The Bitwarden key is namespaced by the Kubernetes Secret name as well as
+# the data key. Several release Secrets carry a key called "password"
+# (keycloak admin, keycloak postgres, mongo); without the Secret name in
+# the key they would collide and one would silently overwrite the other.
+
+- name: Build the list of keys to escrow for this Secret
+  ansible.builtin.set_fact:
+    mcp_gateway_k8s_escrow_items: "{{ mcp_gateway_k8s_escrow_secret.data | dict2items }}"
+  no_log: true
+  tags: [mcp_gateway, k8s, secrets]
+
+- name: Escrow each key of the Secret
+  ansible.builtin.include_tasks: bw_escrow_put.yml
+  loop: "{{ mcp_gateway_k8s_escrow_items }}"
+  loop_control:
+    loop_var: mcp_gateway_k8s_escrow_entry
+    label: "{{ mcp_gateway_k8s_escrow_secret.metadata.name }}/{{ mcp_gateway_k8s_escrow_entry.key }}"
+  no_log: true
+  tags: [mcp_gateway, k8s, secrets]

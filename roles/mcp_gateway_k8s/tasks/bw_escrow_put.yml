@@ -1,0 +1,56 @@
+---
+# Escrow ONE key of ONE Kubernetes Secret into Bitwarden Secrets Manager.
+#
+# The record key is namespaced by the Kubernetes Secret name and the data
+# key: MCP_GATEWAY_K8S_<SECRET>_<KEY>. Several release Secrets carry a key
+# called "password" (keycloak admin, keycloak postgres, mongo), so the
+# Secret name has to be part of the key or they would collide.
+#
+# Idempotent: the key is looked up in the project index built by
+# bw_escrow.yml and the existing record is EDITED when found.
+# `bws secret create` is used only when no record exists.
+
+- name: Set the escrow record key and value
+  ansible.builtin.set_fact:
+    mcp_gateway_k8s_escrow_key: >-
+      MCP_GATEWAY_K8S_{{ mcp_gateway_k8s_escrow_secret.metadata.name }}_{{ mcp_gateway_k8s_escrow_entry.key }}
+    mcp_gateway_k8s_escrow_value: "{{ mcp_gateway_k8s_escrow_entry.value | b64decode }}"
+  no_log: true
+  tags: [mcp_gateway, k8s, secrets]
+
+- name: Check whether a record already exists for this key
+  ansible.builtin.set_fact:
+    mcp_gateway_k8s_escrow_existing_id: >-
+      {{ mcp_gateway_k8s_bw_existing_map[mcp_gateway_k8s_escrow_key] | default('') }}
+  no_log: true
+  tags: [mcp_gateway, k8s, secrets]
+
+- name: Update the existing escrow record
+  ansible.builtin.command:
+    cmd: >-
+      {{ mcp_gateway_k8s_bws_path }} secret edit
+      {{ mcp_gateway_k8s_escrow_existing_id }}
+      --key {{ mcp_gateway_k8s_escrow_key | quote }}
+      --value {{ mcp_gateway_k8s_escrow_value | quote }}
+  environment:
+    BWS_ACCESS_TOKEN: "{{ mcp_gateway_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  register: mcp_gateway_k8s_bw_edit
+  changed_when: true
+  no_log: true
+  when: mcp_gateway_k8s_escrow_existing_id | length > 0
+  tags: [mcp_gateway, k8s, secrets]
+
+- name: Create a new escrow record
+  ansible.builtin.command:
+    cmd: >-
+      {{ mcp_gateway_k8s_bws_path }} secret create
+      {{ mcp_gateway_k8s_escrow_key | quote }}
+      {{ mcp_gateway_k8s_escrow_value | quote }}
+      {{ mcp_gateway_k8s_required_bw_project_id }}
+  environment:
+    BWS_ACCESS_TOKEN: "{{ mcp_gateway_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  register: mcp_gateway_k8s_bw_create
+  changed_when: true
+  no_log: true
+  when: mcp_gateway_k8s_escrow_existing_id | length == 0
+  tags: [mcp_gateway, k8s, secrets]

@@ -1,0 +1,134 @@
+---
+# Validate the deployed MCP Gateway Registry release.
+#
+# Every check here reports an OBSERVED value. Nothing asserts a value that
+# was not read back from the cluster.
+
+- name: Read the Helm release state
+  ansible.builtin.command:
+    cmd: helm status {{ mcp_gateway_k8s_release_name }} --namespace {{ mcp_gateway_k8s_namespace }} --output json
+  register: mcp_gateway_k8s_helm_status
+  changed_when: false
+  # Read-only; the report below consumes it. Without this a preview skips the
+  # read and the validate phase reports nothing at all, which looks like a
+  # clean validation rather than an un-exercised one. `helm status` exits
+  # non-zero when the release is absent, so tolerate that and let the report
+  # say so.
+  check_mode: false
+  failed_when: false
+  become: true
+  tags: [mcp_gateway, k8s, validate]
+
+- name: Report the release state
+  ansible.builtin.debug:
+    msg:
+      - "release: {{ mcp_gateway_k8s_release_name }}"
+      - "namespace: {{ mcp_gateway_k8s_namespace }}"
+      # `helm status` prints nothing when the release is absent, and
+      # from_json on an empty string raises "Expecting value: line 1 column
+      # 1" - an error that reads like corrupt output rather than "no release".
+      # Default to an empty object and let the report say 'absent'.
+      - "status: {{ (mcp_gateway_k8s_helm_status.stdout | default('{}', true) | from_json).info.status | default('absent') }}"
+      - "revision: {{ (mcp_gateway_k8s_helm_status.stdout | default('{}', true) | from_json).version | default('none') }}"
+  tags: [mcp_gateway, k8s, validate]
+
+- name: Read every workload in the release namespace
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ mcp_gateway_k8s_kubeconfig }}"
+    context: "{{ mcp_gateway_k8s_context }}"
+    kind: Pod
+    namespace: "{{ mcp_gateway_k8s_namespace }}"
+  register: mcp_gateway_k8s_validate_pods
+  tags: [mcp_gateway, k8s, validate]
+
+- name: Report per-pod readiness
+  ansible.builtin.debug:
+    msg: >-
+      {{ item.metadata.name }}: phase={{ item.status.phase }}
+      ready={{ item.status.containerStatuses | default([]) | map(attribute='ready') | list }}
+  loop: "{{ mcp_gateway_k8s_validate_pods.resources | default([]) }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+  tags: [mcp_gateway, k8s, validate]
+
+- name: Read the services backing the release
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ mcp_gateway_k8s_kubeconfig }}"
+    context: "{{ mcp_gateway_k8s_context }}"
+    kind: Service
+    namespace: "{{ mcp_gateway_k8s_namespace }}"
+  register: mcp_gateway_k8s_validate_services
+  tags: [mcp_gateway, k8s, validate]
+
+- name: Report the service endpoints
+  ansible.builtin.debug:
+    msg: >-
+      {{ item.metadata.name }}: {{ item.spec.clusterIP }}
+      ports={{ item.spec.ports | map(attribute='port') | join(',') }}
+  loop: "{{ mcp_gateway_k8s_validate_services.resources | default([]) }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+  tags: [mcp_gateway, k8s, validate]
+
+- name: Read the MongoDBCommunity resource the stack created
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ mcp_gateway_k8s_kubeconfig }}"
+    context: "{{ mcp_gateway_k8s_context }}"
+    api_version: mongodbcommunity.mongodbcommunity.mongodb.com/v1
+    kind: MongoDBCommunity
+    namespace: "{{ mcp_gateway_k8s_namespace }}"
+  register: mcp_gateway_k8s_validate_mongodb
+  tags: [mcp_gateway, k8s, validate]
+
+- name: Report the MongoDB replica set state
+  ansible.builtin.debug:
+    msg: >-
+      MongoDBCommunity
+      {{ mcp_gateway_k8s_validate_mongodb.resources | default([]) | map(attribute='metadata.name') | join(',') }}:
+      members={{ mcp_gateway_k8s_validate_mongodb.resources | default([]) | map(attribute='spec.members') | first | default('n/a') }},
+      version={{ mcp_gateway_k8s_validate_mongodb.resources | default([]) | map(attribute='spec.version') | first | default('n/a') }},
+      phase={{ mcp_gateway_k8s_validate_mongodb.resources | default([]) | map(attribute='status.phase') | first | default('n/a') }}
+  tags: [mcp_gateway, k8s, validate]
+
+- name: Read the registry pod
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ mcp_gateway_k8s_kubeconfig }}"
+    context: "{{ mcp_gateway_k8s_context }}"
+    kind: Pod
+    namespace: "{{ mcp_gateway_k8s_namespace }}"
+    label_selectors:
+      - app.kubernetes.io/name=registry
+  register: mcp_gateway_k8s_registry_pods
+  tags: [mcp_gateway, k8s, validate]
+
+- name: Probe the registry health endpoint from inside the cluster
+  ansible.builtin.command:
+    cmd: >-
+      kubectl --kubeconfig {{ mcp_gateway_k8s_kubeconfig }}
+      --context {{ mcp_gateway_k8s_context }}
+      -n {{ mcp_gateway_k8s_namespace }}
+      exec {{ mcp_gateway_k8s_registry_pods.resources[0].metadata.name }}
+      -c registry -- curl -sS -o /dev/null -w '%{http_code}'
+      http://127.0.0.1:8080/registry/api/health
+  register: mcp_gateway_k8s_registry_health
+  changed_when: false
+  retries: 10
+  delay: 10
+  until: mcp_gateway_k8s_registry_health.stdout | default('') | length > 0
+  # Two conditions, both needed. The pod check stops this running before the
+  # release exists; the check-mode guard matters when the release ALREADY
+  # exists, because --check skips `command` so stdout never registers and the
+  # until loop can never satisfy - it just burns retries x delay.
+  when:
+    - mcp_gateway_k8s_registry_pods.resources | default([]) | length > 0
+    - not ansible_check_mode
+  become: true
+  tags: [mcp_gateway, k8s, validate]
+
+- name: Report the registry health status code
+  ansible.builtin.debug:
+    msg: >-
+      Registry in-pod health endpoint returned HTTP
+      {{ mcp_gateway_k8s_registry_health.stdout | default('no response') }}.
+  when: mcp_gateway_k8s_registry_health is defined and mcp_gateway_k8s_registry_health is not skipped
+  tags: [mcp_gateway, k8s, validate]

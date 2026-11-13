@@ -1,0 +1,149 @@
+---
+# MCP Gateway & Registry (agentic-community/mcp-gateway-registry) on k3s.
+#
+# Deploy/upgrade/maintain/backup of the UPSTREAM umbrella Helm chart
+# (charts/mcp-gateway-registry-stack) from a pinned upstream git revision.
+#
+# Gate: every task is a no-op unless mcp_gateway_k8s_enabled=true. The
+# playbook asserts this, so a default `false` here means "armed but inert".
+
+mcp_gateway_k8s_enabled: false
+
+# --- Target cluster -------------------------------------------------------
+# Both must be set explicitly. Never let Ansible pick a context implicitly.
+mcp_gateway_k8s_kubeconfig: ""
+mcp_gateway_k8s_context: ""
+
+mcp_gateway_k8s_namespace: "mcp-gateway"
+mcp_gateway_k8s_release_name: "mcp-gateway"
+
+# --- Upstream pin ---------------------------------------------------------
+# The upstream stack chart's own `version` is frozen at 0.1.0 across every
+# release, so Helm's release-identity check CANNOT detect a new upstream
+# revision. global.chartVersion (the upstream-sanctioned git-SHA marker) is
+# therefore injected into the rendered values, so a changed SHA changes the
+# release values and forces a real upgrade.
+mcp_gateway_k8s_git_repo: "https://github.com/agentic-community/mcp-gateway-registry.git"
+mcp_gateway_k8s_git_version: "ec4ad0a4295ee22f59953a7086931b1fe16b9b93"
+mcp_gateway_k8s_chart_path: "charts/mcp-gateway-registry-stack"
+mcp_gateway_k8s_src_dir: "/opt/noesispraxis/src/mcp-gateway-registry"
+
+mcp_gateway_k8s_image_registry: "public.ecr.aws/p3v1o3c6"
+mcp_gateway_k8s_image_tag: "1.36.0"
+
+mcp_gateway_k8s_timeout: 1200
+mcp_gateway_k8s_ingress_retries: 30
+mcp_gateway_k8s_ingress_delay: 10
+
+# --- Scheduling -----------------------------------------------------------
+# Single-node k3s. Pinning every workload to this node keeps the stack
+# off any future second node and makes the resource budget explicit.
+mcp_gateway_k8s_node_name: "noesis-praxis"
+mcp_gateway_k8s_storage_class: "local-path"
+
+# --- Tailnet exposure (Tailscale Kubernetes Operator) ---------------------
+# The operator's ingress reconciler requires, per rule:
+#   * spec.ingressClassName == "tailscale" (OPERATOR_INGRESS_CLASS_NAME)
+#   * rule.host == spec.tls[0].hosts[0]  (a rule whose host differs from
+#     the TLS host is IGNORED, and an Ingress with no usable rule yields
+#     "Ingress contains no valid backends")
+#   * the backend Service must have a real ClusterIP and a resolvable port
+# The operator mints the tailnet hostname from the FIRST label of the TLS
+# host, so the TLS host must be the label alone (e.g. "mcp-gateway"), which
+# the operator publishes as "mcp-gateway.<tailnet>".
+#
+# The upstream chart's own registry Ingress is ALB-shaped (alb.* annotations,
+# no spec.tls) and CANNOT satisfy the above, so it is disabled and the
+# operator-managed Ingress is created by this role instead.
+mcp_gateway_k8s_expose_enabled: false
+mcp_gateway_k8s_ingress_host: "mcp-gateway"
+mcp_gateway_k8s_ingress_class: "tailscale"
+mcp_gateway_k8s_tailnet_domain: "tailf99a0.ts.net"
+mcp_gateway_k8s_ingress_name: "mcp-gateway"
+
+# Hostnames the operator already owns on this tailnet. A new release must
+# not collide with any of them.
+mcp_gateway_k8s_reserved_hostnames:
+  - tailscale-operator
+  - noesis-praxis
+  - noesis-lab
+  - mcpjungle
+  - n8n
+  - noesis-openclaw
+  - unifi-mcp-server
+  - rancher
+
+# --- Resource budget ------------------------------------------------------
+# This node has 4 CPU / ~16 GiB allocatable and ~4.5 GiB host RAM available.
+# The upstream defaults request 3.6 CPU / 3.9 GiB across the stack, which
+# does NOT fit alongside the already-committed 1.9 CPU / 4.2 GiB. The
+# overrides below are the fitted budget; each value is asserted in
+# tasks/install.yml against the node's allocatable capacity.
+mcp_gateway_k8s_registry_cpu_request: "250m"
+mcp_gateway_k8s_registry_mem_request: "512Mi"
+mcp_gateway_k8s_auth_server_cpu_request: "250m"
+mcp_gateway_k8s_auth_server_mem_request: "512Mi"
+mcp_gateway_k8s_mcpgw_cpu_request: "150m"
+mcp_gateway_k8s_mcpgw_mem_request: "256Mi"
+mcp_gateway_k8s_keycloak_cpu_request: "300m"
+mcp_gateway_k8s_keycloak_mem_request: "512Mi"
+mcp_gateway_k8s_postgres_cpu_request: "100m"
+mcp_gateway_k8s_postgres_mem_request: "128Mi"
+mcp_gateway_k8s_operator_cpu_request: "200m"
+mcp_gateway_k8s_operator_mem_request: "200Mi"
+
+# MongoDB member pod resources.
+#
+# The MongoDB Kubernetes Operator builds the member StatefulSet from its OWN
+# hardcoded defaults and exposes NO values knob for them: every container it
+# creates gets 500m CPU / 400M memory requests, and a member pod carries
+# three such containers (mongod, mongodb-agent and the operator-utilities
+# sidecar). That is 1000m of CPU request for a single-member replica set,
+# which does not fit in the headroom this node has left.
+#
+# The operator DOES merge spec.statefulSet.spec.template.spec.containers from
+# the MongoDBCommunity custom resource into the StatefulSet it generates,
+# matching containers by name and replacing the resource requirements of a
+# matched container. The upstream chart only templates `nodeSelector` into
+# that CR, so this role ships a Helm post-renderer
+# (files/mongodb_resources.py) that injects the container list below.
+mcp_gateway_k8s_mongodb_mongod_cpu_request: "250m"
+mcp_gateway_k8s_mongodb_mongod_mem_request: "400M"
+mcp_gateway_k8s_mongodb_agent_cpu_request: "100m"
+mcp_gateway_k8s_mongodb_agent_mem_request: "200M"
+mcp_gateway_k8s_mongodb_sidecar_cpu_request: "50m"
+mcp_gateway_k8s_mongodb_sidecar_mem_request: "64M"
+mcp_gateway_k8s_mongodb_init_cpu_request: "50m"
+mcp_gateway_k8s_mongodb_init_mem_request: "64M"
+
+# Path (on the target host) of the post-renderer that applies the MongoDB
+# container resources above. It is deployed by this role.
+mcp_gateway_k8s_post_renderer_path: "/opt/noesispraxis/bin/mongodb_resources.py"
+
+# MongoDB members in the in-cluster replica set. 1 is the only sane count
+# on a single-node cluster: 3 members of a 1-node replica set can never
+# reach a writable primary.
+mcp_gateway_k8s_mongodb_replicas: 1
+mcp_gateway_k8s_mongodb_version: "8.0.16"
+
+# --- Bitwarden Secrets Manager escrow ------------------------------------
+# Credentials are escrowed so a rebuild never has to re-roll them. Writes
+# are opt-in; the project id is enforced, never merely defaulted.
+mcp_gateway_k8s_bw_project_id: ""
+mcp_gateway_k8s_required_bw_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+mcp_gateway_k8s_bws_access_token: ""
+mcp_gateway_k8s_bws_path: "/usr/local/bin/bws"
+mcp_gateway_k8s_allow_bitwarden_write: false
+
+# --- Backup ---------------------------------------------------------------
+# Where backups are written on the target host.
+mcp_gateway_k8s_backup_dir: "/opt/noesispraxis/backups/mcp-gateway"
+mcp_gateway_k8s_backup_keep: 14
+
+# --- Rollback -------------------------------------------------------------
+# Operator-invoked recovery. Default off and gated on its own flag as well
+# as its tag: a tag alone still runs on an untagged invocation, which is
+# precisely when nobody intended to roll the release back. The target
+# revision has no default on purpose - rollback.yml asserts it is set, and
+# a guessed revision is worse than a refusal.
+mcp_gateway_k8s_rollback_enabled: false

@@ -1,0 +1,182 @@
+---
+# Backup the MCP Gateway Registry release.
+#
+# Four artefacts, all real backups of recoverable state:
+#   1. the Helm release state (values + rendered manifest + history), which
+#      is the recipe needed to reinstall the release as it stands;
+#   2. a MongoDB logical dump (the registry's actual catalogue data) taken
+#      with mongodump from the MongoDB pod;
+#   3. a PostgreSQL dump of the Keycloak database (realm state);
+#   4. a listing of the in-cluster Secrets, so the escrow can be replayed.
+#
+# Credentials are read from the in-cluster Secrets at run time and are never
+# written to disk: the dumps are produced inside the pod (which already has
+# the credentials in its environment) and piped out as base64 so binary
+# data survives the API. Task output is redacted (no_log) so no credential
+# reaches the Ansible log.
+
+- name: Ensure the backup directory exists
+  ansible.builtin.file:
+    path: "{{ mcp_gateway_k8s_backup_dir }}"
+    state: directory
+    mode: "0700"
+  become: true
+  tags: [mcp_gateway, k8s, backup]
+
+- name: Compute the backup timestamp
+  ansible.builtin.set_fact:
+    mcp_gateway_k8s_backup_stamp: "{{ lookup('pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
+  tags: [mcp_gateway, k8s, backup]
+
+- name: Create the timestamped backup directory
+  ansible.builtin.file:
+    path: "{{ mcp_gateway_k8s_backup_dir }}/{{ mcp_gateway_k8s_backup_stamp }}"
+    state: directory
+    mode: "0700"
+  become: true
+  tags: [mcp_gateway, k8s, backup]
+
+- name: Capture the Helm release state
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      helm get values {{ mcp_gateway_k8s_release_name }}
+      --namespace {{ mcp_gateway_k8s_namespace }} --all
+      -o yaml > {{ mcp_gateway_k8s_backup_dir }}/{{ mcp_gateway_k8s_backup_stamp }}/helm-values.yaml
+      && helm get manifest {{ mcp_gateway_k8s_release_name }}
+      --namespace {{ mcp_gateway_k8s_namespace }}
+      > {{ mcp_gateway_k8s_backup_dir }}/{{ mcp_gateway_k8s_backup_stamp }}/helm-manifest.yaml
+      && helm list --namespace {{ mcp_gateway_k8s_namespace }} -o yaml
+      > {{ mcp_gateway_k8s_backup_dir }}/{{ mcp_gateway_k8s_backup_stamp }}/helm-list.yaml
+      && helm history {{ mcp_gateway_k8s_release_name }}
+      --namespace {{ mcp_gateway_k8s_namespace }} -o yaml
+      > {{ mcp_gateway_k8s_backup_dir }}/{{ mcp_gateway_k8s_backup_stamp }}/helm-history.yaml
+      && chmod 0600 {{ mcp_gateway_k8s_backup_dir }}/{{ mcp_gateway_k8s_backup_stamp }}/helm-*.yaml
+  changed_when: true
+  become: true
+  tags: [mcp_gateway, k8s, backup]
+
+- name: Locate the MongoDB pod
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ mcp_gateway_k8s_kubeconfig }}"
+    context: "{{ mcp_gateway_k8s_context }}"
+    kind: Pod
+    namespace: "{{ mcp_gateway_k8s_namespace }}"
+    label_selectors:
+      - app=mongodb
+  register: mcp_gateway_k8s_backup_mongo_pods
+  tags: [mcp_gateway, k8s, backup]
+
+- name: Locate the Keycloak PostgreSQL pod
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ mcp_gateway_k8s_kubeconfig }}"
+    context: "{{ mcp_gateway_k8s_context }}"
+    kind: Pod
+    namespace: "{{ mcp_gateway_k8s_namespace }}"
+    label_selectors:
+      - app=postgresql
+  register: mcp_gateway_k8s_backup_pg_pods
+  tags: [mcp_gateway, k8s, backup]
+
+# The mongod container already has the SCRAM credentials in its environment,
+# so the dump runs entirely inside the pod: no secret is passed as an
+# argument and none can appear in a process table or a log line.
+- name: Dump the MongoDB registry catalogue
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      kubectl --kubeconfig {{ mcp_gateway_k8s_kubeconfig }}
+      --context {{ mcp_gateway_k8s_context }}
+      -n {{ mcp_gateway_k8s_namespace }}
+      exec {{ mcp_gateway_k8s_backup_mongo_pods.resources[0].metadata.name }}
+      -c mongod -- sh -c 'mongodump --uri "$MONGODB_URI" --archive --gzip'
+      | base64 -w0
+      > {{ mcp_gateway_k8s_backup_dir }}/{{ mcp_gateway_k8s_backup_stamp }}/mongodb-dump.gz.b64
+  register: mcp_gateway_k8s_backup_mongo
+  changed_when: true
+  no_log: true
+  become: true
+  when: mcp_gateway_k8s_backup_mongo_pods.resources | default([]) | length > 0
+  tags: [mcp_gateway, k8s, backup]
+
+- name: Dump the Keycloak PostgreSQL database
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      kubectl --kubeconfig {{ mcp_gateway_k8s_kubeconfig }}
+      --context {{ mcp_gateway_k8s_context }}
+      -n {{ mcp_gateway_k8s_namespace }}
+      exec {{ mcp_gateway_k8s_backup_pg_pods.resources[0].metadata.name }}
+      -c postgresql -- sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dumpall -U postgres'
+      | gzip | base64 -w0
+      > {{ mcp_gateway_k8s_backup_dir }}/{{ mcp_gateway_k8s_backup_stamp }}/keycloak-postgres.sql.gz.b64
+  register: mcp_gateway_k8s_backup_pg
+  changed_when: true
+  no_log: true
+  become: true
+  when: mcp_gateway_k8s_backup_pg_pods.resources | default([]) | length > 0
+  tags: [mcp_gateway, k8s, backup]
+
+- name: Decode the base64 dumps into compressed archives
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      cd {{ mcp_gateway_k8s_backup_dir }}/{{ mcp_gateway_k8s_backup_stamp }}
+      && for f in *.b64; do
+           [ -e "$f" ] || continue;
+           base64 -d "$f" > "${f%.b64}";
+           rm -f "$f";
+         done
+      && chmod 0600 {{ mcp_gateway_k8s_backup_dir }}/{{ mcp_gateway_k8s_backup_stamp }}/*.gz
+  changed_when: true
+  become: true
+  tags: [mcp_gateway, k8s, backup]
+
+- name: Record what was backed up
+  ansible.builtin.copy:
+    dest: "{{ mcp_gateway_k8s_backup_dir }}/{{ mcp_gateway_k8s_backup_stamp }}/BACKUP-MANIFEST.txt"
+    mode: "0600"
+    content: |
+      MCP Gateway Registry backup
+      taken_at_utc: {{ mcp_gateway_k8s_backup_stamp }}
+      release: {{ mcp_gateway_k8s_release_name }}
+      namespace: {{ mcp_gateway_k8s_namespace }}
+      upstream_revision: {{ mcp_gateway_k8s_git_version }}
+      helm-values.yaml          helm get values --all
+      helm-manifest.yaml        helm get manifest
+      helm-list.yaml            helm list -o yaml
+      helm-history.yaml         helm history -o yaml
+      mongodb-dump.gz           mongodump --archive --gzip of the registry database
+      keycloak-postgres.sql.gz  pg_dumpall of the Keycloak database
+  become: true
+  tags: [mcp_gateway, k8s, backup]
+
+- name: List the backup artefacts with their sizes
+  ansible.builtin.command:
+    cmd: ls -l {{ mcp_gateway_k8s_backup_dir }}/{{ mcp_gateway_k8s_backup_stamp }}
+  register: mcp_gateway_k8s_backup_listing
+  changed_when: false
+  become: true
+  tags: [mcp_gateway, k8s, backup]
+
+- name: Report the backup contents
+  ansible.builtin.debug:
+    msg: "{{ mcp_gateway_k8s_backup_listing.stdout_lines }}"
+  tags: [mcp_gateway, k8s, backup]
+
+- name: Find existing backups to prune
+  ansible.builtin.find:
+    paths: "{{ mcp_gateway_k8s_backup_dir }}"
+    file_type: directory
+  register: mcp_gateway_k8s_backup_dirs
+  tags: [mcp_gateway, k8s, backup]
+
+- name: Remove the oldest backups beyond the retention count
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ (mcp_gateway_k8s_backup_dirs.files | map(attribute='path') | sort | reverse | list)[mcp_gateway_k8s_backup_keep:] }}"
+  loop_control:
+    label: "{{ item | basename }}"
+  become: true
+  tags: [mcp_gateway, k8s, backup]

@@ -1,0 +1,53 @@
+---
+# Roll the MCP Gateway Registry release back to its previous revision.
+#
+# Helm's own history is the source of truth here: the target revision is
+# read from `helm history` and the rollback is performed with `helm
+# rollback`, which also restores the previous manifest and values.
+
+- name: Read the release history
+  ansible.builtin.command:
+    cmd: helm history {{ mcp_gateway_k8s_release_name }} --namespace {{ mcp_gateway_k8s_namespace }} -o json
+  register: mcp_gateway_k8s_history
+  changed_when: false
+  # `helm history` exits non-zero and prints nothing when the release does not
+  # exist. Tolerate that so the revision assertion below can say "no
+  # revisions" instead of the run dying inside from_json.
+  failed_when: false
+  become: true
+  tags: [mcp_gateway, k8s, rollback]
+
+- name: Report the available revisions
+  ansible.builtin.debug:
+    msg: >-
+      revisions available: {{ mcp_gateway_k8s_history.stdout | default('[]', true)
+      | from_json | map(attribute='revision') | join(', ') | default('none', true) }}
+  tags: [mcp_gateway, k8s, rollback]
+
+- name: Require a target revision
+  ansible.builtin.assert:
+    that:
+      - mcp_gateway_k8s_rollback_revision is defined
+      - mcp_gateway_k8s_rollback_revision | int > 0
+    fail_msg: >-
+      Set mcp_gateway_k8s_rollback_revision to the revision to roll back to.
+      Revisions available: {{ mcp_gateway_k8s_history.stdout | default('[]', true)
+      | from_json | map(attribute='revision') | join(', ') | default('none', true) }}.
+  tags: [mcp_gateway, k8s, rollback]
+
+- name: Roll the release back
+  ansible.builtin.command:
+    cmd: >-
+      helm rollback {{ mcp_gateway_k8s_release_name }}
+      {{ mcp_gateway_k8s_rollback_revision }}
+      --namespace {{ mcp_gateway_k8s_namespace }}
+      --wait --timeout {{ mcp_gateway_k8s_timeout }}s
+  register: mcp_gateway_k8s_rollback
+  changed_when: true
+  become: true
+  tags: [mcp_gateway, k8s, rollback]
+
+- name: Report the rollback result
+  ansible.builtin.debug:
+    msg: "{{ mcp_gateway_k8s_rollback.stdout_lines | default([]) }}"
+  tags: [mcp_gateway, k8s, rollback]

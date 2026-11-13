@@ -1,0 +1,206 @@
+---
+# Expose the MCP Gateway Registry privately on the tailnet through the
+# EXISTING Tailscale Kubernetes Operator (tailscale/k8s-operator, deployed
+# in the `tailscale` namespace with OPERATOR_INGRESS_CLASS_NAME=tailscale).
+#
+# WHY THIS ROLE OWNS THE INGRESS INSTEAD OF THE UPSTREAM CHART:
+#
+#   The upstream stack chart renders an ALB-shaped Ingress for the registry:
+#   it carries alb.ingress.kubernetes.io/* annotations and declares NO
+#   spec.tls. The operator's ingress reconciler (cmd/k8s-operator/ingress.go,
+#   v1.104.1) skips any rule whose host differs from spec.tls[0].hosts[0]:
+#
+#       if rule.Host != "" && rule.Host != tlsHost {
+#               rec.Eventf(ing, ... "rule with host %q ignored, unsupported")
+#               continue
+#       }
+#
+#   With no spec.tls, tlsHost is "", every rule host differs from it, every
+#   rule is ignored, and the reconciler logs "Ingress contains no valid
+#   backends" and provisions nothing. The upstream Ingress therefore CANNOT
+#   expose anything through this operator. It is disabled in the rendered
+#   values and the operator-managed Ingress is created here.
+#
+#   The operator mints the tailnet hostname from the FIRST LABEL of the
+#   TLS host (hostnameForIngress), so the TLS host must be the bare label
+#   ("mcp-gateway"); the operator publishes it as
+#   "mcp-gateway.<tailnet>". rule.host must equal the TLS host exactly.
+#
+#   The backend paths mirror the upstream chart's own path-mode Ingress
+#   (/registry plus the browser-facing auth paths), because in path mode the
+#   registry pod's in-cluster nginx fronts the auth-server and Keycloak:
+#   every one of those paths must reach the registry Service.
+
+- name: Refuse to expose before the release exists
+  ansible.builtin.assert:
+    that:
+      - mcp_gateway_k8s_expose_enabled | bool
+      - mcp_gateway_k8s_ingress_host is match('^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')
+      - mcp_gateway_k8s_ingress_host not in mcp_gateway_k8s_reserved_hostnames
+      - mcp_gateway_k8s_ingress_class == 'tailscale'
+    fail_msg: >-
+      Refusing to expose MCP Gateway Registry on the tailnet. Require
+      mcp_gateway_k8s_expose_enabled=true, a DNS-label ingress hostname that
+      is not already reserved on this tailnet, and the tailscale ingress
+      class.
+  tags: [mcp_gateway, k8s, expose]
+
+- name: Read the registry Service so the backend is proven to exist
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ mcp_gateway_k8s_kubeconfig }}"
+    context: "{{ mcp_gateway_k8s_context }}"
+    kind: Service
+    namespace: "{{ mcp_gateway_k8s_namespace }}"
+    name: registry
+  register: mcp_gateway_k8s_registry_svc
+  tags: [mcp_gateway, k8s, expose]
+
+- name: Fail when the registry Service is not ready to back the Ingress
+  ansible.builtin.assert:
+    that:
+      - mcp_gateway_k8s_registry_svc.resources | default([]) | length > 0
+      - mcp_gateway_k8s_registry_svc.resources[0].spec.clusterIP not in ['', 'None']
+      - mcp_gateway_k8s_registry_svc.resources[0].spec.ports | selectattr('name', 'equalto', 'http') | list | length == 1
+    fail_msg: >-
+      The registry Service does not exist or has no usable 'http' port in
+      namespace {{ mcp_gateway_k8s_namespace }}. The operator requires a real
+      ClusterIP and a resolvable port, otherwise it provisions nothing.
+  # Not in a preview: --check never installs the release, so the Service is
+  # absent for a reason the preview created. The guard is unchanged for a
+  # real run, where a missing Service genuinely means the operator would
+  # provision nothing.
+  when: not ansible_check_mode
+  tags: [mcp_gateway, k8s, expose]
+
+- name: Create the operator-managed tailnet Ingress
+  kubernetes.core.k8s:
+    kubeconfig: "{{ mcp_gateway_k8s_kubeconfig }}"
+    context: "{{ mcp_gateway_k8s_context }}"
+    state: present
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: "{{ mcp_gateway_k8s_ingress_name }}"
+        namespace: "{{ mcp_gateway_k8s_namespace }}"
+        labels:
+          app.kubernetes.io/name: mcp-gateway-registry
+          app.kubernetes.io/managed-by: ansible
+      spec:
+        ingressClassName: "{{ mcp_gateway_k8s_ingress_class }}"
+        # The operator compares every rule's host against tls[0].hosts[0].
+        # The bare label is also what it mints the tailnet hostname from.
+        tls:
+          - hosts:
+              - "{{ mcp_gateway_k8s_ingress_host }}"
+        rules:
+          - host: "{{ mcp_gateway_k8s_ingress_host }}"
+            http:
+              paths:
+                # Match the working mcpjungle/n8n Ingresses on this cluster:
+                # one Prefix / backend. Tailscale Serve fronts the whole host;
+                # path-mode splits belong in the app, not extra Ingress rules.
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: registry
+                      port:
+                        name: http
+  tags: [mcp_gateway, k8s, expose]
+
+- name: Read back the tailnet hostname the operator assigned
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ mcp_gateway_k8s_kubeconfig }}"
+    context: "{{ mcp_gateway_k8s_context }}"
+    api_version: networking.k8s.io/v1
+    kind: Ingress
+    namespace: "{{ mcp_gateway_k8s_namespace }}"
+    name: "{{ mcp_gateway_k8s_ingress_name }}"
+  register: mcp_gateway_k8s_ingress_info
+  retries: "{{ mcp_gateway_k8s_ingress_retries }}"
+  delay: "{{ mcp_gateway_k8s_ingress_delay }}"
+  until:
+    - mcp_gateway_k8s_ingress_info.resources | default([]) | length > 0
+    - mcp_gateway_k8s_ingress_info.resources[0].status.loadBalancer.ingress | default([]) | length > 0
+  # --check never creates the Ingress, so this can never satisfy: unguarded it
+  # spends retries x delay (5 min) and then fails the preview. Every task from
+  # here on depends on the operator having assigned a hostname.
+  when: not ansible_check_mode
+  tags: [mcp_gateway, k8s, expose]
+
+- name: Report the tailnet identity actually assigned by the operator
+  ansible.builtin.debug:
+    msg:
+      - "requested hostname label: {{ mcp_gateway_k8s_ingress_host }}"
+      - "operator-assigned tailnet hostname: {{ mcp_gateway_k8s_ingress_info.resources[0].status.loadBalancer.ingress[0].hostname }}"
+      - "backend: registry Service, http port"
+  when: not ansible_check_mode
+  tags: [mcp_gateway, k8s, expose]
+
+# Tailnet Lock is on. A new operator proxy gets an Ingress hostname while
+# MagicDNS still refuses to publish it (FilteredPeers). Curl then fails with
+# HTTP 000 / "Could not resolve host" until a trusted signing device signs
+# the nodekey. This host is a signing device.
+- name: Wait until Tailnet Lock sees the new proxy
+  ansible.builtin.command:
+    cmd: tailscale lock status --json
+  register: mcp_gateway_k8s_lock_status
+  changed_when: false
+  become: true
+  retries: "{{ mcp_gateway_k8s_ingress_retries }}"
+  delay: "{{ mcp_gateway_k8s_ingress_delay }}"
+  until: >-
+    (mcp_gateway_k8s_lock_status.stdout | default('{}') | from_json).FilteredPeers
+    | default([]) | selectattr('DNSName', 'search', mcp_gateway_k8s_ingress_host)
+    | list | length > 0
+    or
+    (mcp_gateway_k8s_lock_status.stdout | default('{}') | from_json).VisiblePeers
+    | default([]) | selectattr('DNSName', 'search', mcp_gateway_k8s_ingress_host)
+    | list | length > 0
+  when: not ansible_check_mode
+  tags: [mcp_gateway, k8s, expose]
+
+- name: Sign the Ingress proxy nodekey if Tailnet Lock filtered it
+  ansible.builtin.command:
+    cmd: tailscale lock sign {{ item.NodeKey }}
+  # Signing mutates Tailnet Lock state, and the loop only iterates peers the
+  # lock actually filtered - so if this task runs at all, it changed something.
+  changed_when: true
+  loop: >-
+    {{ (mcp_gateway_k8s_lock_status.stdout | default('{}') | from_json).FilteredPeers
+       | default([])
+       | selectattr('DNSName', 'search', mcp_gateway_k8s_ingress_host)
+       | list }}
+  loop_control:
+    label: "{{ item.DNSName | default('unknown') }}"
+  become: true
+  when: not ansible_check_mode
+  tags: [mcp_gateway, k8s, expose]
+
+- name: Verify the service answers over the tailnet hostname
+  ansible.builtin.uri:
+    url: "https://{{ mcp_gateway_k8s_ingress_info.resources[0].status.loadBalancer.ingress[0].hostname }}/registry/api/health"
+    method: GET
+    status_code:
+      - 200
+      - 401
+      - 403
+      - 404
+    validate_certs: false
+    timeout: 30
+  register: mcp_gateway_k8s_tailnet_health
+  retries: "{{ mcp_gateway_k8s_ingress_retries }}"
+  delay: "{{ mcp_gateway_k8s_ingress_delay }}"
+  until: mcp_gateway_k8s_tailnet_health.status is defined
+  when: not ansible_check_mode
+  tags: [mcp_gateway, k8s, expose]
+
+- name: Report the observed tailnet response
+  ansible.builtin.debug:
+    msg: >-
+      Tailnet health probe of
+      https://{{ mcp_gateway_k8s_ingress_info.resources[0].status.loadBalancer.ingress[0].hostname }}/registry/api/health
+      returned HTTP {{ mcp_gateway_k8s_tailnet_health.status | default('no response') }}.
+  when: not ansible_check_mode
+  tags: [mcp_gateway, k8s, expose]

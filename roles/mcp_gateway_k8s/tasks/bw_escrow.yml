@@ -1,0 +1,111 @@
+---
+# Escrow the MCP Gateway Registry's generated Kubernetes Secrets into
+# Bitwarden Secrets Manager, so a rebuild never has to re-roll credentials.
+#
+# The upstream chart generates every secret itself (shared-secret,
+# oauth-provider-secret, keycloak admin + client + postgres credentials,
+# mongo-credentials, ...). They live only in the cluster, so an escrow is
+# the only copy that survives a namespace wipe.
+#
+# Writes are idempotent by design: every key is looked up in the project
+# first and the existing record is EDITED when one exists. `bws secret
+# create` is used only when no record exists for that key, so re-running
+# the escrow updates in place instead of failing or duplicating.
+
+- name: Confirm the bws CLI is available
+  ansible.builtin.command:
+    cmd: "{{ mcp_gateway_k8s_bws_path }} --version"
+  register: mcp_gateway_k8s_bws_version
+  changed_when: false
+  tags: [mcp_gateway, k8s, secrets]
+
+- name: Fail when the bws CLI is missing
+  ansible.builtin.fail:
+    msg: >-
+      The Bitwarden CLI was not found at {{ mcp_gateway_k8s_bws_path }}.
+      Escrow cannot proceed; refusing to leave the release's credentials
+      only in the cluster.
+  when: mcp_gateway_k8s_bws_version.rc != 0
+  tags: [mcp_gateway, k8s, secrets]
+
+- name: Require an access token and the exact escrow project
+  ansible.builtin.assert:
+    that:
+      - (mcp_gateway_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true)) | length > 0
+      - mcp_gateway_k8s_bw_project_id == mcp_gateway_k8s_required_bw_project_id
+    fail_msg: >-
+      Escrow requires a Bitwarden access token and the project id
+      {{ mcp_gateway_k8s_required_bw_project_id }} (got
+      {{ mcp_gateway_k8s_bw_project_id | default('<unset>') }}). The project id
+      is enforced, never merely defaulted: credentials must never land in
+      the wrong project.
+  tags: [mcp_gateway, k8s, secrets]
+
+- name: Verify the escrow project is reachable
+  ansible.builtin.command:
+    cmd: "{{ mcp_gateway_k8s_bws_path }} project get {{ mcp_gateway_k8s_required_bw_project_id }}"
+  environment:
+    BWS_ACCESS_TOKEN: "{{ mcp_gateway_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  register: mcp_gateway_k8s_bw_project
+  changed_when: false
+  # Read-only reachability probe. check_mode: false so a preview actually
+  # proves the project is reachable instead of reporting a phase it never
+  # exercised.
+  check_mode: false
+  no_log: true
+  tags: [mcp_gateway, k8s, secrets]
+
+- name: List the existing records in the escrow project
+  ansible.builtin.command:
+    cmd: "{{ mcp_gateway_k8s_bws_path }} secret list {{ mcp_gateway_k8s_required_bw_project_id }} -o json"
+  environment:
+    BWS_ACCESS_TOKEN: "{{ mcp_gateway_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  register: mcp_gateway_k8s_bw_existing
+  changed_when: false
+  # Read-only, and the index below parses its stdout. --check skips `command`,
+  # which left stdout empty and made from_json fail with "Expecting value:
+  # line 1 column 1" - an error that reads like a broken CLI rather than a
+  # skipped task.
+  check_mode: false
+  no_log: true
+  tags: [mcp_gateway, k8s, secrets]
+
+- name: Index the existing records by key
+  ansible.builtin.set_fact:
+    mcp_gateway_k8s_bw_existing_map: >-
+      {{ (mcp_gateway_k8s_bw_existing.stdout | default('[]', true) | from_json)
+         | items2dict(key_name='key', value_name='id') }}
+  tags: [mcp_gateway, k8s, secrets]
+
+- name: Read the release's Secrets for escrow
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ mcp_gateway_k8s_kubeconfig }}"
+    context: "{{ mcp_gateway_k8s_context }}"
+    kind: Secret
+    namespace: "{{ mcp_gateway_k8s_namespace }}"
+  register: mcp_gateway_k8s_release_secrets
+  tags: [mcp_gateway, k8s, secrets]
+
+- name: Fail when the release has no Secrets to escrow
+  ansible.builtin.fail:
+    msg: >-
+      No Secrets found in namespace {{ mcp_gateway_k8s_namespace }}. The
+      release does not look deployed; refusing to escrow an empty set.
+  # Not in a preview: --check never installs the release, so an empty Secret
+  # list is a state the preview itself created. Failing on it would report a
+  # problem that does not exist and stop the preview covering the remaining
+  # phases. The guard is unchanged for a real run, which is where an empty
+  # set genuinely means "nothing was deployed".
+  when:
+    - mcp_gateway_k8s_release_secrets.resources | default([]) | length == 0
+    - not ansible_check_mode
+  tags: [mcp_gateway, k8s, secrets]
+
+- name: Escrow each secret key into Bitwarden Secrets Manager
+  ansible.builtin.include_tasks: bw_escrow_key.yml
+  loop: "{{ mcp_gateway_k8s_release_secrets.resources }}"
+  loop_control:
+    loop_var: mcp_gateway_k8s_escrow_secret
+    label: "{{ mcp_gateway_k8s_escrow_secret.metadata.name }}"
+  no_log: true
+  tags: [mcp_gateway, k8s, secrets]

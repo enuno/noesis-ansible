@@ -1,0 +1,80 @@
+---
+# MCP Gateway & Registry (agentic-community/mcp-gateway-registry) on k3s.
+# Safe to commit: no credentials.
+
+mcp_gateway_k8s_kubeconfig: "/etc/rancher/k3s/k3s.yaml"
+mcp_gateway_k8s_context: "default"
+
+noesis_ssh_private_key_file: "~/.ssh/hashgrid_signing_key"
+ansible_ssh_private_key_file: "{{ noesis_ssh_private_key_file }}"
+noesispraxis_ansible_user: "ansible"
+
+mcp_gateway_k8s_namespace: "mcp-gateway"
+mcp_gateway_k8s_release_name: "mcp-gateway"
+
+# Pinned upstream git revision of agentic-community/mcp-gateway-registry.
+# The upstream chart version is frozen at 0.1.0, so this SHA (injected as
+# global.chartVersion) is what actually drives an upgrade.
+mcp_gateway_k8s_git_repo: "https://github.com/agentic-community/mcp-gateway-registry.git"
+mcp_gateway_k8s_git_version: "ec4ad0a4295ee22f59953a7086931b1fe16b9b93"
+mcp_gateway_k8s_chart_path: "charts/mcp-gateway-registry-stack"
+mcp_gateway_k8s_src_dir: "/opt/noesispraxis/src/mcp-gateway-registry"
+
+mcp_gateway_k8s_image_registry: "public.ecr.aws/p3v1o3c6"
+mcp_gateway_k8s_image_tag: "1.36.0"
+
+mcp_gateway_k8s_timeout: 1200
+mcp_gateway_k8s_ingress_retries: 30
+mcp_gateway_k8s_ingress_delay: 10
+
+# Master gates. Keep false until a deploy run passes -e overrides.
+mcp_gateway_k8s_enabled: false
+mcp_gateway_k8s_expose_enabled: false
+
+# Tailscale Ingress hostname label (the operator appends the tailnet
+# domain and mints <label>.<tailnet>).
+mcp_gateway_k8s_ingress_host: "mcp-gateway"
+mcp_gateway_k8s_ingress_class: "tailscale"
+mcp_gateway_k8s_tailnet_domain: "tailf99a0.ts.net"
+mcp_gateway_k8s_ingress_name: "mcp-gateway"
+mcp_gateway_k8s_reserved_hostnames:
+  - tailscale-operator
+  - noesis-praxis
+  - noesis-lab
+  - mcpjungle
+  - n8n
+  - noesis-openclaw
+  - unifi-mcp-server
+  - rancher
+
+mcp_gateway_k8s_node_name: "noesis-praxis"
+mcp_gateway_k8s_storage_class: "local-path"
+
+# Resource budget fitted to this single node (4 CPU / ~16 GiB allocatable,
+# ~1.9 CPU / ~4.2 GiB already committed by other workloads).
+mcp_gateway_k8s_registry_cpu_request: "250m"
+mcp_gateway_k8s_registry_mem_request: "512Mi"
+mcp_gateway_k8s_auth_server_cpu_request: "250m"
+mcp_gateway_k8s_auth_server_mem_request: "512Mi"
+mcp_gateway_k8s_mcpgw_cpu_request: "150m"
+mcp_gateway_k8s_mcpgw_mem_request: "256Mi"
+mcp_gateway_k8s_keycloak_cpu_request: "300m"
+mcp_gateway_k8s_keycloak_mem_request: "512Mi"
+mcp_gateway_k8s_postgres_cpu_request: "100m"
+mcp_gateway_k8s_postgres_mem_request: "128Mi"
+mcp_gateway_k8s_operator_cpu_request: "200m"
+mcp_gateway_k8s_operator_mem_request: "200Mi"
+
+mcp_gateway_k8s_mongodb_replicas: 1
+mcp_gateway_k8s_mongodb_version: "8.0.16"
+
+mcp_gateway_k8s_backup_dir: "/opt/noesispraxis/backups/mcp-gateway"
+mcp_gateway_k8s_backup_keep: 14
+
+# Bitwarden Secrets Manager escrow. The access token comes from the
+# environment (BWS_ACCESS_TOKEN) unless overridden here.
+mcp_gateway_k8s_bw_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+mcp_gateway_k8s_required_bw_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+mcp_gateway_k8s_bws_access_token: ""
+mcp_gateway_k8s_bws_path: "/usr/local/bin/bws"
+mcp_gateway_k8s_allow_bitwarden_write: true
