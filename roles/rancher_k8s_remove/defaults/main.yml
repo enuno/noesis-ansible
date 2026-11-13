@@ -1,0 +1,95 @@
+---
+# Remove Rancher Manager and the components it installed on this cluster.
+#
+# Scope (verified live on praxis k3s before the first remove run):
+#   Helm releases:
+#     cattle-system/rancher
+#     cattle-system/rancher-webhook
+#     cattle-system/system-upgrade-controller
+#     cattle-turtles-system/rancher-turtles
+#     cattle-fleet-system/fleet
+#     cattle-fleet-system/fleet-crd
+#     cattle-fleet-local-system/fleet-agent-local
+#   Namespaces owned by Rancher/Fleet (deleted after releases):
+#     cattle-*, fleet-*, cluster-fleet-*, local, p-*, user-* (Rancher project/user)
+#   Tailscale Ingress named 'rancher' in cattle-system (if present)
+#   Remaining cattle.io / fleet CRDs after namespace deletion
+#
+# Does NOT touch: tailscale-operator, k3s core, other app namespaces
+# (mcpjungle, n8n, unifi-mcp, buzz, hermes-agent, openclaw, ...).
+#
+# Default gate is closed. inventory/rancher-k8s opts in with
+# rancher_k8s_remove_enabled: true for authorized runs only.
+
+rancher_k8s_remove_kubeconfig: /etc/rancher/k3s/k3s.yaml
+rancher_k8s_remove_context: default
+rancher_k8s_remove_enabled: false
+rancher_k8s_remove_helm_timeout: 600
+rancher_k8s_remove_delete_namespaces: true
+rancher_k8s_remove_delete_crds: true
+
+# Ordered helm uninstall list: app first, then webhook/controller, then fleet agent, fleet, fleet-crd last.
+rancher_k8s_remove_helm_releases:
+  - { name: rancher, namespace: cattle-system }
+  - { name: rancher-webhook, namespace: cattle-system }
+  - { name: system-upgrade-controller, namespace: cattle-system }
+  - { name: rancher-turtles, namespace: cattle-turtles-system }
+  - { name: fleet-agent-local, namespace: cattle-fleet-local-system }
+  - { name: fleet, namespace: cattle-fleet-system }
+  - { name: fleet-crd, namespace: cattle-fleet-system }
+
+rancher_k8s_remove_ingresses:
+  - { name: rancher, namespace: cattle-system }
+
+# Exact namespace names known to this install. Wildcards are resolved live.
+rancher_k8s_remove_namespace_exact:
+  - cattle-system
+  - cattle-fleet-system
+  - cattle-fleet-local-system
+  - cattle-fleet-clusters-system
+  - cattle-turtles-system
+  - cattle-global-data
+  - cattle-impersonation-system
+  - cattle-local-user-passwords
+  - cattle-ui-plugin-system
+  - cattle-capi-system
+  - fleet-default
+  - fleet-local
+  - local
+
+rancher_k8s_remove_namespace_prefixes:
+  - cattle-
+  - fleet-
+  - cluster-fleet-
+  - p-
+  - user-
+
+# Never delete these even if a prefix matches.
+rancher_k8s_remove_namespace_deny:
+  - default
+  - kube-system
+  - kube-public
+  - kube-node-lease
+  - tailscale
+  - radar
+  - mcpjungle
+  - n8n
+  - unifi-mcp
+  - buzz
+  - hermes-agent
+  - openclaw
+  - mcp-gateway
+  - agent-sandbox-system
+  - crabbox-sandboxes
+
+# CRD names owned by Rancher/Fleet/Turtles/CAPI (substring match).
+# Never match k3s core CRDs (*.k3s.cattle.io) or the k3s Helm controller
+# (helmcharts.helm.cattle.io / helmchartconfigs.helm.cattle.io).
+rancher_k8s_remove_crd_name_substrings:
+  - ".cattle.io"
+  - "cluster.x-k8s.io"
+  - "turtles-"
+rancher_k8s_remove_crd_name_deny_substrings:
+  - "k3s.cattle.io"
+  - "helmcharts.helm.cattle.io"
+  - "helmchartconfigs.helm.cattle.io"

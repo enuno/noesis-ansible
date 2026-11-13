@@ -1,0 +1,33 @@
+---
+# Completely remove Rancher Manager and its associated services from the
+# local k3s cluster (Fleet, Turtles, webhook, system-upgrade-controller,
+# cattle/fleet namespaces and CRDs).
+#
+# Fail-closed: inventory must set rancher_k8s_remove_enabled: true.
+#
+# Usage:
+#   ansible-playbook -i inventory/rancher-k8s/hosts.ini playbooks/rancher-k8s-remove.yml --syntax-check
+#   ansible-playbook -i inventory/rancher-k8s/hosts.ini playbooks/rancher-k8s-remove.yml --check
+#   ansible-playbook -i inventory/rancher-k8s/hosts.ini playbooks/rancher-k8s-remove.yml \
+#     -e rancher_k8s_remove_enabled=true
+
+- name: Remove Rancher Manager and associated services from Kubernetes
+  hosts: rancher_k8s
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
+  gather_facts: false
+  tags: [rancher, remove, k8s]
+  pre_tasks:
+    - name: Require explicit Kubernetes target
+      ansible.builtin.assert:
+        that:
+          - (rancher_k8s_remove_kubeconfig | default(rancher_k8s_kubeconfig) | default('')) | length > 0
+          - (rancher_k8s_remove_context | default(rancher_k8s_context) | default('')) | length > 0
+        fail_msg: kubeconfig and context must be explicit for Rancher removal.
+    - name: Align remove role vars with the rancher inventory when unset
+      ansible.builtin.set_fact:
+        rancher_k8s_remove_kubeconfig: "{{ rancher_k8s_remove_kubeconfig | default(rancher_k8s_kubeconfig) }}"
+        rancher_k8s_remove_context: "{{ rancher_k8s_remove_context | default(rancher_k8s_context) }}"
+  roles:
+    - role: rancher_k8s_remove
+      tags: [rancher, remove, k8s]

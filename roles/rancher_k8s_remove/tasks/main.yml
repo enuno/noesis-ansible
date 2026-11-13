@@ -1,0 +1,261 @@
+---
+# Destructive removal of Rancher Manager and its associated Helm stack.
+# Fail-closed unless rancher_k8s_remove_enabled is true.
+
+- name: Require explicit remove authorization
+  ansible.builtin.assert:
+    that:
+      - rancher_k8s_remove_enabled | bool
+      - rancher_k8s_remove_kubeconfig | length > 0
+      - rancher_k8s_remove_context | length > 0
+    fail_msg: >-
+      rancher_k8s_remove_enabled must be true and kubeconfig/context must be
+      set. This role uninstalls Rancher, Fleet, Turtles, and system-upgrade
+      controller and deletes their namespaces/CRDs.
+  tags: [rancher, remove, k8s]
+
+- name: Verify target kubeconfig exists
+  ansible.builtin.stat:
+    path: "{{ rancher_k8s_remove_kubeconfig }}"
+  register: rancher_k8s_remove_kubeconfig_stat
+  tags: [rancher, remove, k8s]
+
+- name: Require target kubeconfig
+  ansible.builtin.assert:
+    that: rancher_k8s_remove_kubeconfig_stat.stat.exists
+    fail_msg: "Kubeconfig {{ rancher_k8s_remove_kubeconfig }} is not present."
+  tags: [rancher, remove, k8s]
+
+- name: Delete the Rancher Tailscale Ingress (if present)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ rancher_k8s_remove_kubeconfig }}"
+    context: "{{ rancher_k8s_remove_context }}"
+    state: absent
+    api_version: networking.k8s.io/v1
+    kind: Ingress
+    namespace: "{{ item.namespace }}"
+    name: "{{ item.name }}"
+    wait: false
+  loop: "{{ rancher_k8s_remove_ingresses }}"
+  when: not ansible_check_mode
+  tags: [rancher, remove, k8s, expose]
+
+- name: Uninstall Rancher-associated Helm releases (ignore missing)
+  kubernetes.core.helm:
+    kubeconfig: "{{ rancher_k8s_remove_kubeconfig }}"
+    context: "{{ rancher_k8s_remove_context }}"
+    name: "{{ item.name }}"
+    release_namespace: "{{ item.namespace }}"
+    state: absent
+    wait: true
+    timeout: "{{ rancher_k8s_remove_helm_timeout }}s"
+  loop: "{{ rancher_k8s_remove_helm_releases }}"
+  register: rancher_k8s_remove_helm
+  failed_when: false
+  when: not ansible_check_mode
+  tags: [rancher, remove, k8s]
+
+- name: List all namespaces for prefix-based cleanup
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ rancher_k8s_remove_kubeconfig }}"
+    context: "{{ rancher_k8s_remove_context }}"
+    api_version: v1
+    kind: Namespace
+  register: rancher_k8s_remove_all_ns
+  when:
+    - rancher_k8s_remove_delete_namespaces | bool
+    - not ansible_check_mode
+  tags: [rancher, remove, k8s]
+
+- name: Build the namespace deletion set
+  ansible.builtin.set_fact:
+    rancher_k8s_remove_ns_targets: >-
+      {{
+        (
+          rancher_k8s_remove_namespace_exact
+          + (
+              rancher_k8s_remove_all_ns.resources
+              | default([])
+              | map(attribute='metadata.name')
+              | list
+              | select('search', '^(' ~ (rancher_k8s_remove_namespace_prefixes | map('regex_escape') | join('|')) ~ ')')
+              | list
+            )
+        )
+        | unique
+        | difference(rancher_k8s_remove_namespace_deny)
+        | list
+        | sort
+      }}
+  when:
+    - rancher_k8s_remove_delete_namespaces | bool
+    - not ansible_check_mode
+  tags: [rancher, remove, k8s]
+
+- name: Report namespaces that will be deleted
+  ansible.builtin.debug:
+    msg: "Deleting namespaces: {{ rancher_k8s_remove_ns_targets | default([]) | join(', ') }}"
+  when:
+    - rancher_k8s_remove_delete_namespaces | bool
+    - not ansible_check_mode
+  tags: [rancher, remove, k8s]
+
+- name: Delete Rancher-owned namespaces
+  kubernetes.core.k8s:
+    kubeconfig: "{{ rancher_k8s_remove_kubeconfig }}"
+    context: "{{ rancher_k8s_remove_context }}"
+    state: absent
+    api_version: v1
+    kind: Namespace
+    name: "{{ item }}"
+    wait: false
+  loop: "{{ rancher_k8s_remove_ns_targets | default([]) }}"
+  when:
+    - rancher_k8s_remove_delete_namespaces | bool
+    - not ansible_check_mode
+  tags: [rancher, remove, k8s]
+
+- name: Wait briefly for namespace termination to start
+  ansible.builtin.pause:
+    seconds: 15
+  when:
+    - rancher_k8s_remove_delete_namespaces | bool
+    - not ansible_check_mode
+    - (rancher_k8s_remove_ns_targets | default([]) | length) > 0
+  tags: [rancher, remove, k8s]
+
+- name: List CRDs for Rancher/Fleet cleanup
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ rancher_k8s_remove_kubeconfig }}"
+    context: "{{ rancher_k8s_remove_context }}"
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+  register: rancher_k8s_remove_all_crds
+  when:
+    - rancher_k8s_remove_delete_crds | bool
+    - not ansible_check_mode
+  tags: [rancher, remove, k8s]
+
+- name: Select Rancher/Fleet/Turtles CRDs by name substring
+  ansible.builtin.set_fact:
+    rancher_k8s_remove_crd_targets: >-
+      {{
+        rancher_k8s_remove_all_crds.resources
+        | default([])
+        | map(attribute='metadata.name')
+        | select('search', rancher_k8s_remove_crd_name_substrings | map('regex_escape') | join('|'))
+        | reject('search', rancher_k8s_remove_crd_name_deny_substrings | map('regex_escape') | join('|'))
+        | list
+        | sort
+      }}
+  when:
+    - rancher_k8s_remove_delete_crds | bool
+    - not ansible_check_mode
+  tags: [rancher, remove, k8s]
+
+- name: Report CRDs that will be deleted
+  ansible.builtin.debug:
+    msg: "Deleting {{ rancher_k8s_remove_crd_targets | default([]) | length }} CRDs matching Rancher/Fleet patterns"
+  when:
+    - rancher_k8s_remove_delete_crds | bool
+    - not ansible_check_mode
+  tags: [rancher, remove, k8s]
+
+- name: Delete Rancher/Fleet/Turtles CRDs
+  kubernetes.core.k8s:
+    kubeconfig: "{{ rancher_k8s_remove_kubeconfig }}"
+    context: "{{ rancher_k8s_remove_context }}"
+    state: absent
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    name: "{{ item }}"
+    wait: false
+  loop: "{{ rancher_k8s_remove_crd_targets | default([]) }}"
+  when:
+    - rancher_k8s_remove_delete_crds | bool
+    - not ansible_check_mode
+  tags: [rancher, remove, k8s]
+
+- name: Verify no Rancher Helm releases remain
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/helm
+      - list
+      - -A
+      - -o
+      - json
+  environment:
+    KUBECONFIG: "{{ rancher_k8s_remove_kubeconfig }}"
+  register: rancher_k8s_remove_helm_left
+  changed_when: false
+  when: not ansible_check_mode
+  tags: [rancher, remove, k8s, verify]
+
+- name: Assert Rancher-named Helm releases are gone
+  ansible.builtin.assert:
+    that:
+      - >
+        (
+          rancher_k8s_remove_helm_left.stdout | from_json
+          | selectattr('name', 'search', '^(rancher|fleet|system-upgrade-controller|rancher-turtles|fleet-crd|fleet-agent-local)$')
+          | list
+          | length
+        ) == 0
+    fail_msg: >-
+      One or more Rancher-associated Helm releases are still present:
+      {{ rancher_k8s_remove_helm_left.stdout | from_json
+         | map(attribute='name') | list }}
+  when: not ansible_check_mode
+  tags: [rancher, remove, k8s, verify]
+
+- name: List remaining cattle/fleet namespaces
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ rancher_k8s_remove_kubeconfig }}"
+    context: "{{ rancher_k8s_remove_context }}"
+    api_version: v1
+    kind: Namespace
+  register: rancher_k8s_remove_ns_left
+  when:
+    - rancher_k8s_remove_delete_namespaces | bool
+    - not ansible_check_mode
+  tags: [rancher, remove, k8s, verify]
+
+- name: Assert no cattle-/fleet- namespaces remain (allow Terminating briefly)
+  ansible.builtin.assert:
+    that:
+      - >
+        (
+          rancher_k8s_remove_ns_left.resources
+          | map(attribute='metadata.name')
+          | select('search', '^(cattle-|fleet-|cluster-fleet-)')
+          | list
+          | length
+        ) == 0
+        or
+        (
+          rancher_k8s_remove_ns_left.resources
+          | selectattr('metadata.name', 'search', '^(cattle-|fleet-|cluster-fleet-)')
+          | map(attribute='status.phase')
+          | unique
+          | list
+        ) == ['Terminating']
+    fail_msg: >-
+      Rancher/Fleet namespaces still Active:
+      {{ rancher_k8s_remove_ns_left.resources
+         | map(attribute='metadata.name')
+         | select('search', '^(cattle-|fleet-|cluster-fleet-)')
+         | list }}
+  when:
+    - rancher_k8s_remove_delete_namespaces | bool
+    - not ansible_check_mode
+  tags: [rancher, remove, k8s, verify]
+
+- name: Report remove summary
+  ansible.builtin.debug:
+    msg:
+      - "Rancher remove completed under explicit enable gate."
+      - "Helm releases targeted: {{ rancher_k8s_remove_helm_releases | map(attribute='name') | list }}"
+      - "Namespaces targeted: {{ rancher_k8s_remove_ns_targets | default([]) | length }}"
+      - "CRDs targeted: {{ rancher_k8s_remove_crd_targets | default([]) | length }}"
+  when: not ansible_check_mode
+  tags: [rancher, remove, k8s]

@@ -1,0 +1,27 @@
+# Dedicated operator-managed Tailscale Ingress for Rancher.
+# The operator (OPERATOR_INGRESS_CLASS_NAME=tailscale) mints a per-service
+# tailnet device named after the SHORT host below and publishes
+# <host>.<tailnet domain> in status.loadBalancer.ingress[0].hostname.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: "{{ rancher_k8s_release_name }}"
+  namespace: "{{ rancher_k8s_namespace }}"
+  labels:
+    app.kubernetes.io/managed-by: ansible-rancher-k8s
+spec:
+  ingressClassName: "{{ rancher_k8s_tailscale_ingress_class }}"
+  rules:
+    - host: "{{ rancher_k8s_hostname }}"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: "{{ rancher_k8s_release_name }}"
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - "{{ rancher_k8s_hostname }}"

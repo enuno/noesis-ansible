@@ -1,0 +1,35 @@
+---
+# Deploy Rancher Manager with the vendored rancher-stable 2.15.3 chart and a
+# private Tailscale Operator Ingress.
+#
+# Traffic path:
+#   tailnet client -> https://rancher.tailf99a0.ts.net
+#     -> tailscale operator proxy (TLS terminated here)
+#     -> ClusterIP Service rancher:80 -> rancher pod(s)
+#
+# Single-replica deployment for the single-node k3s target: NOT highly
+# available. Standalone activation-gated playbook: intentionally NOT wired
+# into master-stack.yml (mirrors the n8n/mcpjungle pattern).
+#
+# Usage:
+#   ansible-playbook -i inventory/rancher-k8s/hosts.ini playbooks/rancher-k8s.yml --syntax-check
+#   ansible-playbook -i inventory/rancher-k8s/hosts.ini playbooks/rancher-k8s.yml --check
+#   ansible-playbook -i inventory/rancher-k8s/hosts.ini playbooks/rancher-k8s.yml
+#   # idempotency proof: run the same command a second time, expect changed=0
+
+- name: Deploy Rancher Manager to Kubernetes with private tailnet ingress
+  hosts: rancher_k8s
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
+  gather_facts: false
+  tags: [rancher, k8s]
+  pre_tasks:
+    - name: Require explicit Kubernetes target
+      ansible.builtin.assert:
+        that:
+          - rancher_k8s_kubeconfig | length > 0
+          - rancher_k8s_context | length > 0
+        fail_msg: rancher_k8s_kubeconfig and rancher_k8s_context must be explicit.
+  roles:
+    - role: rancher_k8s
+      tags: [rancher, k8s, deploy]

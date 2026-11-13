@@ -1,0 +1,56 @@
+---
+# Rancher Manager on k3s with private Tailscale operator ingress.
+#
+# Architecture (verified against the vendored chart 2.15.3, see
+# charts/vendor/rancher/VENDORED.md):
+#   tailnet client -> https://<hostname>.<tailnet_domain>
+#     -> tailscale operator proxy (TLS terminated at the proxy, real
+#        Let's Encrypt cert for the ts.net name)
+#     -> ClusterIP Service rancher:80 (HTTP)
+#     -> rancher pods (chart value tls=external).
+# The chart's own Ingress is disabled (ingress.enabled=false); a dedicated
+# operator-managed networking.k8s.io/v1 Ingress with class 'tailscale' is
+# applied by this role instead. cert-manager is NOT required with tls=external
+# and is deliberately not installed.
+
+rancher_k8s_kubeconfig: /etc/rancher/k3s/k3s.yaml
+rancher_k8s_context: default
+rancher_k8s_namespace: cattle-system
+rancher_k8s_release_name: rancher
+
+# Vendored chart: upstream rancher-stable 2.15.3 with ONLY the kubeVersion
+# constraint relaxed one minor (upstream certifies max Kubernetes 1.36; this
+# cluster runs v1.37.1 — unsupported-by-upstream, operator-approved
+# 2026-10-30). chart_ref resolves against the ROLE directory.
+rancher_k8s_chart_ref: "{{ role_path }}/../../charts/vendor/rancher"
+rancher_k8s_chart_version: "2.15.3"
+rancher_k8s_chart_relaxed_kubeversion: "< 1.38.0-0"
+rancher_k8s_chart_upstream_sha256: "343888c66421a9f5666b562cdfeca751d63da994edbe7b1b36752f8ffcf5ecd4"
+
+rancher_k8s_helm_timeout: 1200
+rancher_k8s_hostname: rancher
+rancher_k8s_tailnet_domain: tailf99a0.ts.net
+# 'external' = TLS terminated by the tailscale proxy; Rancher serves HTTP :80.
+rancher_k8s_tls: external
+# Single-node target: one replica, NOT a highly available deployment.
+rancher_k8s_replicas: 1
+rancher_k8s_tailscale_ingress_class: tailscale
+rancher_k8s_reserved_hostnames:
+  - tailscale-operator
+  - noesis-praxis
+  - noesis-lab
+
+# Bitwarden Secrets Manager (durable credential authority).
+rancher_k8s_bitwarden_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+rancher_k8s_bootstrap_bw_key: rancher_k3s_bootstrap_password
+rancher_k8s_admin_bw_key: rancher_k3s_admin_password
+rancher_k8s_bws_path: /usr/local/bin/bws
+# Prefer the controller environment (BWS_ACCESS_TOKEN); never commit a token.
+rancher_k8s_bws_access_token: ""
+# EXTERNAL WRITE GATE. Role default is secure (false); the deployment
+# inventory opts in explicitly so the intent is visible in one diff.
+rancher_k8s_allow_bitwarden_write: false
+
+# Crash-safety staging file for the admin password between changepassword and
+# verified escrow (mirrors roles/mcpjungle pending-secret pattern).
+rancher_k8s_pending_admin_file: /run/rancher-k8s-admin-pending

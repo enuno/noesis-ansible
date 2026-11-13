@@ -1,0 +1,16 @@
+# Rancher chart values rendered by the rancher_k8s role.
+# Written to /run/rancher-values.yml (mode 0600) on the target and removed in
+# an always-cleanup block. The bootstrap password is an unavoidable runtime
+# copy: it also persists in the cluster as Secret bootstrap-secret and in the
+# Helm release metadata. See docs/rancher-k8s-runbook.md.
+hostname: "{{ rancher_k8s_hostname }}.{{ rancher_k8s_tailnet_domain }}"
+replicas: {{ rancher_k8s_replicas | int }}
+bootstrapPassword: "{{ rancher_k8s_bootstrap_password }}"
+# TLS is terminated by the Tailscale operator proxy; Rancher serves HTTP :80.
+tls: "{{ rancher_k8s_tls }}"
+# The chart-managed Ingress stays disabled: this role applies a dedicated
+# operator-managed Ingress with class '{{ rancher_k8s_tailscale_ingress_class }}'.
+ingress:
+  enabled: false
+service:
+  type: ClusterIP

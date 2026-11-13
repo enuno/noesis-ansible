@@ -1,0 +1,877 @@
+---
+# Rancher Manager on k3s with private Tailscale operator ingress.
+#
+# Ordering (mirrors roles/mcpjungle escrow discipline):
+#   resolve-or-generate -> escrow to Bitwarden -> verify escrow -> deliver
+#   (Helm) -> expose (Tailscale Ingress) -> verify readiness/health ->
+#   administrator initialization -> summary.
+#
+# Check mode NEVER generates a credential and NEVER writes to Bitwarden or the
+# cluster's credential path: with a missing bootstrap record it renders the
+# values with a placeholder so Helm diff still previews the release.
+
+- name: Validate Rancher deployment inputs
+  ansible.builtin.assert:
+    that:
+      - rancher_k8s_kubeconfig | length > 0
+      - rancher_k8s_context | length > 0
+      - rancher_k8s_bitwarden_project_id == '72974d0e-81af-4678-bab7-b46000985859'
+      - rancher_k8s_hostname is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - rancher_k8s_hostname not in rancher_k8s_reserved_hostnames
+      - rancher_k8s_tls == 'external'
+      - rancher_k8s_tailscale_ingress_class == 'tailscale'
+      - rancher_k8s_replicas | int == 1
+    fail_msg: >-
+      Target, Bitwarden project, hostname, TLS mode, ingress class, or replica
+      settings are invalid. This role deploys a single-replica, non-HA Rancher
+      with external TLS termination behind the tailscale IngressClass only.
+  tags: [rancher, k8s]
+
+- name: Verify target kubeconfig exists
+  ansible.builtin.stat:
+    path: "{{ rancher_k8s_kubeconfig }}"
+  register: rancher_k8s_kubeconfig_stat
+  tags: [rancher, k8s]
+
+- name: Require target kubeconfig
+  ansible.builtin.assert:
+    that: rancher_k8s_kubeconfig_stat.stat.exists
+    fail_msg: "Kubeconfig {{ rancher_k8s_kubeconfig }} is not present on the managed host."
+  tags: [rancher, k8s]
+
+# --------------------------------------------------------------------------
+# Bitwarden escrow (controller-side; the token never leaves the controller's
+# environment). ids and keys only in listings; values are fetched by id and
+# never logged.
+# --------------------------------------------------------------------------
+
+- name: Note that check mode skips all credential generation and external writes
+  ansible.builtin.debug:
+    msg: "check mode: Bitwarden writes skipped by design; Helm previews with a placeholder password."
+  when: ansible_check_mode
+  tags: [rancher, k8s, secrets]
+
+# command/shell tasks are skipped by Ansible in check mode, which would leave
+# the listing register undefined and break the index expression. Seed an
+# empty index instead: every downstream lookup then resolves to "no record",
+# which is exactly the first-deploy preview path.
+- name: Seed an empty Bitwarden index in check mode
+  ansible.builtin.set_fact:
+    rancher_k8s_bw_index: []
+  no_log: true
+  when: ansible_check_mode
+  tags: [rancher, k8s, secrets]
+
+- name: Confirm the bws CLI is available on the controller
+  ansible.builtin.command:
+    argv: ["{{ rancher_k8s_bws_path }}", --version]
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: rancher_k8s_bws_version
+  changed_when: false
+  failed_when: rancher_k8s_bws_version.rc != 0
+  no_log: true
+  tags: [rancher, k8s, secrets]
+
+- name: Require the Bitwarden access token from the approved controller mechanism
+  ansible.builtin.assert:
+    that:
+      - (rancher_k8s_bws_access_token | default('')) | length > 0
+        or (lookup('env', 'BWS_ACCESS_TOKEN') | length > 0)
+    fail_msg: >-
+      No Bitwarden access token. Supply rancher_k8s_bws_access_token from the
+      approved controller credential mechanism or BWS_ACCESS_TOKEN in the
+      controller environment.
+  no_log: true
+  tags: [rancher, k8s, secrets]
+
+- name: Verify the machine account can read the required project (metadata only)
+  ansible.builtin.command:
+    argv: ["{{ rancher_k8s_bws_path }}", project, get, "{{ rancher_k8s_bitwarden_project_id }}"]
+  environment:
+    BWS_ACCESS_TOKEN: "{{ rancher_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: rancher_k8s_bw_project
+  changed_when: false
+  failed_when: rancher_k8s_bw_project.rc != 0
+  no_log: true
+  tags: [rancher, k8s, secrets]
+
+- name: List existing records in the project (ids and keys only, never values)
+  ansible.builtin.command:
+    argv: ["{{ rancher_k8s_bws_path }}", secret, list, "{{ rancher_k8s_bitwarden_project_id }}", -o, json]
+  environment:
+    BWS_ACCESS_TOKEN: "{{ rancher_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: rancher_k8s_bw_list
+  changed_when: false
+  failed_when: rancher_k8s_bw_list.rc != 0
+  no_log: true
+  tags: [rancher, k8s, secrets]
+
+- name: Index records by id and key
+  ansible.builtin.set_fact:
+    rancher_k8s_bw_index: >-
+      {{ rancher_k8s_bw_list.stdout | from_json
+         | json_query('[*].{id: id, key: key}') }}
+  no_log: true
+  when: not ansible_check_mode
+  tags: [rancher, k8s, secrets]
+
+- name: Map each Rancher escrow key to its matching-record count
+  ansible.builtin.set_fact:
+    rancher_k8s_bw_counts: >-
+      {{ (rancher_k8s_bw_counts | default({})) | combine({
+           item: (rancher_k8s_bw_index | selectattr('key', 'equalto', item) | list | length)
+         }, recursive=true) }}
+  loop:
+    - "{{ rancher_k8s_bootstrap_bw_key }}"
+    - "{{ rancher_k8s_admin_bw_key }}"
+  no_log: true
+  tags: [rancher, k8s, secrets]
+
+# <= 1, not == 1: zero matches is the legitimate first-deploy state; only an
+# ambiguous match (2+) fails closed.
+- name: Fail closed when an escrow key matches more than one Bitwarden record
+  ansible.builtin.assert:
+    that:
+      - (rancher_k8s_bw_counts | length) == 0
+        or (rancher_k8s_bw_counts.values() | max) <= 1
+    fail_msg: >-
+      Ambiguous Bitwarden record(s) for key(s):
+      {{ rancher_k8s_bw_counts | dict2items
+         | rejectattr('value', 'le', 1) | map(attribute='key') | join(', ') }}.
+      Refusing to select an arbitrary record. Resolve the duplicate in
+      Bitwarden first.
+  no_log: true
+  tags: [rancher, k8s, secrets]
+
+# --- Bootstrap password ----------------------------------------------------
+
+- name: Look up the existing bootstrap password record by key
+  ansible.builtin.set_fact:
+    rancher_k8s_bootstrap_existing: >-
+      {{ rancher_k8s_bw_index
+         | selectattr('key', 'equalto', rancher_k8s_bootstrap_bw_key) | list }}
+  no_log: true
+  tags: [rancher, k8s, secrets]
+
+- name: Fetch the existing bootstrap password when exactly one record exists
+  ansible.builtin.command:
+    argv:
+      - "{{ rancher_k8s_bws_path }}"
+      - secret
+      - get
+      - "{{ rancher_k8s_bootstrap_existing | map(attribute='id') | first }}"
+      - -o
+      - json
+  environment:
+    BWS_ACCESS_TOKEN: "{{ rancher_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: rancher_k8s_bootstrap_get
+  changed_when: false
+  failed_when: rancher_k8s_bootstrap_get.rc != 0
+  no_log: true
+  when: rancher_k8s_bootstrap_existing | length == 1
+  tags: [rancher, k8s, secrets]
+
+- name: Reuse the stored bootstrap password (idempotent, no rotation)
+  ansible.builtin.set_fact:
+    rancher_k8s_bootstrap_password: "{{ (rancher_k8s_bootstrap_get.stdout | from_json).value }}"
+    rancher_k8s_bootstrap_created: false
+  no_log: true
+  when: rancher_k8s_bootstrap_existing | length == 1
+  tags: [rancher, k8s, secrets]
+
+# Generate ONLY when absence is confirmed by the successful listing above; a
+# permission or network failure fails earlier and is never mistaken for
+# "record does not exist".
+- name: Generate a bootstrap password only when no record exists
+  ansible.builtin.set_fact:
+    rancher_k8s_bootstrap_password: >-
+      {{ lookup('community.general.random_string', length=40, ignore_case=false,
+                chars='ascii_letters,digits') }}
+    rancher_k8s_bootstrap_created: true
+  no_log: true
+  when:
+    - rancher_k8s_bootstrap_existing | length == 0
+    - not ansible_check_mode
+  tags: [rancher, k8s, secrets]
+
+- name: Use a placeholder bootstrap password in check mode
+  ansible.builtin.set_fact:
+    rancher_k8s_bootstrap_password: "CHECKMODE-PLACEHOLDER"
+    rancher_k8s_bootstrap_created: false
+  no_log: true
+  when:
+    - rancher_k8s_bootstrap_existing | length == 0
+    - ansible_check_mode
+  tags: [rancher, k8s, secrets]
+
+# The value travels via the process environment, not the command string: bws
+# 2.1.0 accepts the secret value only as a positional argument and offers no
+# stdin/--value-file. Residual exposure is a transient argv/environ entry on
+# the single-tenant controller; documented in docs/rancher-k8s-runbook.md.
+- name: Persist the new bootstrap password to Bitwarden (EXTERNAL WRITE)
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    {{ rancher_k8s_bws_path }} secret create
+    {{ rancher_k8s_bootstrap_bw_key | quote }}
+    "$RANCHER_K8S_ESCROW_VALUE"
+    {{ rancher_k8s_bitwarden_project_id | quote }}
+  args:
+    executable: /bin/bash
+  environment:
+    BWS_ACCESS_TOKEN: "{{ rancher_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+    RANCHER_K8S_ESCROW_VALUE: "{{ rancher_k8s_bootstrap_password }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: rancher_k8s_bootstrap_create
+  changed_when: rancher_k8s_bootstrap_create.rc == 0
+  failed_when: rancher_k8s_bootstrap_create.rc != 0
+  no_log: true
+  when:
+    - rancher_k8s_bootstrap_created | bool
+    - rancher_k8s_allow_bitwarden_write | bool
+    - not ansible_check_mode
+  tags: [rancher, k8s, secrets]
+
+- name: Require the write gate when the bootstrap record is missing
+  ansible.builtin.assert:
+    that:
+      - rancher_k8s_bootstrap_existing | length == 1
+        or (rancher_k8s_bootstrap_create is defined and rancher_k8s_bootstrap_create.rc == 0)
+    fail_msg: >-
+      The bootstrap password does not exist in Bitwarden and this run did not
+      create it. Set rancher_k8s_allow_bitwarden_write=true (the deployment
+      inventory opts in) to escrow a freshly generated one first.
+  no_log: true
+  when: not ansible_check_mode
+  tags: [rancher, k8s, secrets]
+
+- name: Confirm the bootstrap credential is durably stored (exactly one record)
+  ansible.builtin.command:
+    argv: ["{{ rancher_k8s_bws_path }}", secret, list, "{{ rancher_k8s_bitwarden_project_id }}", -o, json]
+  environment:
+    BWS_ACCESS_TOKEN: "{{ rancher_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: rancher_k8s_bootstrap_verify
+  changed_when: false
+  failed_when: rancher_k8s_bootstrap_verify.rc != 0
+  no_log: true
+  when: not ansible_check_mode
+  tags: [rancher, k8s, secrets]
+
+- name: Fail closed unless exactly one stored bootstrap record backs this deployment
+  ansible.builtin.assert:
+    that:
+      - (rancher_k8s_bootstrap_verify.stdout | from_json
+         | selectattr('key', 'equalto', rancher_k8s_bootstrap_bw_key) | list | length) == 1
+    fail_msg: >-
+      Bootstrap credential is NOT confirmed stored in Bitwarden project
+      {{ rancher_k8s_bitwarden_project_id }}. Refusing to continue: the
+      Kubernetes Secret must never be the only persistent record.
+  no_log: true
+  when: not ansible_check_mode
+  tags: [rancher, k8s, secrets]
+
+- name: Require a usable bootstrap password before any cluster delivery
+  ansible.builtin.assert:
+    that:
+      - rancher_k8s_bootstrap_password | default('') | length >= 12
+    fail_msg: "Bootstrap password fact is empty or too short; refusing to render release values."
+  no_log: true
+  tags: [rancher, k8s, secrets]
+
+# --- Namespace -------------------------------------------------------------
+
+- name: Create the cattle-system namespace
+  kubernetes.core.k8s:
+    kubeconfig: "{{ rancher_k8s_kubeconfig }}"
+    context: "{{ rancher_k8s_context }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ rancher_k8s_namespace }}"
+        labels:
+          app.kubernetes.io/managed-by: ansible-rancher-k8s
+  tags: [rancher, k8s]
+
+# --- Vendored chart provenance gate ---------------------------------------
+
+- name: Read the vendored chart metadata on the controller
+  ansible.builtin.slurp:
+    src: "{{ rancher_k8s_chart_ref }}/Chart.yaml"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: rancher_k8s_chart_yaml_b64
+  tags: [rancher, k8s]
+
+- name: Require the pinned chart version and the approved kubeVersion relaxation
+  ansible.builtin.assert:
+    that:
+      - (rancher_k8s_chart_yaml_b64.content | b64decode | from_yaml).version == rancher_k8s_chart_version
+      - (rancher_k8s_chart_yaml_b64.content | b64decode | from_yaml).kubeVersion == rancher_k8s_chart_relaxed_kubeversion
+    fail_msg: >-
+      charts/vendor/rancher drifted from the approved provenance: expected
+      version {{ rancher_k8s_chart_version }} with kubeVersion
+      '{{ rancher_k8s_chart_relaxed_kubeversion }}' (see VENDORED.md). Any
+      other content is an unapproved chart change.
+  tags: [rancher, k8s]
+
+# --- Helm release ----------------------------------------------------------
+
+- name: Render values, reconcile the release, and always clean up
+  block:
+    # check_mode: false — the Helm dry-run in check mode reads this file, so
+    # it must really exist. It is a 0600 temp file removed in the always
+    # block below, not a persistent change, and in check mode it contains the
+    # placeholder password.
+    - name: Render Rancher Helm values on the target
+      ansible.builtin.template:
+        src: values.yml.j2
+        dest: /run/rancher-values.yml
+        mode: '0600'
+      check_mode: false
+      no_log: true
+      changed_when: false
+      tags: [rancher, k8s]
+
+    - name: Install or upgrade the Rancher Helm release
+      kubernetes.core.helm:
+        kubeconfig: "{{ rancher_k8s_kubeconfig }}"
+        context: "{{ rancher_k8s_context }}"
+        name: "{{ rancher_k8s_release_name }}"
+        chart_ref: "{{ rancher_k8s_chart_ref }}"
+        release_namespace: "{{ rancher_k8s_namespace }}"
+        create_namespace: false
+        values_files:
+          - /run/rancher-values.yml
+        wait: true
+        timeout: "{{ rancher_k8s_helm_timeout }}s"
+        atomic: true
+        cleanup_on_fail: true
+        state: present
+      register: rancher_k8s_helm_result
+      no_log: true
+      diff: false
+      tags: [rancher, k8s]
+  always:
+    # check_mode: false — the render above is forced to run for Helm dry-run,
+    # so its cleanup must run too or check runs would leave the file behind.
+    - name: Remove the rendered values from the target
+      ansible.builtin.file:
+        path: /run/rancher-values.yml
+        state: absent
+      check_mode: false
+      changed_when: false
+      tags: [rancher, k8s]
+
+# --- Tailscale Ingress -----------------------------------------------------
+
+# Check-mode ordering limitation: the k8s module's server-side dry-run cannot
+# validate a namespaced object into a namespace check mode has not actually
+# created (first deploy only). Probe and skip with an explanation instead of
+# failing the preview; reruns against the existing namespace preview fully.
+- name: Probe the namespace for the check-mode ingress preview
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ rancher_k8s_kubeconfig }}"
+    context: "{{ rancher_k8s_context }}"
+    api_version: v1
+    kind: Namespace
+    name: "{{ rancher_k8s_namespace }}"
+  register: rancher_k8s_ns_probe
+  changed_when: false
+  when: ansible_check_mode
+  tags: [rancher, k8s, expose]
+
+- name: Explain the skipped ingress preview on first-deploy check runs
+  ansible.builtin.debug:
+    msg: >-
+      check mode: skipping the Ingress server-side dry-run — the
+      {{ rancher_k8s_namespace }} namespace does not exist yet and the API
+      cannot validate namespaced objects into it. Ordering limitation of
+      check mode on first deploy, not an error; the real run creates the
+      namespace first.
+  when:
+    - ansible_check_mode
+    - rancher_k8s_ns_probe.resources | default([]) | length == 0
+  tags: [rancher, k8s, expose]
+
+- name: Apply the dedicated operator-managed Tailscale Ingress
+  kubernetes.core.k8s:
+    kubeconfig: "{{ rancher_k8s_kubeconfig }}"
+    context: "{{ rancher_k8s_context }}"
+    state: present
+    apply: true
+    definition: "{{ lookup('template', 'ingress.yml.j2') | from_yaml }}"
+  when:
+    - not ansible_check_mode or rancher_k8s_ns_probe.resources | default([]) | length == 1
+  tags: [rancher, k8s, expose]
+
+- name: Wait for the operator to publish the tailnet hostname
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ rancher_k8s_kubeconfig }}"
+    context: "{{ rancher_k8s_context }}"
+    api_version: networking.k8s.io/v1
+    kind: Ingress
+    namespace: "{{ rancher_k8s_namespace }}"
+    name: "{{ rancher_k8s_release_name }}"
+  register: rancher_k8s_ingress
+  retries: 24
+  delay: 10
+  until:
+    - rancher_k8s_ingress.resources | length == 1
+    - rancher_k8s_ingress.resources[0].status.loadBalancer.ingress | default([]) | length > 0
+  when: not ansible_check_mode
+  tags: [rancher, k8s, expose]
+
+- name: Assert the tailnet hostname matches the configured Rancher hostname
+  ansible.builtin.assert:
+    that:
+      - rancher_k8s_ingress.resources[0].status.loadBalancer.ingress[0].hostname
+        == rancher_k8s_hostname ~ '.' ~ rancher_k8s_tailnet_domain
+    fail_msg: >-
+      Tailscale published a different hostname than the one Rancher is
+      configured with. Reconcile rancher_k8s_hostname with the
+      operator-published endpoint before continuing.
+  when: not ansible_check_mode
+  tags: [rancher, k8s, expose]
+
+# --- Readiness -------------------------------------------------------------
+
+- name: Wait for the Rancher deployment to become available
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ rancher_k8s_kubeconfig }}"
+    context: "{{ rancher_k8s_context }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ rancher_k8s_namespace }}"
+    name: "{{ rancher_k8s_release_name }}"
+  register: rancher_k8s_deployment
+  retries: 60
+  delay: 10
+  until:
+    - rancher_k8s_deployment.resources | length == 1
+    - rancher_k8s_deployment.resources[0].status.availableReplicas | default(0) | int >= 1
+  when: not ansible_check_mode
+  tags: [rancher, k8s]
+
+- name: Wait for populated Rancher Service endpoints
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ rancher_k8s_kubeconfig }}"
+    context: "{{ rancher_k8s_context }}"
+    api_version: v1
+    kind: Endpoints
+    namespace: "{{ rancher_k8s_namespace }}"
+    name: "{{ rancher_k8s_release_name }}"
+  register: rancher_k8s_endpoints
+  retries: 24
+  delay: 10
+  until:
+    - rancher_k8s_endpoints.resources | length == 1
+    - rancher_k8s_endpoints.resources[0].subsets | default([]) | length > 0
+    - rancher_k8s_endpoints.resources[0].subsets[0].addresses | default([]) | length > 0
+  when: not ansible_check_mode
+  tags: [rancher, k8s]
+
+- name: Wait for the operator's Rancher ingress proxy pod
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ rancher_k8s_kubeconfig }}"
+    context: "{{ rancher_k8s_context }}"
+    api_version: v1
+    kind: Pod
+    namespace: tailscale
+  register: rancher_k8s_ts_pods
+  retries: 24
+  delay: 10
+  until:
+    - (rancher_k8s_ts_pods.resources
+       | selectattr('metadata.name', 'match', '^ts-rancher-') | list | length) == 1
+    - ((rancher_k8s_ts_pods.resources
+        | selectattr('metadata.name', 'match', '^ts-rancher-') | list)[0].status.phase) == 'Running'
+    - ((rancher_k8s_ts_pods.resources
+        | selectattr('metadata.name', 'match', '^ts-rancher-') | list)[0].status.containerStatuses
+        | default([]) | selectattr('ready', 'equalto', true) | list | length) >= 1
+  when: not ansible_check_mode
+  tags: [rancher, k8s, expose]
+
+# --- Health and UI (through the real tailnet HTTPS path) -------------------
+
+- name: Check the Rancher health endpoint over tailnet HTTPS
+  ansible.builtin.uri:
+    url: "https://{{ rancher_k8s_hostname }}.{{ rancher_k8s_tailnet_domain }}/healthz"
+    method: GET
+    status_code: 200
+    timeout: 30
+  register: rancher_k8s_healthz
+  retries: 24
+  delay: 15
+  until: rancher_k8s_healthz.status == 200
+  changed_when: false
+  when: not ansible_check_mode
+  tags: [rancher, k8s, verify]
+
+# Rancher 2.15 serves a JSON apiRoot collection on /, not the UI: the SPA
+# document lives at /dashboard/ (verified live: <title>Rancher</title>).
+- name: Check the Rancher UI loads over tailnet HTTPS (unauthenticated)
+  ansible.builtin.uri:
+    url: "https://{{ rancher_k8s_hostname }}.{{ rancher_k8s_tailnet_domain }}/dashboard/"
+    method: GET
+    status_code: 200
+    return_content: true
+    timeout: 30
+  register: rancher_k8s_ui
+  retries: 12
+  delay: 15
+  until:
+    - rancher_k8s_ui.status == 200
+    - "'<title>Rancher</title>' in rancher_k8s_ui.content"
+  changed_when: false
+  when: not ansible_check_mode
+  tags: [rancher, k8s, verify]
+
+# --- Administrator initialization ------------------------------------------
+# Idempotent: an existing rancher_k3s_admin_password record means setup
+# already ran — verify the credential still authenticates, never rotate it.
+
+- name: Look up the existing admin password record by key
+  ansible.builtin.set_fact:
+    rancher_k8s_admin_existing: >-
+      {{ rancher_k8s_bw_index
+         | selectattr('key', 'equalto', rancher_k8s_admin_bw_key) | list }}
+    rancher_k8s_admin_state: pending
+  no_log: true
+  tags: [rancher, k8s, secrets]
+
+- name: Fetch the escrowed admin password when exactly one record exists
+  ansible.builtin.command:
+    argv:
+      - "{{ rancher_k8s_bws_path }}"
+      - secret
+      - get
+      - "{{ rancher_k8s_admin_existing | map(attribute='id') | first }}"
+      - -o
+      - json
+  environment:
+    BWS_ACCESS_TOKEN: "{{ rancher_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: rancher_k8s_admin_get
+  changed_when: false
+  failed_when: rancher_k8s_admin_get.rc != 0
+  no_log: true
+  when:
+    - rancher_k8s_admin_existing | length == 1
+    - not ansible_check_mode
+  tags: [rancher, k8s, secrets]
+
+- name: Verify the escrowed admin password still authenticates
+  ansible.builtin.uri:
+    url: "https://{{ rancher_k8s_hostname }}.{{ rancher_k8s_tailnet_domain }}/v3-public/localProviders/local?action=login"
+    method: POST
+    body_format: json
+    body:
+      username: admin
+      password: "{{ (rancher_k8s_admin_get.stdout | from_json).value }}"
+    status_code: 200
+    timeout: 30
+  register: rancher_k8s_admin_login
+  retries: 6
+  delay: 15
+  until:
+    - rancher_k8s_admin_login.status == 200
+      or rancher_k8s_admin_login.status == 401
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when:
+    - rancher_k8s_admin_existing | length == 1
+    - not ansible_check_mode
+  tags: [rancher, k8s, secrets]
+
+- name: Fail when the escrowed admin password does not authenticate
+  ansible.builtin.assert:
+    that:
+      - rancher_k8s_admin_login.status == 200
+    fail_msg: >-
+      The escrowed admin password did not authenticate against Rancher
+      (HTTP {{ rancher_k8s_admin_login.status | default('unknown') }}).
+      A 401 means the credential in Bitwarden drifted from the server — do not
+      rotate it blindly; investigate which side changed first.
+  no_log: true
+  when:
+    - rancher_k8s_admin_existing | length == 1
+    - not ansible_check_mode
+  tags: [rancher, k8s, secrets]
+
+- name: Record verified existing administrator state
+  ansible.builtin.set_fact:
+    rancher_k8s_admin_state: verified-existing
+  when:
+    - rancher_k8s_admin_existing | length == 1
+    - rancher_k8s_admin_login.status | default(0) == 200
+  tags: [rancher, k8s, secrets]
+
+- name: Initialize the Rancher administrator (first deploy only)
+  when:
+    - rancher_k8s_admin_existing | length == 0
+    - not ansible_check_mode
+  block:
+    - name: Require the write gate for administrator initialization
+      ansible.builtin.assert:
+        that:
+          - rancher_k8s_allow_bitwarden_write | bool
+        fail_msg: >-
+          No admin password exists in Bitwarden and initialization would create
+          one. Set rancher_k8s_allow_bitwarden_write=true to escrow it.
+      no_log: true
+
+    - name: Recover a staged admin password from a previously failed run
+      ansible.builtin.stat:
+        path: "{{ rancher_k8s_pending_admin_file }}"
+      register: rancher_k8s_pending_stat
+
+    - name: Read the staged admin password
+      ansible.builtin.slurp:
+        src: "{{ rancher_k8s_pending_admin_file }}"
+      register: rancher_k8s_pending_slurp
+      no_log: true
+      when: rancher_k8s_pending_stat.stat.exists | default(false)
+
+    - name: Probe whether the staged admin password already authenticates
+      ansible.builtin.uri:
+        url: "https://{{ rancher_k8s_hostname }}.{{ rancher_k8s_tailnet_domain }}/v3-public/localProviders/local?action=login"
+        method: POST
+        body_format: json
+        body:
+          username: admin
+          password: "{{ rancher_k8s_pending_slurp.content | b64decode }}"
+        status_code: 200
+        timeout: 30
+      register: rancher_k8s_staged_probe
+      changed_when: false
+      failed_when: false
+      no_log: true
+      when: rancher_k8s_pending_slurp.content | default('') | length > 0
+
+    - name: Select the staged password when it authenticates (crash recovery)
+      ansible.builtin.set_fact:
+        rancher_k8s_admin_password: "{{ rancher_k8s_pending_slurp.content | b64decode }}"
+        rancher_k8s_admin_mode: recover
+      no_log: true
+      when: rancher_k8s_staged_probe.status | default(0) == 200
+
+    - name: Generate a fresh admin password otherwise
+      ansible.builtin.set_fact:
+        rancher_k8s_admin_password: >-
+          {{ lookup('community.general.random_string', length=40, ignore_case=false,
+                    chars='ascii_letters,digits') }}
+        rancher_k8s_admin_mode: create
+      no_log: true
+      when: rancher_k8s_staged_probe.status | default(0) != 200
+
+    # Staged BEFORE the change so a crash between changepassword and escrow
+    # leaves the credential recoverable; deleted only after verified escrow.
+    - name: Stage the admin password at 0600 for crash-safe recovery
+      ansible.builtin.copy:
+        dest: "{{ rancher_k8s_pending_admin_file }}"
+        content: "{{ rancher_k8s_admin_password }}"
+        mode: '0600'
+      no_log: true
+      when: rancher_k8s_admin_mode == 'create'
+
+    - name: Change the admin password from the bootstrap credential
+      ansible.builtin.uri:
+        url: "https://{{ rancher_k8s_hostname }}.{{ rancher_k8s_tailnet_domain }}/v3/users?action=changepassword"
+        method: POST
+        force_basic_auth: true
+        url_username: admin
+        url_password: "{{ rancher_k8s_bootstrap_password }}"
+        body_format: json
+        body:
+          currentPassword: "{{ rancher_k8s_bootstrap_password }}"
+          newPassword: "{{ rancher_k8s_admin_password }}"
+        status_code: 200
+        timeout: 30
+      register: rancher_k8s_admin_changepw
+      retries: 12
+      delay: 15
+      until:
+        - rancher_k8s_admin_changepw.status == 200
+          or rancher_k8s_admin_changepw.status == 401
+      # Never hard-fail inside the probe: 404/502 during API warm-up retry,
+      # 401 stops retrying (a genuine drift fault the assert below names).
+      failed_when: false
+      no_log: true
+      when: rancher_k8s_admin_mode == 'create'
+
+    - name: Require the admin password change to have succeeded
+      ansible.builtin.assert:
+        that:
+          - rancher_k8s_admin_changepw.status == 200
+        fail_msg: >-
+          changepassword returned HTTP
+          {{ rancher_k8s_admin_changepw.status | default('unknown') }}. A 401
+          means the escrowed bootstrap password does not match the server's
+          bootstrap credential — investigate drift instead of re-running.
+      no_log: true
+      when: rancher_k8s_admin_mode == 'create'
+
+    - name: Persist the admin password to Bitwarden (EXTERNAL WRITE)
+      ansible.builtin.shell: >-
+        set -o pipefail;
+        {{ rancher_k8s_bws_path }} secret create
+        {{ rancher_k8s_admin_bw_key | quote }}
+        "$RANCHER_K8S_ESCROW_VALUE"
+        {{ rancher_k8s_bitwarden_project_id | quote }}
+      args:
+        executable: /bin/bash
+      environment:
+        BWS_ACCESS_TOKEN: "{{ rancher_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+        RANCHER_K8S_ESCROW_VALUE: "{{ rancher_k8s_admin_password }}"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      register: rancher_k8s_admin_create
+      changed_when: rancher_k8s_admin_create.rc == 0
+      failed_when: rancher_k8s_admin_create.rc != 0
+      no_log: true
+
+    - name: Confirm the admin credential is durably stored (exactly one record)
+      ansible.builtin.command:
+        argv: ["{{ rancher_k8s_bws_path }}", secret, list, "{{ rancher_k8s_bitwarden_project_id }}", -o, json]
+      environment:
+        BWS_ACCESS_TOKEN: "{{ rancher_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      register: rancher_k8s_admin_verify
+      changed_when: false
+      failed_when: rancher_k8s_admin_verify.rc != 0
+      no_log: true
+
+    - name: Fail closed unless exactly one stored admin record exists
+      ansible.builtin.assert:
+        that:
+          - (rancher_k8s_admin_verify.stdout | from_json
+             | selectattr('key', 'equalto', rancher_k8s_admin_bw_key) | list | length) == 1
+        fail_msg: "Admin credential is NOT confirmed stored in Bitwarden."
+      no_log: true
+
+    - name: Verify the new admin password authenticates
+      ansible.builtin.uri:
+        url: "https://{{ rancher_k8s_hostname }}.{{ rancher_k8s_tailnet_domain }}/v3-public/localProviders/local?action=login"
+        method: POST
+        body_format: json
+        body:
+          username: admin
+          password: "{{ rancher_k8s_admin_password }}"
+        status_code: 200
+        timeout: 30
+      register: rancher_k8s_admin_login_new
+      retries: 6
+      delay: 15
+      until: rancher_k8s_admin_login_new.status == 200
+      no_log: true
+
+    - name: Mark administrator escrow as verified
+      ansible.builtin.set_fact:
+        rancher_k8s_admin_escrowed: true
+        rancher_k8s_admin_state: initialized
+      no_log: true
+
+    - name: Destroy the staged admin password once escrow is verified
+      ansible.builtin.file:
+        path: "{{ rancher_k8s_pending_admin_file }}"
+        state: absent
+
+  rescue:
+    - name: Fail hard when the password changed but escrow did not complete
+      ansible.builtin.fail:
+        msg: >-
+          The Rancher admin password WAS changed but Bitwarden escrow did NOT
+          complete. The new password is staged at
+          {{ rancher_k8s_pending_admin_file }} on the target (mode 0600).
+          Re-run this playbook: it will recover the staged credential, escrow
+          it, and finish. Do not delete that file.
+      when:
+        - rancher_k8s_admin_changepw is defined
+        - rancher_k8s_admin_changepw.status | default(0) | int == 200
+        - not (rancher_k8s_admin_escrowed | default(false) | bool)
+
+    - name: Fail hard on bootstrap-credential drift (never degrade to pending)
+      ansible.builtin.fail:
+        msg: >-
+          changepassword was rejected with HTTP 401: the escrowed bootstrap
+          password does not match the server's bootstrap credential. This is
+          drift between Bitwarden and the cluster, not a transient failure.
+          Investigate (e.g. cluster rebuilt with a fresh bootstrap-secret)
+          before re-running; the playbook will not paper over it.
+      when:
+        - rancher_k8s_admin_mode | default('') == 'create'
+        - rancher_k8s_admin_changepw is defined
+        - rancher_k8s_admin_changepw.status | default(0) | int == 401
+
+    - name: Record administrator initialization as pending and continue
+      ansible.builtin.set_fact:
+        rancher_k8s_admin_state: pending
+
+    - name: Report bootstrap-only state
+      ansible.builtin.debug:
+        msg: >-
+          Administrator initialization did not complete; the deployment is
+          usable with the escrowed bootstrap password only
+          ({{ rancher_k8s_bootstrap_bw_key }}). Re-run the playbook to retry.
+
+# --- Summary ---------------------------------------------------------------
+
+- name: Read the deployed release summary (no values)
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/helm
+      - list
+      - -n
+      - "{{ rancher_k8s_namespace }}"
+      - --filter
+      - "^{{ rancher_k8s_release_name }}$"
+      - -o
+      - json
+  environment:
+    KUBECONFIG: "{{ rancher_k8s_kubeconfig }}"
+  register: rancher_k8s_release_summary
+  changed_when: false
+  failed_when: rancher_k8s_release_summary.rc != 0
+  when: not ansible_check_mode
+  tags: [rancher, k8s]
+
+- name: Summarize the deployed release
+  ansible.builtin.set_fact:
+    rancher_k8s_release_brief: >-
+      {{ (rancher_k8s_release_summary.stdout | from_json)[0] | default({})
+         | json_query('{name: name, revision: revision, status: status, chart: chart, app_version: app_version}') }}
+  when: not ansible_check_mode
+  tags: [rancher, k8s]
+
+- name: Report the deployment summary
+  ansible.builtin.debug:
+    msg:
+      - "release: {{ rancher_k8s_release_brief }}"
+      - "endpoint: https://{{ rancher_k8s_hostname }}.{{ rancher_k8s_tailnet_domain }}"
+      - "administrator state: {{ rancher_k8s_admin_state | default('pending') }}"
+  when: not ansible_check_mode
+  tags: [rancher, k8s]

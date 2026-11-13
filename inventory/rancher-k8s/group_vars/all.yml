@@ -1,0 +1,18 @@
+---
+# Durable site values for the Rancher-on-k3s deployment. These are the values
+# the live release was deployed with; a re-run without them can revert the
+# working release. See docs/rancher-k8s-runbook.md.
+rancher_k8s_kubeconfig: /etc/rancher/k3s/k3s.yaml
+rancher_k8s_context: default
+rancher_k8s_namespace: cattle-system
+rancher_k8s_release_name: rancher
+rancher_k8s_hostname: rancher
+rancher_k8s_tailnet_domain: tailf99a0.ts.net
+rancher_k8s_tls: external
+rancher_k8s_replicas: 1
+rancher_k8s_tailscale_ingress_class: tailscale
+rancher_k8s_helm_timeout: 1200
+# Bitwarden write opt-in for THIS deployment: the role's secure default is
+# false; this is the visible authorization to escrow the two Rancher
+# credentials (rancher_k3s_bootstrap_password, rancher_k3s_admin_password).
+rancher_k8s_allow_bitwarden_write: true
