@@ -3,14 +3,44 @@ n8n_k8s_kubeconfig: /etc/rancher/k3s/k3s.yaml
 n8n_k8s_context: default
 n8n_k8s_namespace: n8n
 n8n_k8s_release_name: n8n
+
+# Official n8n Helm chart, pinned by immutable digest.
+# The chart is OCI-hosted at ghcr.io/n8n-io/n8n-helm-chart/n8n. The
+# digest below is the sha256 of the chart OCI artifact for version 1.19.0
+# (resolved with `helm show chart <ref>` and `helm pull`). The chart_ref
+# is built from this digest at apply time, so Helm itself rejects a
+# mismatch between the digest and chart_version instead of the role
+# trusting a mutable tag.
 n8n_k8s_chart_ref: oci://ghcr.io/n8n-io/n8n-helm-chart/n8n
-n8n_k8s_chart_version: "1.17.0"
-n8n_k8s_chart_digest: "sha256:87632113aefe2228090da8895ee3bd512a0f658f0c31854a6c66bd8aa65bb379"
+n8n_k8s_chart_version: "1.19.0"
+n8n_k8s_chart_digest: "sha256:13b8065b5e3dc657800c300fee36e976f692bb1382930c2ff317944814762943"
+# appVersion declared by chart 1.19.0. n8n 2.47.5 is newer than the
+# chart's appVersion, so the image tag is set explicitly (the chart
+# documents image.tag as the supported way to run a different n8n
+# version than the one the chart was built against). The preflight
+# asserts the chart's appVersion still has the same major.minor line as
+# the app version we intend to run, so a future chart that jumps minors
+# cannot silently pair with an unrelated image.
+n8n_k8s_chart_app_version: "2.47.4"
+n8n_k8s_app_version: "2.47.5"
 n8n_k8s_helm_timeout: 900
+# Real helm binary on the managed host. The role resolves chart metadata
+# with it during preflight, so the path must exist and be executable
+# there; a wrong default stays invisible until the deploy.
+n8n_k8s_helm_binary_path: /usr/local/bin/helm
+
 n8n_k8s_hostname: n8n
 n8n_k8s_tailnet_domain: tailf99a0.ts.net
 n8n_k8s_image_repository: docker.n8n.io/n8nio/n8n
-n8n_k8s_image_tag: "2.44.5"
+n8n_k8s_image_tag: "2.47.5"
+# Multi-arch index digests for the images this release resolves to.
+# Recorded for the post-deploy imageID assertion: containerd reports the
+# index digest as the pod's imageID, so these are the exact values the
+# running pods must show. The runner is a separate image and has its own
+# digest; n8n requires both to come from the same n8n version.
+n8n_k8s_image_digest: "sha256:e29e9cc965a16d07d989f115f729f8a1c7aff58688d4850247fa495d4d7aae2f"
+n8n_k8s_runner_image_digest: "sha256:1f53745aaaf08758f86c4653545799b6b77fcae354e037af65b34290c93fe28e"
+
 n8n_k8s_timezone: UTC
 n8n_k8s_persistence_size: 10Gi
 n8n_k8s_storage_class: local-path
