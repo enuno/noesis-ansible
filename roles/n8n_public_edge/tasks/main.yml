@@ -179,7 +179,11 @@
     owner: root
     group: root
     mode: '0644'
-    validate: /usr/sbin/nginx -t -c /etc/nginx/nginx.conf
+  # No `validate:` here. It would need a %s placeholder for the temp file, and
+  # nginx cannot validate a bare conf.d snippet standalone anyway - a `map`
+  # block outside an http{} context is a syntax error on its own. The whole
+  # configuration is validated by the dedicated `nginx -t` task below, which
+  # runs before anything starts or reloads.
   notify: Reload nginx
 
 - name: Install the n8n public site

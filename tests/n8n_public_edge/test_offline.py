@@ -63,6 +63,18 @@ tasks_text = read(TASKS)
 tasks = yaml.safe_load(tasks_text)
 playbook = read(PLAYBOOK)
 
+def flatten(ts):
+    out = []
+    for t in ts:
+        out.append(t)
+        for key in ("block", "rescue", "always"):
+            if isinstance(t.get(key), list):
+                out.extend(flatten(t[key]))
+    return out
+
+
+all_tasks = flatten(tasks)
+
 env = Environment(loader=FileSystemLoader(os.path.join(ROLE, "templates")))
 env.filters["bool"] = _bool
 
@@ -178,6 +190,17 @@ check("the default distribution site is removed (duplicate default_server)",
       idx("Remove the distribution default site") >= 0)
 check("nginx config is validated before the service is (re)started",
       idx("Validate the full nginx configuration") < idx("Enable and start nginx"))
+# Ansible's `validate:` interpolates the temp file into the command and rejects
+# one without a %s placeholder - the task fails at runtime, after the
+# certificate has already been issued. And an nginx conf.d snippet is not
+# standalone-validatable anyway (a bare `map` outside http{} is a syntax
+# error), so the whole-config `nginx -t` task is the only correct gate.
+bad_validate = [t.get("name") for t in all_tasks
+                for mod in (t.get("ansible.builtin.template"), t.get("ansible.builtin.copy"))
+                if isinstance(mod, dict) and mod.get("validate")
+                and "%s" not in str(mod.get("validate"))]
+check("no file task uses a validate: command without a %s placeholder",
+      not bad_validate, str(bad_validate))
 check("handlers are flushed before the firewall opens",
       idx("Flush nginx reload") < i_fw_cf)
 check("the renewal timer is enabled",
@@ -186,17 +209,6 @@ check("the renewal carries a deploy hook that reloads nginx",
       "--deploy-hook" in tasks_text and "reload nginx" in tasks_text)
 check("the Cloudflare credentials file is written 0600",
       "mode: '0600'" in tasks_text)
-def flatten(ts):
-    out = []
-    for t in ts:
-        out.append(t)
-        for key in ("block", "rescue", "always"):
-            if isinstance(t.get(key), list):
-                out.extend(flatten(t[key]))
-    return out
-
-
-all_tasks = flatten(tasks)
 # Only the tasks that HANDLE the token value. The escrow-presence assert also
 # mentions it by name but must stay logged: no_log there would hide the
 # message that tells the operator which Bitwarden record to create.
