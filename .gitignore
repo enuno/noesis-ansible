@@ -61,3 +61,17 @@ node_modules/
 # OS files
 Thumbs.db
 desktop.ini
+
+# Local Ansible collections/roles cache populated by requirements.yml.
+# Runtime state, not source: 61MB / ~4800 files that `ansible-galaxy install`
+# recreates on demand. Same rationale as .kube/ above.
+.ansible/
+
+# Test and linter scratch caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Values rendered by the offline suites; the tests remove these on success,
+# so one left behind is a crashed run's leftover and never source.
+tests/**/.rendered-*.yml
