@@ -1,0 +1,8 @@
+{{- if .Values.rbac.create -}}
+{{ include "radar.binding" (dict
+  "root" .
+  "name" (include "radar.fullname" .)
+  "roleRef" (include "radar.fullname" .)
+  "serviceAccount" (dict "name" (include "radar.serviceAccountName" .) "namespace" .Release.Namespace)
+) }}
+{{- end }}

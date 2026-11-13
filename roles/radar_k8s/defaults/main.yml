@@ -1,0 +1,66 @@
+---
+# Radar (skyhook-io/radar) on k3s with private Tailscale operator ingress.
+#
+# Traffic path:
+#   tailnet client -> https://<hostname>.<tailnet_domain>
+#     -> tailscale operator proxy (TLS terminated here)
+#     -> ClusterIP Service radar:9280 (HTTP)
+#     -> radar pod
+#
+# The chart-managed Ingress stays disabled. A dedicated networking.k8s.io/v1
+# Ingress with class 'tailscale' is applied by this role (same pattern as
+# rancher_k8s / n8n_k8s). cert-manager is not required.
+
+radar_k8s_kubeconfig: /etc/rancher/k3s/k3s.yaml
+radar_k8s_context: default
+radar_k8s_namespace: radar
+radar_k8s_release_name: radar
+
+# Vendored published chart (see charts/vendor/radar/VENDORED.md).
+# chart_ref resolves against the ROLE directory.
+radar_k8s_chart_ref: "{{ role_path }}/../../charts/vendor/radar"
+radar_k8s_chart_version: "1.20.2"
+radar_k8s_app_version: "1.20.2"
+radar_k8s_chart_package_sha256: "5a76a6b7c60cc7c5cee625ea667b8f7ad0272920bdf0ce19d6fe201a9bb18087"
+radar_k8s_image_repository: ghcr.io/skyhook-io/radar
+radar_k8s_image_tag: "1.20.2"
+# Optional immutable pin. Empty = tag only. Set when verified.
+radar_k8s_image_digest: ""
+
+radar_k8s_helm_timeout: 600
+radar_k8s_hostname: radar
+radar_k8s_tailnet_domain: tailf99a0.ts.net
+radar_k8s_tailscale_ingress_class: tailscale
+radar_k8s_service_port: 9280
+radar_k8s_reserved_hostnames:
+  - tailscale-operator
+  - noesis-praxis
+  - noesis-lab
+  - rancher
+  - mcpjungle
+  - n8n
+  - unifi-mcp
+
+# Auth: tailnet is the trust boundary (no public exposure). mode none is
+# deliberate; visitors who can reach the MagcDNS name get Radar's SA grants.
+# Do not enable Funnel or a public IngressClass.
+radar_k8s_auth_mode: none
+
+# RBAC grants (chart defaults unless overridden). helm write stays off.
+radar_k8s_rbac_helm: false
+radar_k8s_rbac_secrets: false
+radar_k8s_rbac_pod_exec: false
+radar_k8s_rbac_pod_logs: true
+radar_k8s_rbac_port_forward: false
+radar_k8s_rbac_metrics: true
+radar_k8s_rbac_traffic: true
+
+radar_k8s_mcp_enabled: true
+
+radar_k8s_resources_requests_cpu: "200m"
+radar_k8s_resources_requests_memory: "256Mi"
+radar_k8s_resources_limits_cpu: "1"
+radar_k8s_resources_limits_memory: "1Gi"
+
+# Timeline stays in-memory by default (no PVC). sqlite/postgres are opt-in.
+radar_k8s_timeline_storage: memory

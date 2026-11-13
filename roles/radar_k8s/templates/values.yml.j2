@@ -1,0 +1,65 @@
+# Rendered by roles/radar_k8s. Every role-owned value is explicit so chart
+# default edits cannot silently miss the live release (helm module pitfall).
+#
+# Image digest: this chart's schema/template only supports repository:tag
+# (no image.digest key). Pin the release tag; verify the running pod image
+# ID against radar_k8s_image_digest after deploy.
+replicaCount: 1
+
+image:
+  repository: "{{ radar_k8s_image_repository }}"
+  pullPolicy: IfNotPresent
+  tag: "{{ radar_k8s_image_tag }}"
+
+service:
+  type: ClusterIP
+  port: {{ radar_k8s_service_port | int }}
+
+# Chart Ingress stays off; the role applies a dedicated Tailscale Ingress.
+ingress:
+  enabled: false
+  className: ""
+  hosts: []
+  tls: []
+
+httpRoute:
+  enabled: false
+
+auth:
+  mode: "{{ radar_k8s_auth_mode }}"
+
+# Chart auto-adds chart-managed ingress hosts only. Our dedicated Tailscale
+# Ingress is outside the chart, so list the MagicDNS FQDN explicitly or
+# unauthenticated requests are refused (Host anti-rebinding).
+allowedHosts:
+  - "{{ radar_k8s_hostname }}.{{ radar_k8s_tailnet_domain }}"
+  - "{{ radar_k8s_hostname }}"
+
+rbac:
+  create: true
+  helm: {{ radar_k8s_rbac_helm | bool | lower }}
+  secrets: {{ radar_k8s_rbac_secrets | bool | lower }}
+  podExec: {{ radar_k8s_rbac_pod_exec | bool | lower }}
+  podLogs: {{ radar_k8s_rbac_pod_logs | bool | lower }}
+  portForward: {{ radar_k8s_rbac_port_forward | bool | lower }}
+  metrics: {{ radar_k8s_rbac_metrics | bool | lower }}
+  traffic: {{ radar_k8s_rbac_traffic | bool | lower }}
+
+mcp:
+  enabled: {{ radar_k8s_mcp_enabled | bool | lower }}
+
+resources:
+  requests:
+    cpu: "{{ radar_k8s_resources_requests_cpu }}"
+    memory: "{{ radar_k8s_resources_requests_memory }}"
+  limits:
+    cpu: "{{ radar_k8s_resources_limits_cpu }}"
+    memory: "{{ radar_k8s_resources_limits_memory }}"
+
+timeline:
+  storage: "{{ radar_k8s_timeline_storage }}"
+
+# Operator-owned settings (read-only in UI). null = Radar defaults.
+audit: null
+helm:
+  ociSources: []

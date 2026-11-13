@@ -1,0 +1,35 @@
+---
+# Deploy Radar (skyhook-io/radar) with the vendored Helm chart and a private
+# Tailscale Operator Ingress.
+#
+# Traffic path:
+#   tailnet client -> https://radar.tailf99a0.ts.net
+#     -> tailscale operator proxy (TLS terminated here)
+#     -> ClusterIP Service radar:9280 -> radar pod
+#
+# Single-replica deployment for the single-node k3s target. Standalone
+# activation-gated playbook: intentionally NOT wired into master-stack.yml
+# (mirrors rancher/n8n/mcpjungle).
+#
+# Usage:
+#   ansible-playbook -i inventory/radar-k8s/hosts.ini playbooks/radar-k8s.yml --syntax-check
+#   ansible-playbook -i inventory/radar-k8s/hosts.ini playbooks/radar-k8s.yml --check
+#   ansible-playbook -i inventory/radar-k8s/hosts.ini playbooks/radar-k8s.yml
+#   # idempotency proof: run the same command a second time, expect changed=0
+
+- name: Deploy Radar to Kubernetes with private tailnet ingress
+  hosts: radar_k8s
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
+  gather_facts: false
+  tags: [radar, k8s]
+  pre_tasks:
+    - name: Require explicit Kubernetes target
+      ansible.builtin.assert:
+        that:
+          - radar_k8s_kubeconfig | length > 0
+          - radar_k8s_context | length > 0
+        fail_msg: radar_k8s_kubeconfig and radar_k8s_context must be explicit.
+  roles:
+    - role: radar_k8s
+      tags: [radar, k8s, deploy]

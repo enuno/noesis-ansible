@@ -1,0 +1,17 @@
+---
+# Durable site values for the Radar-on-k3s deployment. These are the values
+# the live release should be re-run with; a re-run without them can revert the
+# working release. See docs/radar-k8s-runbook.md.
+radar_k8s_kubeconfig: /etc/rancher/k3s/k3s.yaml
+radar_k8s_context: default
+radar_k8s_namespace: radar
+radar_k8s_release_name: radar
+radar_k8s_hostname: radar
+radar_k8s_tailnet_domain: tailf99a0.ts.net
+radar_k8s_tailscale_ingress_class: tailscale
+radar_k8s_helm_timeout: 600
+radar_k8s_chart_version: "1.20.2"
+radar_k8s_app_version: "1.20.2"
+radar_k8s_image_tag: "1.20.2"
+radar_k8s_image_digest: "sha256:68fe38aeb010a0a4b5110667a03a97b2e03f045559acdc31721a1f6c529f6cb7"
+radar_k8s_auth_mode: none
