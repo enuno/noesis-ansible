@@ -1,0 +1,18 @@
+---
+# Derived from the starter kit toggles in defaults/main.yml. Kept in vars/ so
+# the post-deploy verification iterates exactly the workloads the values
+# template actually rendered: a component switched off must not be waited for,
+# and a component switched on must not be silently skipped by the checks.
+n8n_k8s_starter_kit_expected_deployments: >-
+  {{
+    ([n8n_k8s_starter_kit_ollama_service] if n8n_k8s_starter_kit_ollama_enabled | bool else [])
+    + ([n8n_k8s_starter_kit_qdrant_service] if n8n_k8s_starter_kit_qdrant_enabled | bool else [])
+    + ([n8n_k8s_starter_kit_postgres_service] if n8n_k8s_starter_kit_postgres_enabled | bool else [])
+  }}
+
+n8n_k8s_starter_kit_expected_digests: >-
+  {{
+    ([n8n_k8s_starter_kit_ollama_image_digest] if n8n_k8s_starter_kit_ollama_enabled | bool else [])
+    + ([n8n_k8s_starter_kit_qdrant_image_digest] if n8n_k8s_starter_kit_qdrant_enabled | bool else [])
+    + ([n8n_k8s_starter_kit_postgres_image_digest] if n8n_k8s_starter_kit_postgres_enabled | bool else [])
+  }}

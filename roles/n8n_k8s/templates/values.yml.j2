@@ -41,6 +41,36 @@ config:
   extraEnv:
     - name: N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS
       value: "true"
+{% if n8n_k8s_starter_kit_enabled | bool %}
+{% if n8n_k8s_starter_kit_ollama_enabled | bool %}
+    # Upstream's .env exports OLLAMA_HOST into the n8n container so the Ollama
+    # nodes default to the in-cluster service rather than localhost.
+    - name: OLLAMA_HOST
+      value: "{{ n8n_k8s_starter_kit_ollama_service }}:11434"
+{% endif %}
+{% if n8n_k8s_starter_kit_shared_enabled | bool %}
+    # Upstream's .env setting; binary data lands on the shared claim instead of
+    # being held in the database.
+    - name: N8N_DEFAULT_BINARY_DATA_MODE
+      value: "filesystem"
+{% endif %}
+{% endif %}
 secretRefs:
   existingSecret: "{{ n8n_k8s_secret_name }}"
   env: {}
+{% if n8n_k8s_starter_kit_enabled | bool and n8n_k8s_starter_kit_shared_enabled | bool %}
+extraVolumes:
+  - name: shared
+    persistentVolumeClaim:
+      claimName: {{ n8n_k8s_starter_kit_shared_claim }}
+extraVolumeMounts:
+  - name: shared
+    mountPath: {{ n8n_k8s_starter_kit_shared_mount_path }}
+{% endif %}
+{% if n8n_k8s_starter_kit_enabled | bool %}
+# The self-hosted-ai-starter-kit workloads ride in this release as extra
+# objects, so Ollama, Qdrant and the demo-data import share the n8n release's
+# revision history and rollback.
+extraObjects:
+{% include 'starter-kit-objects.yml.j2' %}
+{% endif %}

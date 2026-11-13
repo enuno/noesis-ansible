@@ -9,3 +9,19 @@ n8n_k8s_tailscale_ingress_enabled: true
 n8n_k8s_tailscale_ingress_class: tailscale
 n8n_k8s_tailscale_connector_enabled: false
 n8n_k8s_tailscale_connector_routes: []
+
+# self-hosted-ai-starter-kit, rendered into the same Helm release as n8n.
+# Ollama runs CPU-only: this node has no GPU and no device plugin.
+n8n_k8s_starter_kit_enabled: true
+n8n_k8s_starter_kit_ollama_profile: cpu
+n8n_k8s_starter_kit_ollama_model: llama3.2
+# Host has ~15Gi total RAM shared with the rest of the k3s workloads, so the
+# Ollama limit is deliberately below what a larger model would want.
+n8n_k8s_starter_kit_ollama_memory_limit: 6Gi
+n8n_k8s_starter_kit_qdrant_enabled: true
+n8n_k8s_starter_kit_shared_enabled: true
+n8n_k8s_starter_kit_demo_data_enabled: true
+# n8n stays on its existing sqlite claim. Standing up this postgres and moving
+# n8n onto it is a separate, backed-up change; see docs/n8n-k8s-runbook.md.
+n8n_k8s_starter_kit_postgres_enabled: false
+n8n_k8s_starter_kit_postgres_adopt: false

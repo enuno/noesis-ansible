@@ -1,0 +1,470 @@
+{#-
+  self-hosted-ai-starter-kit workloads, rendered into the n8n Helm release.
+
+  Upstream (n8n-io/self-hosted-ai-starter-kit @ 662bd889) ships these as
+  docker-compose services. The Kubernetes path renders them as the official
+  n8n chart's `extraObjects`, so the whole kit is ONE Helm release: one
+  revision, one rollback, one `helm get manifest`.
+
+  The n8n namespace enforces Pod Security Standards `restricted`, so every
+  workload here mirrors the security context the chart gives n8n itself
+  (runAsNonRoot 1000:1000, fsGroup 1000, seccomp RuntimeDefault, all
+  capabilities dropped, no privilege escalation).
+
+  Service names are deliberately `ollama`, `qdrant` and `postgres` so the
+  upstream demo credentials and Compose-shaped docs resolve unchanged.
+
+  Each entry is passed through Helm `tpl`, so a literal `{{` would be parsed
+  as a template directive. Nothing below emits one.
+-#}
+{% if n8n_k8s_starter_kit_shared_enabled | bool %}
+  # ---- shared folder (upstream: ./shared -> /data/shared) ----
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: {{ n8n_k8s_starter_kit_shared_claim }}
+    spec:
+      accessModes: [ReadWriteOnce]
+      storageClassName: {{ n8n_k8s_storage_class }}
+      resources:
+        requests:
+          storage: {{ n8n_k8s_starter_kit_shared_size }}
+{% endif %}
+{% if n8n_k8s_starter_kit_ollama_enabled | bool %}
+  # ---- Ollama (upstream: ollama-{{ n8n_k8s_starter_kit_ollama_profile }}) ----
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: {{ n8n_k8s_starter_kit_ollama_claim }}
+    spec:
+      accessModes: [ReadWriteOnce]
+      storageClassName: {{ n8n_k8s_storage_class }}
+      resources:
+        requests:
+          storage: {{ n8n_k8s_starter_kit_ollama_storage_size }}
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: {{ n8n_k8s_starter_kit_ollama_service }}
+    spec:
+      type: ClusterIP
+      selector:
+        app.kubernetes.io/component: ollama
+        app.kubernetes.io/part-of: n8n-starter-kit
+      ports:
+        - name: http
+          port: 11434
+          targetPort: http
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: {{ n8n_k8s_starter_kit_ollama_service }}
+    spec:
+      replicas: 1
+      strategy:
+        type: Recreate
+      selector:
+        matchLabels:
+          app.kubernetes.io/component: ollama
+          app.kubernetes.io/part-of: n8n-starter-kit
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: ollama
+            app.kubernetes.io/part-of: n8n-starter-kit
+        spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: ollama
+              image: {{ n8n_k8s_starter_kit_ollama_image }}@{{ n8n_k8s_starter_kit_ollama_image_digest }}
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+{% if n8n_k8s_starter_kit_ollama_pull_model | bool %}
+              # Upstream runs a one-shot `ollama pull` init container against a
+              # server in another container. In-pod that cannot work, so the
+              # server starts in the background and the model is pulled once it
+              # answers. `ollama pull` is a no-op when the blob is already on
+              # the PVC, which makes a pod restart cheap. The pull is best
+              # effort: a registry outage must not crash a working server, so
+              # the pull's failure is swallowed and the server's exit status is
+              # what the container reports.
+              command: [/bin/sh, -c]
+              args:
+                - |
+                  set -u
+                  /bin/ollama serve &
+                  server=$!
+                  until /bin/ollama list >/dev/null 2>&1; do
+                    kill -0 "$server" 2>/dev/null || { echo "ollama serve exited during startup"; wait "$server"; exit 1; }
+                    sleep 1
+                  done
+                  /bin/ollama pull {{ n8n_k8s_starter_kit_ollama_model }} || echo "WARNING: pull of {{ n8n_k8s_starter_kit_ollama_model }} failed; server stays up"
+                  wait "$server"
+{% endif %}
+              env:
+                - name: OLLAMA_HOST
+                  value: "0.0.0.0:11434"
+                # The image defaults models to $HOME/.ollama, and $HOME is
+                # /root, which a runAsUser 1000 container cannot write. Point
+                # both at the mounted claim instead.
+                - name: HOME
+                  value: {{ n8n_k8s_starter_kit_ollama_data_path }}
+                - name: OLLAMA_MODELS
+                  value: {{ n8n_k8s_starter_kit_ollama_data_path }}/models
+              ports:
+                - name: http
+                  containerPort: 11434
+              readinessProbe:
+                httpGet:
+                  path: /api/tags
+                  port: http
+                initialDelaySeconds: 5
+                periodSeconds: 10
+              livenessProbe:
+                httpGet:
+                  path: /api/tags
+                  port: http
+                initialDelaySeconds: 30
+                periodSeconds: 30
+              resources:
+                requests:
+                  cpu: {{ n8n_k8s_starter_kit_ollama_cpu_request }}
+                  memory: {{ n8n_k8s_starter_kit_ollama_memory_request }}
+                limits:
+                  memory: {{ n8n_k8s_starter_kit_ollama_memory_limit }}
+{% if n8n_k8s_starter_kit_ollama_profile == 'gpu-nvidia' %}
+                  nvidia.com/gpu: 1
+{% elif n8n_k8s_starter_kit_ollama_profile == 'gpu-amd' %}
+                  amd.com/gpu: 1
+{% endif %}
+              volumeMounts:
+                - name: models
+                  mountPath: {{ n8n_k8s_starter_kit_ollama_data_path }}
+          volumes:
+            - name: models
+              persistentVolumeClaim:
+                claimName: {{ n8n_k8s_starter_kit_ollama_claim }}
+{% endif %}
+{% if n8n_k8s_starter_kit_qdrant_enabled | bool %}
+  # ---- Qdrant (upstream: qdrant) ----
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: {{ n8n_k8s_starter_kit_qdrant_claim }}
+    spec:
+      accessModes: [ReadWriteOnce]
+      storageClassName: {{ n8n_k8s_storage_class }}
+      resources:
+        requests:
+          storage: {{ n8n_k8s_starter_kit_qdrant_storage_size }}
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: {{ n8n_k8s_starter_kit_qdrant_service }}
+    spec:
+      type: ClusterIP
+      selector:
+        app.kubernetes.io/component: qdrant
+        app.kubernetes.io/part-of: n8n-starter-kit
+      ports:
+        - name: http
+          port: 6333
+          targetPort: http
+        - name: grpc
+          port: 6334
+          targetPort: grpc
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: {{ n8n_k8s_starter_kit_qdrant_service }}
+    spec:
+      replicas: 1
+      strategy:
+        type: Recreate
+      selector:
+        matchLabels:
+          app.kubernetes.io/component: qdrant
+          app.kubernetes.io/part-of: n8n-starter-kit
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: qdrant
+            app.kubernetes.io/part-of: n8n-starter-kit
+        spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: qdrant
+              image: {{ n8n_k8s_starter_kit_qdrant_image }}@{{ n8n_k8s_starter_kit_qdrant_image_digest }}
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+              env:
+                - name: QDRANT__STORAGE__STORAGE_PATH
+                  value: /qdrant/storage
+                # Snapshots default to a path next to the binary that a
+                # non-root container cannot create. Keep them on an emptyDir
+                # so a snapshot request fails loudly instead of the process
+                # failing to start.
+                - name: QDRANT__STORAGE__SNAPSHOTS_PATH
+                  value: /qdrant/snapshots
+              ports:
+                - name: http
+                  containerPort: 6333
+                - name: grpc
+                  containerPort: 6334
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: http
+                initialDelaySeconds: 5
+                periodSeconds: 10
+              livenessProbe:
+                httpGet:
+                  path: /livez
+                  port: http
+                initialDelaySeconds: 20
+                periodSeconds: 30
+              resources:
+                requests:
+                  cpu: {{ n8n_k8s_starter_kit_qdrant_cpu_request }}
+                  memory: {{ n8n_k8s_starter_kit_qdrant_memory_request }}
+                limits:
+                  memory: {{ n8n_k8s_starter_kit_qdrant_memory_limit }}
+              volumeMounts:
+                - name: storage
+                  mountPath: /qdrant/storage
+                - name: snapshots
+                  mountPath: /qdrant/snapshots
+          volumes:
+            - name: storage
+              persistentVolumeClaim:
+                claimName: {{ n8n_k8s_starter_kit_qdrant_claim }}
+            - name: snapshots
+              emptyDir: {}
+{% endif %}
+{% if n8n_k8s_starter_kit_postgres_enabled | bool %}
+  # ---- PostgreSQL (upstream: postgres) ----
+  # Opt-in only. Switching n8n's own database from sqlite to postgres is a
+  # one-way data migration, not a values change: see the runbook.
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: {{ n8n_k8s_starter_kit_postgres_claim }}
+    spec:
+      accessModes: [ReadWriteOnce]
+      storageClassName: {{ n8n_k8s_storage_class }}
+      resources:
+        requests:
+          storage: {{ n8n_k8s_starter_kit_postgres_storage_size }}
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: {{ n8n_k8s_starter_kit_postgres_service }}
+    spec:
+      type: ClusterIP
+      selector:
+        app.kubernetes.io/component: postgres
+        app.kubernetes.io/part-of: n8n-starter-kit
+      ports:
+        - name: postgres
+          port: 5432
+          targetPort: postgres
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: {{ n8n_k8s_starter_kit_postgres_service }}
+    spec:
+      replicas: 1
+      strategy:
+        type: Recreate
+      selector:
+        matchLabels:
+          app.kubernetes.io/component: postgres
+          app.kubernetes.io/part-of: n8n-starter-kit
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: postgres
+            app.kubernetes.io/part-of: n8n-starter-kit
+        spec:
+          securityContext:
+            runAsNonRoot: true
+            # 70 is the postgres user baked into postgres:*-alpine.
+            runAsUser: 70
+            runAsGroup: 70
+            fsGroup: 70
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: postgres
+              image: {{ n8n_k8s_starter_kit_postgres_image }}@{{ n8n_k8s_starter_kit_postgres_image_digest }}
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+              env:
+                - name: POSTGRES_USER
+                  value: {{ n8n_k8s_starter_kit_postgres_user }}
+                - name: POSTGRES_DB
+                  value: {{ n8n_k8s_starter_kit_postgres_database }}
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ n8n_k8s_secret_name }}
+                      key: POSTGRES_PASSWORD
+                # initdb refuses a non-empty mount root, so keep the cluster
+                # in a subdirectory of the claim.
+                - name: PGDATA
+                  value: /var/lib/postgresql/data/pgdata
+              ports:
+                - name: postgres
+                  containerPort: 5432
+              readinessProbe:
+                exec:
+                  command:
+                    - pg_isready
+                    - -U
+                    - {{ n8n_k8s_starter_kit_postgres_user }}
+                    - -d
+                    - {{ n8n_k8s_starter_kit_postgres_database }}
+                initialDelaySeconds: 10
+                periodSeconds: 5
+              resources:
+                requests:
+                  cpu: {{ n8n_k8s_starter_kit_postgres_cpu_request }}
+                  memory: {{ n8n_k8s_starter_kit_postgres_memory_request }}
+                limits:
+                  memory: {{ n8n_k8s_starter_kit_postgres_memory_limit }}
+              volumeMounts:
+                - name: data
+                  mountPath: /var/lib/postgresql/data
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: {{ n8n_k8s_starter_kit_postgres_claim }}
+{% endif %}
+{% if n8n_k8s_starter_kit_demo_data_enabled | bool %}
+  # ---- demo workflow + credential import (upstream: n8n-import) ----
+  # A Helm hook, so the import belongs to the release lifecycle rather than
+  # being a side job someone has to remember. Upstream's own guard is kept:
+  # import only when the instance has no workflows, so this never overwrites
+  # work done in the editor.
+  - apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: {{ n8n_k8s_release_name }}-starter-kit-import
+      annotations:
+        helm.sh/hook: post-install,post-upgrade
+        helm.sh/hook-weight: "5"
+        helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    spec:
+      backoffLimit: {{ n8n_k8s_starter_kit_import_backoff_limit }}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: starter-kit-import
+            app.kubernetes.io/part-of: n8n-starter-kit
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: import
+              image: {{ n8n_k8s_image_repository }}:{{ n8n_k8s_image_tag }}
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+              # N8N_ENCRYPTION_KEY has to be the live one: the credential files
+              # carry PLAINTEXT data, and n8n encrypts it on import with
+              # whatever key this container is given. A different key here
+              # would write credentials the editor cannot decrypt.
+              envFrom:
+                - secretRef:
+                    name: {{ n8n_k8s_secret_name }}
+              command: [/bin/sh, -c]
+              args:
+                - |
+                  set -eu
+                  if [ -n "$(n8n list:workflow --onlyId)" ]; then
+                    echo "instance already has workflows; skipping demo import"
+                    exit 0
+                  fi
+                  n8n import:credentials --separate --input=/demo-data/credentials
+                  n8n import:workflow --separate --input=/demo-data/workflows
+                  # `n8n import:*` RETURNS 0 ON FAILURE. Its --separate branch
+                  # checks the input with fs.lstatSync(...).isDirectory() and,
+                  # when that is false, logs "The argument to --input must be a
+                  # directory" and returns normally. So the exit status cannot
+                  # be trusted: verify the row actually landed, and fail the
+                  # hook if it did not, rather than reporting a silent success.
+                  if ! n8n list:workflow --onlyId | grep -q srOnR8PAY3u4RSwb; then
+                    echo "ERROR: import reported success but the demo workflow is absent" >&2
+                    exit 1
+                  fi
+                  echo "imported starter kit demo data"
+              volumeMounts:
+                - name: data
+                  mountPath: /home/node/.n8n
+                # Each subdirectory is its OWN mount, so the path n8n lstat()s
+                # is a real kubelet-created directory. A single parent mount
+                # with item paths would make /demo-data/workflows a SYMLINK
+                # into ..data, which lstat does not follow - that is exactly
+                # the silent no-op above.
+                - name: demo-workflows
+                  mountPath: /demo-data/workflows
+                  readOnly: true
+                - name: demo-credentials
+                  mountPath: /demo-data/credentials
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  memory: 1Gi
+          volumes:
+            # The same claim the main Deployment mounts: the import has to
+            # write the instance's own database, not a copy of it.
+            - name: data
+              persistentVolumeClaim:
+                claimName: {{ n8n_k8s_release_name }}
+            - name: demo-workflows
+              configMap:
+                name: {{ n8n_k8s_starter_kit_demo_data_configmap }}
+                items:
+                  - key: workflow-srOnR8PAY3u4RSwb.json
+                    path: srOnR8PAY3u4RSwb.json
+            - name: demo-credentials
+              configMap:
+                name: {{ n8n_k8s_starter_kit_demo_data_configmap }}
+                items:
+                  - key: credential-xHuYe0MDGOs9IpBW.json
+                    path: xHuYe0MDGOs9IpBW.json
+                  - key: credential-sFfERYppMeBnFNeA.json
+                    path: sFfERYppMeBnFNeA.json
+{% endif %}

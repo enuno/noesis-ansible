@@ -3,14 +3,44 @@ n8n_k8s_kubeconfig: /etc/rancher/k3s/k3s.yaml
 n8n_k8s_context: default
 n8n_k8s_namespace: n8n
 n8n_k8s_release_name: n8n
+
+# Official n8n Helm chart, pinned by immutable digest.
+# The chart is OCI-hosted at ghcr.io/n8n-io/n8n-helm-chart/n8n. The
+# digest below is the sha256 of the chart OCI artifact for version 1.19.0
+# (resolved with `helm show chart <ref>` and `helm pull`). The chart_ref
+# is built from this digest at apply time, so Helm itself rejects a
+# mismatch between the digest and chart_version instead of the role
+# trusting a mutable tag.
 n8n_k8s_chart_ref: oci://ghcr.io/n8n-io/n8n-helm-chart/n8n
-n8n_k8s_chart_version: "1.17.0"
-n8n_k8s_chart_digest: "sha256:87632113aefe2228090da8895ee3bd512a0f658f0c31854a6c66bd8aa65bb379"
+n8n_k8s_chart_version: "1.19.0"
+n8n_k8s_chart_digest: "sha256:13b8065b5e3dc657800c300fee36e976f692bb1382930c2ff317944814762943"
+# appVersion declared by chart 1.19.0. n8n 2.47.5 is newer than the
+# chart's appVersion, so the image tag is set explicitly (the chart
+# documents image.tag as the supported way to run a different n8n
+# version than the one the chart was built against). The preflight
+# asserts the chart's appVersion still has the same major.minor line as
+# the app version we intend to run, so a future chart that jumps minors
+# cannot silently pair with an unrelated image.
+n8n_k8s_chart_app_version: "2.47.4"
+n8n_k8s_app_version: "2.47.5"
 n8n_k8s_helm_timeout: 900
+# Real helm binary on the managed host. The role resolves chart metadata
+# with it during preflight, so the path must exist and be executable
+# there; a wrong default stays invisible until the deploy.
+n8n_k8s_helm_binary_path: /usr/local/bin/helm
+
 n8n_k8s_hostname: n8n
 n8n_k8s_tailnet_domain: tailf99a0.ts.net
 n8n_k8s_image_repository: docker.n8n.io/n8nio/n8n
-n8n_k8s_image_tag: "2.44.5"
+n8n_k8s_image_tag: "2.47.5"
+# Multi-arch index digests for the images this release resolves to.
+# Recorded for the post-deploy imageID assertion: containerd reports the
+# index digest as the pod's imageID, so these are the exact values the
+# running pods must show. The runner is a separate image and has its own
+# digest; n8n requires both to come from the same n8n version.
+n8n_k8s_image_digest: "sha256:e29e9cc965a16d07d989f115f729f8a1c7aff58688d4850247fa495d4d7aae2f"
+n8n_k8s_runner_image_digest: "sha256:1f53745aaaf08758f86c4653545799b6b77fcae354e037af65b34290c93fe28e"
+
 n8n_k8s_timezone: UTC
 n8n_k8s_persistence_size: 10Gi
 n8n_k8s_storage_class: local-path
@@ -24,3 +54,88 @@ n8n_k8s_tailscale_ingress_enabled: true
 n8n_k8s_tailscale_ingress_class: tailscale
 n8n_k8s_tailscale_connector_enabled: false
 n8n_k8s_tailscale_connector_routes: []
+
+# ---------------------------------------------------------------------------
+# self-hosted-ai-starter-kit (n8n-io/self-hosted-ai-starter-kit)
+# ---------------------------------------------------------------------------
+# Upstream ships Ollama, Qdrant, PostgreSQL and a demo-data import as a
+# docker-compose stack. This role renders the equivalent workloads as the
+# official n8n chart's `extraObjects`, so they live in the SAME Helm release
+# as n8n: one revision, one rollback, one `helm get manifest`.
+#
+# Default off, so an existing caller that does not ask for the kit keeps the
+# release it already has. The deployment inventory opts in.
+n8n_k8s_starter_kit_enabled: false
+# Upstream revision the vendored demo data under files/starter-kit was taken
+# from. Recorded so the asset provenance is auditable, and asserted by the
+# offline suite against that directory's README.
+n8n_k8s_starter_kit_upstream_commit: "662bd8892476b41d9084417a569cc84013354674"
+
+# ---- shared folder (upstream: ./shared bind mount -> /data/shared) ----
+n8n_k8s_starter_kit_shared_enabled: true
+n8n_k8s_starter_kit_shared_claim: n8n-starter-kit-shared
+n8n_k8s_starter_kit_shared_size: 5Gi
+n8n_k8s_starter_kit_shared_mount_path: /data/shared
+
+# ---- Ollama ----
+# The Service is named `ollama` so the vendored demo credential's
+# http://ollama:11434 resolves without editing the credential.
+n8n_k8s_starter_kit_ollama_enabled: true
+n8n_k8s_starter_kit_ollama_service: ollama
+n8n_k8s_starter_kit_ollama_claim: n8n-starter-kit-ollama
+# cpu | gpu-nvidia | gpu-amd, mirroring upstream's compose profiles. The
+# non-cpu values add a device-plugin resource request, which only schedules on
+# a node whose plugin advertises it; this cluster has no GPU, so cpu is the
+# only profile proven here.
+n8n_k8s_starter_kit_ollama_profile: cpu
+n8n_k8s_starter_kit_ollama_image: ollama/ollama:0.40.16
+n8n_k8s_starter_kit_ollama_image_digest: "sha256:910d0d8107b538fb0894e63163eb195de0cc7aefcbc666dc62d3b18f71124592"
+# Upstream pulls llama3.2; the demo workflow asks for `llama3.2:latest`, which
+# is the tag `ollama pull llama3.2` writes.
+n8n_k8s_starter_kit_ollama_pull_model: true
+n8n_k8s_starter_kit_ollama_model: llama3.2
+n8n_k8s_starter_kit_ollama_data_path: /models
+n8n_k8s_starter_kit_ollama_storage_size: 20Gi
+n8n_k8s_starter_kit_ollama_cpu_request: 500m
+n8n_k8s_starter_kit_ollama_memory_request: 1Gi
+n8n_k8s_starter_kit_ollama_memory_limit: 6Gi
+
+# ---- Qdrant ----
+n8n_k8s_starter_kit_qdrant_enabled: true
+n8n_k8s_starter_kit_qdrant_service: qdrant
+n8n_k8s_starter_kit_qdrant_claim: n8n-starter-kit-qdrant
+n8n_k8s_starter_kit_qdrant_image: qdrant/qdrant:v1.20.0
+n8n_k8s_starter_kit_qdrant_image_digest: "sha256:9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2"
+n8n_k8s_starter_kit_qdrant_storage_size: 10Gi
+n8n_k8s_starter_kit_qdrant_cpu_request: 100m
+n8n_k8s_starter_kit_qdrant_memory_request: 256Mi
+n8n_k8s_starter_kit_qdrant_memory_limit: 2Gi
+
+# ---- PostgreSQL ----
+# Deliberately OFF even when the kit is enabled. Upstream runs n8n on
+# postgres; this release runs on sqlite with 18 days of state on its claim.
+# Repointing n8n at a fresh postgres does not migrate that data and is not
+# reversible by flipping the flag back, so it needs its own change with its
+# own backup. Enabling this alone only stands the database up; it does not
+# move n8n onto it (see n8n_k8s_starter_kit_postgres_adopt).
+n8n_k8s_starter_kit_postgres_enabled: false
+n8n_k8s_starter_kit_postgres_adopt: false
+n8n_k8s_starter_kit_postgres_service: postgres
+n8n_k8s_starter_kit_postgres_claim: n8n-starter-kit-postgres
+n8n_k8s_starter_kit_postgres_image: postgres:16-alpine
+n8n_k8s_starter_kit_postgres_image_digest: "sha256:f377d590e5474681d4d7838635031a2b50647923b7abfa803ce9b5ff35d5c663"
+n8n_k8s_starter_kit_postgres_user: n8n
+n8n_k8s_starter_kit_postgres_database: n8n
+n8n_k8s_starter_kit_postgres_storage_size: 10Gi
+n8n_k8s_starter_kit_postgres_cpu_request: 100m
+n8n_k8s_starter_kit_postgres_memory_request: 256Mi
+n8n_k8s_starter_kit_postgres_memory_limit: 2Gi
+# Bitwarden key for the postgres password, same project and
+# SERVICE_NAME_K3S_SECRET_NAME pattern as the other n8n records. Only read
+# when postgres is enabled.
+n8n_k8s_starter_kit_postgres_bw_key: N8N_K3S_DEFAULT_POSTGRES_PASSWORD
+
+# ---- demo workflow + credentials ----
+n8n_k8s_starter_kit_demo_data_enabled: true
+n8n_k8s_starter_kit_demo_data_configmap: n8n-starter-kit-demo-data
+n8n_k8s_starter_kit_import_backoff_limit: 3

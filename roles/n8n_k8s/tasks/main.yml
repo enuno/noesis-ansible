@@ -7,7 +7,72 @@
       - n8n_k8s_bitwarden_project_id == '72974d0e-81af-4678-bab7-b46000985859'
       - n8n_k8s_hostname is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
       - n8n_k8s_tailscale_ingress_class == 'tailscale'
-    fail_msg: Target, Bitwarden project, hostname, or tailnet ingress settings are invalid.
+      - n8n_k8s_chart_version is match('^[0-9]+\\.[0-9]+\\.[0-9]+$')
+      - n8n_k8s_chart_digest is match('^sha256:[0-9a-f]{64}$')
+      - n8n_k8s_chart_app_version is match('^[0-9]+\\.[0-9]+\\.[0-9]+$')
+      - n8n_k8s_app_version is match('^[0-9]+\\.[0-9]+\\.[0-9]+$')
+      - n8n_k8s_image_tag == n8n_k8s_app_version
+      - n8n_k8s_image_digest is match('^sha256:[0-9a-f]{64}$')
+      - n8n_k8s_runner_image_digest is match('^sha256:[0-9a-f]{64}$')
+      # The chart's appVersion and the app version we run must stay on the
+      # same major.minor line. Chart 1.19.0 declares appVersion 2.47.4
+      # while this release runs 2.47.5, which the chart supports through
+      # an explicit image.tag. A chart that jumps minors would pair with
+      # an image it was never built against, so refuse that here.
+      - n8n_k8s_app_version.split('.')[0:2] == n8n_k8s_chart_app_version.split('.')[0:2]
+    fail_msg: Target, Bitwarden project, hostname, tailnet ingress settings, or version pins are invalid.
+
+- name: Validate starter kit inputs
+  ansible.builtin.assert:
+    that:
+      - n8n_k8s_starter_kit_ollama_profile in ['cpu', 'gpu-nvidia', 'gpu-amd']
+      - n8n_k8s_starter_kit_ollama_image_digest is match('^sha256:[0-9a-f]{64}$')
+      - n8n_k8s_starter_kit_qdrant_image_digest is match('^sha256:[0-9a-f]{64}$')
+      - n8n_k8s_starter_kit_postgres_image_digest is match('^sha256:[0-9a-f]{64}$')
+      - "'latest' not in n8n_k8s_starter_kit_ollama_image"
+      - "'latest' not in n8n_k8s_starter_kit_qdrant_image"
+      # The vendored demo credentials hardcode http://ollama:11434 and
+      # http://qdrant:6333, so renaming the Services silently breaks them.
+      - n8n_k8s_starter_kit_ollama_service == 'ollama'
+      - n8n_k8s_starter_kit_qdrant_service == 'qdrant'
+      # Moving n8n onto postgres is a data migration, not a flag flip. Refuse
+      # the combination that would repoint the app at an empty database.
+      - not (n8n_k8s_starter_kit_postgres_adopt | bool)
+    fail_msg: >-
+      Starter kit inputs are invalid. The Ollama profile must be one of
+      cpu/gpu-nvidia/gpu-amd, every image must be digest-pinned and not
+      'latest', the Ollama and Qdrant Service names must stay as the vendored
+      demo credentials expect, and n8n_k8s_starter_kit_postgres_adopt must stay
+      false (repointing n8n from sqlite to postgres needs its own change with a
+      restore-from-backup rollback path, not this role).
+  when: n8n_k8s_starter_kit_enabled | bool
+
+- name: Verify the vendored starter kit demo data is present
+  ansible.builtin.stat:
+    path: "{{ role_path }}/files/starter-kit/{{ item }}"
+  loop:
+    - workflows/srOnR8PAY3u4RSwb.json
+    - credentials/xHuYe0MDGOs9IpBW.json
+    - credentials/sFfERYppMeBnFNeA.json
+  register: n8n_k8s_starter_kit_assets
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  check_mode: false
+  when:
+    - n8n_k8s_starter_kit_enabled | bool
+    - n8n_k8s_starter_kit_demo_data_enabled | bool
+
+- name: Require the vendored starter kit demo data
+  ansible.builtin.assert:
+    that: n8n_k8s_starter_kit_assets.results | map(attribute='stat.exists') | select | list | length == 3
+    fail_msg: >-
+      Vendored starter kit demo data is missing from
+      {{ role_path }}/files/starter-kit. The deployment must not depend on a
+      developer's ~/tools checkout, so the assets are expected in the role.
+  when:
+    - n8n_k8s_starter_kit_enabled | bool
+    - n8n_k8s_starter_kit_demo_data_enabled | bool
 
 - name: Verify target kubeconfig exists
   ansible.builtin.stat:
@@ -19,37 +84,100 @@
     that: n8n_k8s_kubeconfig_stat.stat.exists
     fail_msg: "Kubeconfig {{ n8n_k8s_kubeconfig }} is not present on the managed host."
 
+- name: Resolve the pinned chart metadata from the registry
+  ansible.builtin.command:
+    argv:
+      - "{{ n8n_k8s_helm_binary_path }}"
+      - show
+      - chart
+      - "{{ n8n_k8s_chart_ref }}"
+      - "--version={{ n8n_k8s_chart_version }}"
+  register: n8n_k8s_chart_metadata
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Require the pinned chart to resolve at the pinned version
+  ansible.builtin.assert:
+    that:
+      - n8n_k8s_chart_metadata.rc == 0
+      - "'version: ' ~ n8n_k8s_chart_version in n8n_k8s_chart_metadata.stdout"
+      - "'appVersion: ' ~ n8n_k8s_chart_app_version in n8n_k8s_chart_metadata.stdout"
+    fail_msg: >-
+      Chart {{ n8n_k8s_chart_version }} did not resolve from
+      {{ n8n_k8s_chart_ref }} with appVersion
+      {{ n8n_k8s_chart_app_version }} (rc={{ n8n_k8s_chart_metadata.rc }}).
+      Refusing to deploy a chart that is not the pinned artifact.
+  when: not ansible_check_mode
+
+- name: Require the chart digest to match the pinned chart version
+  ansible.builtin.command:
+    argv:
+      - "{{ n8n_k8s_helm_binary_path }}"
+      - show
+      - chart
+      - "{{ n8n_k8s_chart_ref }}@{{ n8n_k8s_chart_digest }}"
+      - "--version={{ n8n_k8s_chart_version }}"
+  register: n8n_k8s_chart_digest_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Require the chart digest to resolve to the pinned version
+  ansible.builtin.assert:
+    that:
+      - n8n_k8s_chart_digest_check.rc == 0
+    fail_msg: >-
+      Chart digest {{ n8n_k8s_chart_digest }} does not resolve to
+      {{ n8n_k8s_chart_ref }} version {{ n8n_k8s_chart_version }}
+      (rc={{ n8n_k8s_chart_digest_check.rc }}). Helm rejects a digest
+      that belongs to a different chart version, which means the pinned
+      digest and the pinned version disagree.
+  when: not ansible_check_mode
+
 - name: Read encryption secret id from Bitwarden project
   ansible.builtin.shell: >-
     set -o pipefail;
     {{ n8n_k8s_bws_path }} secret list {{ n8n_k8s_bitwarden_project_id }} -o table |
-    awk '$2 == "{{ n8n_k8s_encryption_bw_key }}" {print $1; exit}'
+    awk '$2 == "{{ n8n_k8s_encryption_bw_key }}" && !found {print $1; found=1}'
   args:
     executable: /bin/bash
+  # awk must read the whole table, not exit on the first match: exiting
+  # closes the pipe while bws is still writing, and bws then dies with a
+  # broken-pipe panic (exit 101) that `set -o pipefail` turns into a task
+  # failure. The `found` flag still keeps only the first matching id.
   environment:
     BWS_ACCESS_TOKEN: "{{ n8n_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
   register: n8n_k8s_encryption_id
   changed_when: false
+  # Run under --check too: the escrow assertion below reads this
+  # output, and a probe skipped in check mode leaves it undefined.
+  check_mode: false
   no_log: true
 
 - name: Read task runner secret id from Bitwarden project
   ansible.builtin.shell: >-
     set -o pipefail;
     {{ n8n_k8s_bws_path }} secret list {{ n8n_k8s_bitwarden_project_id }} -o table |
-    awk '$2 == "{{ n8n_k8s_runner_bw_key }}" {print $1; exit}'
+    awk '$2 == "{{ n8n_k8s_runner_bw_key }}" && !found {print $1; found=1}'
   args:
     executable: /bin/bash
+  # Same reason as the encryption probe above: awk must drain the table so
+  # bws is not killed by a broken pipe.
   environment:
     BWS_ACCESS_TOKEN: "{{ n8n_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
   register: n8n_k8s_runner_id
   changed_when: false
+  # Run under --check too: the escrow assertion below reads this
+  # output, and a probe skipped in check mode leaves it undefined.
+  check_mode: false
   no_log: true
 
 - name: Require both n8n secrets to be escrowed
   ansible.builtin.assert:
     that:
-      - n8n_k8s_encryption_id.stdout | trim | length > 0
-      - n8n_k8s_runner_id.stdout | trim | length > 0
+      - n8n_k8s_encryption_id.stdout | default('') | trim | length > 0
+      - n8n_k8s_runner_id.stdout | default('') | trim | length > 0
     fail_msg: Bitwarden escrow is incomplete. Required n8n records are missing from the approved project.
 
 - name: Fetch encryption secret from Bitwarden
@@ -59,6 +187,9 @@
     BWS_ACCESS_TOKEN: "{{ n8n_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
   register: n8n_k8s_encryption_record
   changed_when: false
+  # Read under --check as well, so the escrow precondition is
+  # verified in preview mode instead of only at apply time.
+  check_mode: false
   no_log: true
 
 - name: Fetch task runner secret from Bitwarden
@@ -68,6 +199,9 @@
     BWS_ACCESS_TOKEN: "{{ n8n_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
   register: n8n_k8s_runner_record
   changed_when: false
+  # Read under --check as well, so the escrow precondition is
+  # verified in preview mode instead of only at apply time.
+  check_mode: false
   no_log: true
 
 - name: Build runtime Secret definition from escrowed values
@@ -113,6 +247,31 @@
     definition: "{{ n8n_k8s_secret_definition }}"
   no_log: true
 
+- name: Deliver starter kit demo data to Kubernetes
+  kubernetes.core.k8s:
+    kubeconfig: "{{ n8n_k8s_kubeconfig }}"
+    context: "{{ n8n_k8s_context }}"
+    state: present
+    apply: true
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: "{{ n8n_k8s_starter_kit_demo_data_configmap }}"
+        namespace: "{{ n8n_k8s_namespace }}"
+        labels:
+          app.kubernetes.io/managed-by: ansible-n8n-k8s
+          app.kubernetes.io/part-of: n8n-starter-kit
+      data:
+        # Flat keys, remapped to workflows/ and credentials/ paths by the
+        # import Job's projected volume. A ConfigMap key cannot contain '/'.
+        workflow-srOnR8PAY3u4RSwb.json: "{{ lookup('file', role_path ~ '/files/starter-kit/workflows/srOnR8PAY3u4RSwb.json') }}"
+        credential-xHuYe0MDGOs9IpBW.json: "{{ lookup('file', role_path ~ '/files/starter-kit/credentials/xHuYe0MDGOs9IpBW.json') }}"
+        credential-sFfERYppMeBnFNeA.json: "{{ lookup('file', role_path ~ '/files/starter-kit/credentials/sFfERYppMeBnFNeA.json') }}"
+  when:
+    - n8n_k8s_starter_kit_enabled | bool
+    - n8n_k8s_starter_kit_demo_data_enabled | bool
+
 - name: Render official n8n Helm values
   ansible.builtin.template:
     src: values.yml.j2
@@ -120,13 +279,20 @@
     mode: '0600'
   no_log: true
   changed_when: false
+  # Write the file even under --check: the helm module reads values_files
+  # from the target filesystem, so without this the preview cannot resolve
+  # the values and aborts before it can report what would change.
+  check_mode: false
 
 - name: Install official n8n Helm chart
   kubernetes.core.helm:
     kubeconfig: "{{ n8n_k8s_kubeconfig }}"
     context: "{{ n8n_k8s_context }}"
     name: "{{ n8n_k8s_release_name }}"
-    chart_ref: "{{ n8n_k8s_chart_ref }}"
+    # Digest-pinned ref: Helm refuses the release when the digest does
+    # not belong to chart_version, so the chart artifact stays immutable
+    # even if the upstream tag is ever re-pushed.
+    chart_ref: "{{ n8n_k8s_chart_ref }}@{{ n8n_k8s_chart_digest }}"
     chart_version: "{{ n8n_k8s_chart_version }}"
     release_namespace: "{{ n8n_k8s_namespace }}"
     create_namespace: false
@@ -159,6 +325,119 @@
   until:
     - n8n_k8s_deployment.resources | length == 1
     - n8n_k8s_deployment.resources[0].status.availableReplicas | default(0) | int >= 1
+
+- name: Read the running n8n pod image digests
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ n8n_k8s_kubeconfig }}"
+    context: "{{ n8n_k8s_context }}"
+    api_version: v1
+    kind: Pod
+    namespace: "{{ n8n_k8s_namespace }}"
+    label_selectors:
+      - "app.kubernetes.io/instance={{ n8n_k8s_release_name }}"
+  register: n8n_k8s_pods
+
+- name: Require the running pods to run the pinned image digests
+  ansible.builtin.assert:
+    that:
+      - n8n_k8s_pods.resources | length >= 1
+      - >-
+        n8n_k8s_pods.resources
+        | map(attribute='status.containerStatuses') | flatten
+        | map(attribute='imageID')
+        | select('search', n8n_k8s_image_digest)
+        | list | length == 1
+      - >-
+        n8n_k8s_pods.resources
+        | map(attribute='status.containerStatuses') | flatten
+        | map(attribute='imageID')
+        | select('search', n8n_k8s_runner_image_digest)
+        | list | length == 1
+    fail_msg: >-
+      The running n8n pods do not use the pinned image digests
+      ({{ n8n_k8s_image_digest }} for n8n,
+      {{ n8n_k8s_runner_image_digest }} for the task runner).
+      The release must run exactly the images this role pinned.
+  when: not ansible_check_mode
+
+- name: Wait for the starter kit workloads
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ n8n_k8s_kubeconfig }}"
+    context: "{{ n8n_k8s_context }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ n8n_k8s_namespace }}"
+    name: "{{ item }}"
+  loop: "{{ n8n_k8s_starter_kit_expected_deployments }}"
+  register: n8n_k8s_starter_kit_deployments
+  retries: 60
+  delay: 10
+  until:
+    - n8n_k8s_starter_kit_deployments.resources | default([]) | length == 1
+    - n8n_k8s_starter_kit_deployments.resources[0].status.availableReplicas | default(0) | int >= 1
+  when:
+    - n8n_k8s_starter_kit_enabled | bool
+    - not ansible_check_mode
+
+- name: Read the running starter kit pod image digests
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ n8n_k8s_kubeconfig }}"
+    context: "{{ n8n_k8s_context }}"
+    api_version: v1
+    kind: Pod
+    namespace: "{{ n8n_k8s_namespace }}"
+    label_selectors:
+      - app.kubernetes.io/part-of=n8n-starter-kit
+    field_selectors:
+      - status.phase=Running
+  register: n8n_k8s_starter_kit_pods
+  when:
+    - n8n_k8s_starter_kit_enabled | bool
+    - not ansible_check_mode
+
+- name: Require the starter kit pods to run the pinned image digests
+  ansible.builtin.assert:
+    that:
+      - >-
+        n8n_k8s_starter_kit_pods.resources
+        | map(attribute='status.containerStatuses') | flatten
+        | map(attribute='imageID')
+        | select('search', item)
+        | list | length >= 1
+    fail_msg: >-
+      No running starter kit pod reports image digest {{ item }}. The release
+      must run exactly the images this role pinned.
+  loop: "{{ n8n_k8s_starter_kit_expected_digests }}"
+  when:
+    - n8n_k8s_starter_kit_enabled | bool
+    - not ansible_check_mode
+
+- name: Read the imported starter kit workflow ids
+  kubernetes.core.k8s_exec:
+    kubeconfig: "{{ n8n_k8s_kubeconfig }}"
+    context: "{{ n8n_k8s_context }}"
+    namespace: "{{ n8n_k8s_namespace }}"
+    pod: "{{ n8n_k8s_pods.resources[0].metadata.name }}"
+    container: "{{ n8n_k8s_release_name }}-main"
+    command: n8n list:workflow --onlyId
+  register: n8n_k8s_starter_kit_workflow_ids
+  changed_when: false
+  when:
+    - n8n_k8s_starter_kit_enabled | bool
+    - n8n_k8s_starter_kit_demo_data_enabled | bool
+    - not ansible_check_mode
+
+- name: Require the demo workflow to be present in the instance
+  ansible.builtin.assert:
+    that: "'srOnR8PAY3u4RSwb' in n8n_k8s_starter_kit_workflow_ids.stdout"
+    fail_msg: >-
+      The starter kit demo workflow (srOnR8PAY3u4RSwb) is not in the instance.
+      The post-upgrade import hook either did not run or skipped because the
+      instance already had workflows; read the Job's logs before re-running.
+  when:
+    - n8n_k8s_starter_kit_enabled | bool
+    - n8n_k8s_starter_kit_demo_data_enabled | bool
+    - not ansible_check_mode
 
 - name: Apply Tailscale Connector only when explicitly requested
   kubernetes.core.k8s:
