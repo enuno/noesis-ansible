@@ -190,10 +190,10 @@ MCPJungle's static access tokens.
    users for the process lifetime. Mitigated by `no_log: true` and no shell
    wrappers, but **not eliminated**. The Bitwarden REST API over `uri` would carry
    the value in a request body instead. Not implemented — needs sign-off.
-4. **PostgreSQL target not provisioned.** The example points at
-   `buzz-postgres-postgresql.buzz.svc.cluster.local`, which is the **Buzz app's**
-   instance. Coupling MCPJungle to Buzz's lifecycle is probably wrong. A dedicated
-   database is the correct answer and is **not yet created**.
+4. **PostgreSQL lives in the mcpjungle namespace.** Host is
+   `mcpjungle-postgres.mcpjungle.svc.cluster.local` (StatefulSet
+   `mcpjungle-postgres`, image `postgres:16.10-bookworm`). Do not point the
+   app back at Buzz; that namespace is gone.
 5. **Storage is single-node local-path with `Delete` reclaim.** PVC deletion destroys
    data. Irrelevant in `postgres` mode; critical if switching to SQLite.
 6. **Migrations are not reversible.** See §5.

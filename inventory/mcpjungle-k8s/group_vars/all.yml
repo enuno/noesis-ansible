@@ -49,7 +49,7 @@ mcpjungle_k8s_image_digest: "sha256:59940d2e3a586ab9a063cf24fa37460bc993686fa056
 # Upstream recommends PostgreSQL for anything multi-user
 # (docs/deployment/database.mdx). SQLite requires persistence.enabled.
 mcpjungle_k8s_database_mode: "postgres"
-mcpjungle_k8s_database_postgres_host: "buzz-postgres-postgresql.buzz.svc.cluster.local"
+mcpjungle_k8s_database_postgres_host: "mcpjungle-postgres.mcpjungle.svc.cluster.local"
 mcpjungle_k8s_database_postgres_port: 5432
 mcpjungle_k8s_database_postgres_database: "mcpjungle"
 mcpjungle_k8s_database_postgres_user: "mcpjungle"
