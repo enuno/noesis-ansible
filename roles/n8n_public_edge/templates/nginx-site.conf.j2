@@ -1,0 +1,101 @@
+{#-
+  Public HTTPS edge for the k3s n8n release. Ansible-managed; edits are lost.
+
+  Upstream is the n8n Service's ClusterIP, resolved from the live cluster at
+  deploy time. The node can route to a ClusterIP directly, so nothing new is
+  exposed inside the cluster to make this work.
+-#}
+# Ansible managed - roles/n8n_public_edge. Do not edit by hand.
+
+{% if n8n_public_edge_reject_unknown_host | bool %}
+# n8n serves ANY Host header, so it cannot isolate virtual hosts itself.
+# Anything arriving on this origin that is not the expected name is dropped
+# here, without a response, so a direct-to-IP probe learns nothing and never
+# reaches the application.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
+
+    ssl_certificate     {{ n8n_public_edge_cert_dir }}/fullchain.pem;
+    ssl_certificate_key {{ n8n_public_edge_cert_dir }}/privkey.pem;
+
+    return 444;
+}
+{% endif %}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ n8n_public_edge_fqdn }};
+
+    # The ACME challenge is DNS-01, so port 80 serves no validation path and
+    # exists only to redirect. Cloudflare is expected to reach the origin on
+    # 443; this is the fallback for a request that still arrives on 80.
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name {{ n8n_public_edge_fqdn }};
+
+    ssl_certificate     {{ n8n_public_edge_cert_dir }}/fullchain.pem;
+    ssl_certificate_key {{ n8n_public_edge_cert_dir }}/privkey.pem;
+
+    # Set explicitly rather than by including certbot's options-ssl-nginx.conf:
+    # that file ships with certbot's nginx installer, which this role does not
+    # use (the DNS-01 path uses certonly), so including it would be a
+    # dependency on a file that may not exist.
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+{% if n8n_public_edge_hsts_enabled | bool %}
+    add_header Strict-Transport-Security "{{ n8n_public_edge_hsts_value }}" always;
+{% endif %}
+
+{% if n8n_public_edge_restrict_to_cloudflare | bool %}
+    # Real client IP. Cloudflare terminates TLS for the browser and puts the
+    # originating address in CF-Connecting-IP; without these, every client
+    # looks like a Cloudflare edge to nginx and to n8n. Only Cloudflare's own
+    # ranges are trusted to set it, so a direct caller cannot spoof it.
+{% for cidr in n8n_public_edge_cloudflare_ipv4 + n8n_public_edge_cloudflare_ipv6 %}
+    set_real_ip_from {{ cidr }};
+{% endfor %}
+    real_ip_header CF-Connecting-IP;
+{% endif %}
+
+    client_max_body_size {{ n8n_public_edge_client_max_body_size }};
+
+    location / {
+        proxy_pass http://{{ n8n_public_edge_upstream_ip }}:{{ n8n_public_edge_upstream_port }};
+
+        proxy_http_version 1.1;
+        # n8n's editor uses a push channel (websocket upgrade / SSE). Without
+        # the upgrade headers the UI connects and then reports itself offline,
+        # while ordinary page loads look perfectly fine.
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        $connection_upgrade;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        # n8n builds absolute URLs from the forwarded scheme. $scheme would be
+        # the origin's own scheme, not the client's.
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host  $host;
+
+        proxy_read_timeout {{ n8n_public_edge_proxy_read_timeout }};
+        proxy_send_timeout {{ n8n_public_edge_proxy_read_timeout }};
+        # Buffering would hold the push channel's events until the buffer
+        # filled, which presents as a UI that updates in bursts or not at all.
+        proxy_buffering off;
+        proxy_cache off;
+    }
+}

@@ -31,6 +31,24 @@ n8n_k8s_helm_binary_path: /usr/local/bin/helm
 
 n8n_k8s_hostname: n8n
 n8n_k8s_tailnet_domain: tailf99a0.ts.net
+
+# Canonical public hostname. n8n builds webhook URLs, OAuth redirect URLs and
+# editor links from ONE hostname, so this is the single value that decides what
+# external callers see.
+#
+# It must be a fully-qualified name. The chart otherwise derives both URLs from
+# the first ingress host, which is the SHORT tailnet name (`n8n`) that the
+# Tailscale operator requires - that rendered `https://n8n`, a name nothing off
+# this host can resolve, so every webhook URL n8n generated was unusable. The
+# role now always sets the chart's explicit `webhook.url` / `editor.url`.
+#
+# Defaults to the tailnet FQDN, which is what this deployment's Secret already
+# declared; a site with public ingress overrides it to the public name.
+n8n_k8s_canonical_hostname: "{{ n8n_k8s_hostname }}.{{ n8n_k8s_tailnet_domain }}"
+# Reverse-proxy hops in front of n8n, for correct client-IP attribution. 0
+# leaves it unset. A Cloudflare-proxied nginx origin is two hops
+# (Cloudflare edge, then nginx).
+n8n_k8s_proxy_hops: 0
 n8n_k8s_image_repository: docker.n8n.io/n8nio/n8n
 n8n_k8s_image_tag: "2.47.5"
 # Multi-arch index digests for the images this release resolves to.

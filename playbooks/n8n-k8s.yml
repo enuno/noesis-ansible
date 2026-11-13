@@ -28,3 +28,11 @@
   roles:
     - role: n8n_k8s
       tags: [n8n, k8s, deploy]
+    # Public HTTPS edge on this host (nginx + Let's Encrypt over Cloudflare
+    # DNS-01). Runs AFTER n8n_k8s because it resolves its proxy upstream from
+    # the live Service, and default-off because docs/praxis-k3s/k3s.md holds
+    # that nothing on this host may expose public HTTP(S) listeners - this is
+    # a deliberate, per-site waiver for one hostname, not a new default.
+    - role: n8n_public_edge
+      when: n8n_public_edge_enabled | bool
+      tags: [n8n, edge, public, deploy]

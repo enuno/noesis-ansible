@@ -96,11 +96,40 @@ Configured declaratively in `roles/k3s/templates/config.yaml.j2`:
 
 | Component | State | Reason |
 |-----------|-------|--------|
-| traefik | **disabled** | Ingress is deferred to the application layer; nothing on this host may expose public HTTP(S) listeners. |
+| traefik | **disabled** | Ingress is deferred to the application layer; no public HTTP(S) listener on this host except an explicitly waived one (see below). |
 | servicelb (klipper-lb) | **disabled** | No LoadBalancer need on a single node; services are ClusterIP-only by policy. |
 | coredns | enabled | Cluster DNS (smoke-tested). |
 | local-path-provisioner | enabled | Dynamic hostPath PVCs (smoke-tested). |
 | metrics-server | enabled | `kubectl top` / HPA baseline. |
+
+### Public HTTP(S) listener waivers
+
+The original rule was absolute: *nothing on this host may expose public
+HTTP(S) listeners.* That is still the default, and it is why traefik and
+servicelb are disabled. Waivers are recorded here so the matrix above never
+quietly contradicts what is actually listening.
+
+| Host:port | Owner | Scope | Approved |
+|-----------|-------|-------|----------|
+| 0.0.0.0:80,443 | `roles/n8n_public_edge` (nginx) | `n8n.hashgrid.net` only, source-restricted to Cloudflare's published ranges | Elvis, 2026-11-13 |
+
+Conditions that keep the waiver narrow:
+
+- nginx is the only listener, and it serves exactly one `server_name`. A
+  catch-all `default_server` returns 444 for anything else, which matters
+  because n8n itself answers 200 to **any** Host header and so provides no
+  virtual-host isolation of its own.
+- ufw admits 80/443 only from Cloudflare's ranges, so the origin is not
+  reachable directly by IP. Without that, Cloudflare could be bypassed by
+  anyone sending the right Host header.
+- The role is `n8n_public_edge_enabled: false` by default; only the
+  `inventory/n8n-k8s` site opts in.
+- k3s stays ClusterIP-only. The edge reaches n8n over the node's own route to
+  the Service ClusterIP, so no new cluster-level exposure was introduced and
+  servicelb stays disabled.
+
+Anything else wanting a public port needs its own row here and its own
+approval; do not read this row as the rule having been relaxed generally.
 
 ## Config Ownership
 

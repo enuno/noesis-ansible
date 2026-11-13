@@ -1,0 +1,12 @@
+# Ansible managed - roles/n8n_public_edge. Do not edit by hand.
+#
+# `proxy_set_header Connection $connection_upgrade` in the site config needs
+# this map, and the map may only live in the http{} context - which is why it
+# is a conf.d snippet rather than part of the server block.
+#
+# Without it nginx fails to start with "unknown \"connection_upgrade\"
+# variable", so the site is only ever as valid as this file being present.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}

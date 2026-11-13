@@ -265,6 +265,146 @@ workflow"); `/api/tags` listing `llama3.2:latest` once the pull finishes; and
 The role asserts the first three after every run, so a kit workload that did
 not come up fails the play instead of passing silently.
 
+## Public access: n8n.hashgrid.net
+
+Public path: **client -> Cloudflare (proxied) -> nginx on 31.97.209.57:443 ->
+n8n Service ClusterIP:5678**. The tailnet Ingress stays up and unchanged; this
+is an additional front door, not a replacement.
+
+Owned by `roles/n8n_public_edge`, run from `playbooks/n8n-k8s.yml` after
+`n8n_k8s` and gated on `n8n_public_edge_enabled` (false by role default).
+
+This is an explicit waiver of the rule in `docs/praxis-k3s/k3s.md` that nothing
+on this host may expose public HTTP(S) listeners. The waiver is recorded there
+with its conditions; keep the two documents in agreement.
+
+### Why host nginx rather than an in-cluster ingress
+
+servicelb is disabled and services are ClusterIP-only by policy, so there is no
+LoadBalancer path to 80/443. The node routes to a ClusterIP directly, so a host
+reverse proxy publishes n8n without adding any cluster-level exposure — and
+k3s keeps `--disable traefik --disable servicelb`. 80 and 443 were confirmed
+unbound before this was built.
+
+### Canonical hostname (and the bug this fixed)
+
+n8n derives webhook URLs, OAuth redirect URLs and editor links from ONE
+hostname. `n8n_k8s_canonical_hostname` is that value and must be fully
+qualified; the role asserts it.
+
+Before this change the pod ran `N8N_EDITOR_BASE_URL=https://n8n` and
+`N8N_WEBHOOK_URL=https://n8n` — the chart derives both from the first ingress
+host, which is the SHORT name the Tailscale operator requires. Every webhook
+URL n8n handed out was therefore unresolvable off this host. The Secret *did*
+carry correct full URLs, but the chart never reads those keys from the Secret,
+so they were silently dead; they have been removed to stop them looking like a
+working setting. The fix is the chart's explicit `webhook.url` / `editor.url`,
+which take precedence over the ingress-derived value.
+
+| Variable | Value here | Effect |
+|---|---|---|
+| `n8n_k8s_canonical_hostname` | `n8n.hashgrid.net` | `N8N_HOST`, `webhook.url`, `editor.url` |
+| `n8n_k8s_proxy_hops` | `2` | `N8N_PROXY_HOPS` — Cloudflare edge, then nginx |
+| `n8n_public_edge_fqdn` | `n8n.hashgrid.net` | nginx `server_name`, ACME `--cert-name` |
+
+### TLS: Let's Encrypt over the Cloudflare DNS-01 challenge
+
+DNS-01, not HTTP-01: the name is Cloudflare-proxied, so an HTTP-01 challenge
+would be answered by Cloudflare rather than this origin. DNS-01 also needs no
+inbound port, which is why the certificate is obtained *before* nginx is
+pointed at it — nginx cannot start a TLS server block whose certificate files
+do not exist, so the reverse order would take the whole web server down.
+
+The token must be a Cloudflare API token with **Zone.DNS:Edit on hashgrid.net**,
+escrowed as `N8N_K3S_DEFAULT_CLOUDFLARE_DNS_TOKEN`.
+
+The pre-existing `CLOUDFLARE_API_KEY` record is **not usable**: it carries
+Zone:Read (a zone read succeeds) but Cloudflare refuses it on DNS records with
+`(10000) Authentication error`. The role rejects that key by name in preflight
+so the failure arrives with an explanation instead of as an opaque ACME error.
+
+Renewal is `certbot.timer` with a `--deploy-hook` that reloads nginx, recorded
+in the renewal config so an unattended renewal also reloads. Without the hook
+nginx keeps serving the chain it loaded at start until something restarts it.
+
+Rehearse with `-e n8n_public_edge_acme_staging=true` if iterating: production
+has a duplicate-certificate rate limit, and a loop of failed real issuances is
+the usual way to hit it. A staging chain is not trusted by Cloudflare and
+presents as **526 Invalid SSL Certificate**; the role asserts the live cert is
+not a staging one unless staging is explicitly on.
+
+### Origin firewall
+
+ufw admits 80/443 **only from Cloudflare's published ranges**. This is not
+decoration: n8n answers 200 to any Host header, so an open origin would let
+anyone reach the application by IP with the right Host and bypass Cloudflare
+entirely. nginx's catch-all `default_server` returning 444 is the second layer
+of the same boundary.
+
+The ranges are vendored into `roles/n8n_public_edge/defaults/main.yml` (etag
+recorded) so the firewall is reproducible from the repo and every change to who
+can reach the origin is a reviewable diff. Refresh them with:
+
+```bash
+python3 files/scripts/refresh_cloudflare_ips.py          # show whether it differs
+python3 files/scripts/refresh_cloudflare_ips.py --write  # apply, then commit
+```
+
+If the set size changes, update `EXPECTED_V4_COUNT` / `EXPECTED_V6_COUNT` in
+`tests/n8n_public_edge/test_offline.py` in the same commit — those constants
+are deliberately an independent reference, so that the suite can detect a range
+silently disappearing from the vendored list.
+
+### Deploy
+
+```bash
+cd ~/projects/noesis-ansible
+ansible-playbook -i inventory/n8n-k8s/hosts.ini playbooks/n8n-k8s.yml --check
+ansible-playbook -i inventory/n8n-k8s/hosts.ini playbooks/n8n-k8s.yml
+# edge only:
+ansible-playbook -i inventory/n8n-k8s/hosts.ini playbooks/n8n-k8s.yml --tags edge
+```
+
+### Verification
+
+The role asserts the first three of these on every run, so a broken edge fails
+the play rather than serving an error page.
+
+```bash
+# the certificate, and that it is not a staging chain
+sudo openssl x509 -in /etc/letsencrypt/live/n8n.hashgrid.net/fullchain.pem \
+  -noout -subject -enddate -issuer -ext subjectAltName
+sudo certbot certificates
+
+# the ORIGIN, pinned to loopback - this tests THIS nginx, not Cloudflare's view
+curl --resolve n8n.hashgrid.net:443:127.0.0.1 https://n8n.hashgrid.net/healthz
+
+# the catch-all must DROP an unexpected name (curl exit 52/56, not a page)
+curl -sk --resolve anything.invalid:443:127.0.0.1 https://anything.invalid/ ; echo "exit=$?"
+
+# end to end, through Cloudflare
+curl -sI https://n8n.hashgrid.net/ | head -5
+
+# the firewall admits Cloudflare only
+sudo ufw status | grep -c '80,\|443'
+```
+
+Expected: certificate issued by Let's Encrypt (not `(STAGING)`/`Fake`) covering
+`n8n.hashgrid.net`; origin `/healthz` returning `{"status":"ok"}`; the
+unexpected-host probe failing to get a reply; and through Cloudflare a 200 with
+`server: cloudflare`.
+
+### Known failure modes
+
+| Symptom | Cause |
+|---|---|
+| Cloudflare 521 | nginx down, or ufw is not admitting the Cloudflare range that fronted the request |
+| Cloudflare 526 | origin certificate is staging/expired/self-signed, or SSL mode is Full (strict) against a name the cert does not cover |
+| Editor loads but shows "connection lost" | websocket upgrade not reaching n8n — check the `$connection_upgrade` map snippet is present in `/etc/nginx/conf.d/` |
+| Webhook URLs show the wrong host | `n8n_k8s_canonical_hostname`; re-check it is the FQDN and that the pod rolled |
+| `(10000) Authentication error` during issuance | the Cloudflare token lacks Zone.DNS:Edit |
+| nginx fails to start after a cert change | certificate path missing; the role's cert gate exists to catch this before the site is written |
+
 ## Verification
 
 ```bash

@@ -25,3 +25,23 @@ n8n_k8s_starter_kit_demo_data_enabled: true
 # n8n onto it is a separate, backed-up change; see docs/n8n-k8s-runbook.md.
 n8n_k8s_starter_kit_postgres_enabled: false
 n8n_k8s_starter_kit_postgres_adopt: false
+
+# ---------------------------------------------------------------------------
+# Public access: n8n.hashgrid.net -> 31.97.209.57 (Cloudflare-proxied)
+# ---------------------------------------------------------------------------
+# This waives the docs/praxis-k3s/k3s.md rule that nothing on this host may
+# expose public HTTP(S) listeners. The waiver is scoped to this one hostname
+# and is why nginx, not traefik, owns 80/443 here.
+n8n_public_edge_enabled: true
+n8n_public_edge_fqdn: n8n.hashgrid.net
+n8n_public_edge_origin_ip: 31.97.209.57
+# Only Cloudflare reaches the origin. n8n serves any Host header, so without
+# this the origin IP plus the right Host would bypass Cloudflare entirely.
+n8n_public_edge_restrict_to_cloudflare: true
+
+# The public name is canonical: n8n hands these URLs to external callers, so
+# webhooks must point at the publicly reachable name rather than the tailnet.
+# The tailnet Ingress stays up and still serves the editor.
+n8n_k8s_canonical_hostname: n8n.hashgrid.net
+# Cloudflare edge, then nginx.
+n8n_k8s_proxy_hops: 2

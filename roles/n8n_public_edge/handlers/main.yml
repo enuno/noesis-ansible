@@ -1,0 +1,7 @@
+---
+- name: Reload nginx
+  # reload, not restart: an in-place reload keeps established connections,
+  # including the editor's push channel, instead of dropping every session.
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: reloaded

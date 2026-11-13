@@ -183,6 +183,21 @@ def render_values(**overrides):
     ctx = dict(defaults)
     ctx["role_path"] = ROLE
     ctx.update(overrides)
+    # Ansible resolves variables that reference other variables lazily; plain
+    # Jinja does not. Without this pass, a default like
+    # `"{{ n8n_k8s_hostname }}.{{ n8n_k8s_tailnet_domain }}"` reaches the
+    # template verbatim and the render fails the "no unresolved markers" check
+    # for a reason that would never occur under Ansible.
+    for _ in range(5):
+        changed = False
+        for key, value in list(ctx.items()):
+            if isinstance(value, str) and "{{" in value:
+                resolved = env.from_string(value).render(**ctx)
+                if resolved != value:
+                    ctx[key] = resolved
+                    changed = True
+        if not changed:
+            break
     return env.get_template("values.yml.j2").render(**ctx)
 
 

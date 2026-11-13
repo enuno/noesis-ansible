@@ -32,6 +32,16 @@ ingress:
   tls:
     - hosts:
         - "{{ n8n_k8s_hostname }}"
+# Canonical external URLs. Set EXPLICITLY rather than left to the chart, which
+# would derive them from the first ingress host - the short tailnet name the
+# Tailscale operator requires - and render the unresolvable `https://n8n`.
+# webhook.url wins over the ingress-derived value, and editor.url holds
+# precedence in the chart's own editorBaseUrl helper.
+webhook:
+  enabled: true
+  url: "https://{{ n8n_k8s_canonical_hostname }}"
+editor:
+  url: "https://{{ n8n_k8s_canonical_hostname }}"
 persistence:
   enabled: true
   size: "{{ n8n_k8s_persistence_size }}"
@@ -41,6 +51,12 @@ config:
   extraEnv:
     - name: N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS
       value: "true"
+{% if n8n_k8s_proxy_hops | int > 0 %}
+    # Trusted reverse-proxy hops, so n8n attributes the real client IP instead
+    # of the proxy's. Behind a Cloudflare-proxied nginx origin this is 2.
+    - name: N8N_PROXY_HOPS
+      value: "{{ n8n_k8s_proxy_hops | int }}"
+{% endif %}
 {% if n8n_k8s_starter_kit_enabled | bool %}
 {% if n8n_k8s_starter_kit_ollama_enabled | bool %}
     # Upstream's .env exports OLLAMA_HOST into the n8n container so the Ollama

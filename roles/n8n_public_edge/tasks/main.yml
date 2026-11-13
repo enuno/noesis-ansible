@@ -1,0 +1,350 @@
+---
+# Public HTTPS edge for n8n. Ordering is load-bearing:
+#   validate -> resolve upstream -> packages -> ACME credential -> certificate
+#   -> nginx config -> firewall -> verify
+# nginx cannot even start a TLS server block whose certificate files do not
+# exist, so the certificate is obtained BEFORE the site is written. The
+# firewall opens only once there is something correct listening.
+
+- name: Validate public edge inputs
+  ansible.builtin.assert:
+    that:
+      - n8n_public_edge_fqdn | length > 0
+      - n8n_public_edge_fqdn is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$')
+      - "'.' in n8n_public_edge_fqdn"
+      - n8n_public_edge_acme_email is match('^[^@ ]+@[^@ ]+\\.[^@ ]+$')
+      - n8n_public_edge_upstream_port | int > 0
+      - n8n_public_edge_acme_propagation_seconds | int >= 30
+      - n8n_public_edge_cloudflare_bw_key | length > 0
+      # The pre-existing CLOUDFLARE_API_KEY record is Zone:Read only and is
+      # refused on DNS records, so naming it here would fail at challenge time
+      # with an opaque Cloudflare error instead of here with an explanation.
+      - n8n_public_edge_cloudflare_bw_key != 'CLOUDFLARE_API_KEY'
+      - n8n_public_edge_bitwarden_project_id == '72974d0e-81af-4678-bab7-b46000985859'
+    fail_msg: >-
+      Public edge inputs are invalid. The hostname and ACME email must be
+      fully qualified, DNS-01 propagation must allow at least 30s, and the
+      Cloudflare credential must be a Zone.DNS:Edit token - not the
+      Zone:Read-only CLOUDFLARE_API_KEY record, which Cloudflare refuses on
+      DNS records (API code 10000).
+
+- name: Require the Cloudflare origin allow-list to be non-empty when restricting
+  ansible.builtin.assert:
+    that:
+      - n8n_public_edge_cloudflare_ipv4 | length > 0
+      - n8n_public_edge_cloudflare_ipv6 | length > 0
+    fail_msg: >-
+      n8n_public_edge_restrict_to_cloudflare is on but the vendored Cloudflare
+      ranges are empty. That would publish an origin that trusts
+      CF-Connecting-IP from nobody and, with the firewall rules derived from
+      the same lists, open no access at all. Refresh the ranges.
+  when: n8n_public_edge_restrict_to_cloudflare | bool
+
+- name: Read the live n8n Service to resolve the proxy upstream
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ n8n_k8s_kubeconfig }}"
+    context: "{{ n8n_k8s_context }}"
+    api_version: v1
+    kind: Service
+    namespace: "{{ n8n_public_edge_upstream_namespace }}"
+    name: "{{ n8n_public_edge_upstream_service }}"
+  register: n8n_public_edge_service
+  check_mode: false
+
+- name: Resolve the upstream address
+  ansible.builtin.set_fact:
+    n8n_public_edge_upstream_ip: >-
+      {{ n8n_public_edge_upstream_ip
+         if n8n_public_edge_upstream_ip | length > 0
+         else (n8n_public_edge_service.resources[0].spec.clusterIP | default('')) }}
+
+- name: Require a usable upstream address
+  ansible.builtin.assert:
+    that:
+      - n8n_public_edge_upstream_ip | length > 0
+      - n8n_public_edge_upstream_ip != 'None'
+    fail_msg: >-
+      Could not resolve a ClusterIP for Service
+      {{ n8n_public_edge_upstream_service }} in namespace
+      {{ n8n_public_edge_upstream_namespace }}. nginx would be configured to
+      proxy to nothing, so refuse rather than publish a 502.
+
+- name: Install the edge packages
+  ansible.builtin.apt:
+    name: "{{ n8n_public_edge_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Deliver the Cloudflare DNS-01 credential
+  block:
+    - name: Read the Cloudflare DNS token id from Bitwarden
+      ansible.builtin.shell: >-
+        set -o pipefail;
+        {{ n8n_public_edge_bws_path }} secret list {{ n8n_public_edge_bitwarden_project_id }} -o table |
+        awk '$2 == "{{ n8n_public_edge_cloudflare_bw_key }}" && !found {print $1; found=1}'
+      args:
+        executable: /bin/bash
+      # awk must drain the whole table: exiting on the first match closes the
+      # pipe while bws is still writing, and bws dies with a broken-pipe panic
+      # (exit 101) that pipefail turns into a task failure naming the secret.
+      environment:
+        BWS_ACCESS_TOKEN: "{{ n8n_public_edge_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+      register: n8n_public_edge_cf_id
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Require the Cloudflare DNS token to be escrowed
+      ansible.builtin.assert:
+        that: n8n_public_edge_cf_id.stdout | default('') | trim | length > 0
+        fail_msg: >-
+          Bitwarden project {{ n8n_public_edge_bitwarden_project_id }} has no
+          record named {{ n8n_public_edge_cloudflare_bw_key }}. Create a
+          Cloudflare API token scoped to Zone.DNS:Edit on this zone only and
+          escrow it under that name; DNS-01 cannot be issued without it.
+
+    - name: Fetch the Cloudflare DNS token
+      ansible.builtin.command:
+        argv: ["{{ n8n_public_edge_bws_path }}", secret, get, "{{ n8n_public_edge_cf_id.stdout | trim }}", -o, json]
+      environment:
+        BWS_ACCESS_TOKEN: "{{ n8n_public_edge_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+      register: n8n_public_edge_cf_record
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Write the certbot Cloudflare credentials file
+      ansible.builtin.copy:
+        # certbot refuses a world- or group-readable credentials file, and it
+        # is correct to: this is a zone-editing token.
+        dest: "{{ n8n_public_edge_cloudflare_credentials_path }}"
+        owner: root
+        group: root
+        mode: '0600'
+        content: |
+          # Ansible managed - roles/n8n_public_edge.
+          dns_cloudflare_api_token = {{ (n8n_public_edge_cf_record.stdout | from_json).value }}
+      no_log: true
+
+- name: Check whether a certificate is already present
+  ansible.builtin.stat:
+    path: "{{ n8n_public_edge_cert_dir }}/fullchain.pem"
+  register: n8n_public_edge_cert_stat
+
+- name: Obtain the Let's Encrypt certificate over the Cloudflare DNS-01 challenge
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/certbot
+      - certonly
+      - --non-interactive
+      - --agree-tos
+      - --email={{ n8n_public_edge_acme_email }}
+      - --dns-cloudflare
+      - --dns-cloudflare-credentials={{ n8n_public_edge_cloudflare_credentials_path }}
+      - --dns-cloudflare-propagation-seconds={{ n8n_public_edge_acme_propagation_seconds | int }}
+      - --cert-name={{ n8n_public_edge_fqdn }}
+      - -d
+      - "{{ n8n_public_edge_fqdn }}"
+      # Recorded into the renewal config, so an unattended renewal by
+      # certbot.timer also reloads nginx instead of leaving it serving the
+      # expired chain it loaded at start.
+      - --deploy-hook=/bin/systemctl reload nginx
+      - "{{ '--staging' if n8n_public_edge_acme_staging | bool else '--no-eff-email' }}"
+  register: n8n_public_edge_certbot
+  # DNS-01 does not need port 80, so this can run before nginx is configured.
+  when: not n8n_public_edge_cert_stat.stat.exists
+  changed_when: n8n_public_edge_certbot.rc == 0
+
+- name: Re-read the certificate after issuance
+  ansible.builtin.stat:
+    path: "{{ n8n_public_edge_cert_dir }}/fullchain.pem"
+  register: n8n_public_edge_cert_final
+  check_mode: false
+
+- name: Require the certificate to exist before nginx is pointed at it
+  ansible.builtin.assert:
+    that: n8n_public_edge_cert_final.stat.exists
+    fail_msg: >-
+      {{ n8n_public_edge_cert_dir }}/fullchain.pem is still absent after
+      issuance. nginx cannot start a TLS server block without it, so writing
+      the site now would take the whole web server down rather than just fail
+      this host.
+  when: not ansible_check_mode
+
+- name: Install the websocket upgrade map
+  ansible.builtin.template:
+    src: nginx-upgrade-map.conf.j2
+    dest: /etc/nginx/conf.d/{{ n8n_public_edge_site_name }}-upgrade-map.conf
+    owner: root
+    group: root
+    mode: '0644'
+    validate: /usr/sbin/nginx -t -c /etc/nginx/nginx.conf
+  notify: Reload nginx
+
+- name: Install the n8n public site
+  ansible.builtin.template:
+    src: nginx-site.conf.j2
+    dest: /etc/nginx/sites-available/{{ n8n_public_edge_site_name }}
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload nginx
+
+- name: Enable the n8n public site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/{{ n8n_public_edge_site_name }}
+    dest: /etc/nginx/sites-enabled/{{ n8n_public_edge_site_name }}
+    state: link
+  notify: Reload nginx
+
+- name: Remove the distribution default site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  # Debian's default site is also a `default_server` on :80. Left in place
+  # alongside this role's catch-all it is a duplicate default_server and nginx
+  # refuses to load at all.
+  notify: Reload nginx
+
+- name: Validate the full nginx configuration
+  ansible.builtin.command:
+    argv: [/usr/sbin/nginx, -t]
+  register: n8n_public_edge_nginx_test
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Enable and start nginx
+  ansible.builtin.systemd_service:
+    name: nginx
+    enabled: true
+    state: started
+
+- name: Flush nginx reload before the firewall opens
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable the certbot renewal timer
+  ansible.builtin.systemd_service:
+    name: certbot.timer
+    enabled: true
+    state: started
+
+- name: Allow Cloudflare ranges to reach the origin
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.1 }}"
+    proto: tcp
+    from_ip: "{{ item.0 }}"
+    comment: "{{ n8n_public_edge_firewall_comment }}"
+  loop: "{{ (n8n_public_edge_cloudflare_ipv4 + n8n_public_edge_cloudflare_ipv6) | product(['80', '443']) | list }}"
+  when: n8n_public_edge_restrict_to_cloudflare | bool
+
+- name: Open the origin to the internet
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    comment: "{{ n8n_public_edge_firewall_comment }}"
+  loop: ['80', '443']
+  # Only when the site has deliberately chosen not to restrict to Cloudflare.
+  # n8n does not validate Host, so this path lets any direct caller reach the
+  # application by IP.
+  when: not n8n_public_edge_restrict_to_cloudflare | bool
+
+- name: Verify the certificate the edge is serving
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/openssl
+      - x509
+      - -in
+      - "{{ n8n_public_edge_cert_dir }}/fullchain.pem"
+      - -noout
+      - -subject
+      - -enddate
+      - -issuer
+      - -ext
+      - subjectAltName
+  register: n8n_public_edge_cert_info
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Require the certificate to cover this hostname
+  ansible.builtin.assert:
+    that:
+      - n8n_public_edge_fqdn in n8n_public_edge_cert_info.stdout
+      - n8n_public_edge_acme_staging | bool or 'Fake' not in n8n_public_edge_cert_info.stdout
+    fail_msg: >-
+      The certificate at {{ n8n_public_edge_cert_dir }} does not cover
+      {{ n8n_public_edge_fqdn }}, or it is a Let's Encrypt STAGING certificate
+      while staging is off. A staging chain is not trusted by Cloudflare and
+      presents as a 526 Invalid SSL Certificate to every visitor.
+  when: not ansible_check_mode
+
+- name: Verify the edge serves n8n over TLS for this hostname
+  # Resolution is pinned to the loopback so this exercises THIS nginx and THIS
+  # certificate. Requesting the public name normally would resolve to
+  # Cloudflare and test Cloudflare's view of some origin - which is a
+  # different claim, and one that passes even when this host is misconfigured.
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/curl
+      - --silent
+      - --show-error
+      - --fail
+      - --max-time
+      - "20"
+      - --resolve
+      - "{{ n8n_public_edge_fqdn }}:443:127.0.0.1"
+      - "https://{{ n8n_public_edge_fqdn }}/healthz"
+  register: n8n_public_edge_health
+  changed_when: false
+  retries: 6
+  delay: 5
+  until: n8n_public_edge_health.rc == 0
+  when: not ansible_check_mode
+
+- name: Require n8n to answer healthy through the edge
+  ansible.builtin.assert:
+    that: (n8n_public_edge_health.stdout | from_json).status == 'ok'
+    fail_msg: >-
+      nginx is listening with a valid certificate, but n8n did not report
+      healthy through the proxy path. Check the resolved upstream
+      ({{ n8n_public_edge_upstream_ip }}:{{ n8n_public_edge_upstream_port }}).
+  when: not ansible_check_mode
+
+- name: Verify the catch-all rejects an unexpected hostname
+  # n8n answers 200 to ANY Host header, so this rejection is nginx's alone.
+  # Proving it here means a direct-to-IP probe cannot reach the application
+  # even though the application would happily serve it.
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/curl
+      - --silent
+      - --output
+      - /dev/null
+      - --max-time
+      - "15"
+      - --insecure
+      - --resolve
+      - "praxis-unexpected-host.invalid:443:127.0.0.1"
+      - "https://praxis-unexpected-host.invalid/"
+  register: n8n_public_edge_catchall
+  changed_when: false
+  failed_when: false
+  when:
+    - not ansible_check_mode
+    - n8n_public_edge_reject_unknown_host | bool
+
+- name: Require the catch-all to drop the connection
+  ansible.builtin.assert:
+    # curl exit 52 (empty reply) or 56 (recv failure) is nginx's `return 444`
+    # closing without a response. A 0 here would mean the unexpected host was
+    # actually served.
+    that: n8n_public_edge_catchall.rc != 0
+    fail_msg: >-
+      An unexpected Host header was served rather than dropped. The catch-all
+      server is not taking effect, so this origin answers for any name that
+      resolves to it.
+  when:
+    - not ansible_check_mode
+    - n8n_public_edge_reject_unknown_host | bool

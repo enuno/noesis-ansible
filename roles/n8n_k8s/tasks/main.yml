@@ -6,6 +6,13 @@
       - n8n_k8s_context | length > 0
       - n8n_k8s_bitwarden_project_id == '72974d0e-81af-4678-bab7-b46000985859'
       - n8n_k8s_hostname is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      # The canonical hostname must be fully qualified. A short name here is
+      # the defect this guard exists for: the chart would render
+      # `https://n8n` into N8N_WEBHOOK_URL and every webhook URL n8n hands
+      # out would be unresolvable off this host.
+      - n8n_k8s_canonical_hostname is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$')
+      - "'.' in n8n_k8s_canonical_hostname"
+      - n8n_k8s_proxy_hops | int >= 0
       - n8n_k8s_tailscale_ingress_class == 'tailscale'
       - n8n_k8s_chart_version is match('^[0-9]+\\.[0-9]+\\.[0-9]+$')
       - n8n_k8s_chart_digest is match('^sha256:[0-9a-f]{64}$')
@@ -218,11 +225,15 @@
       stringData:
         N8N_ENCRYPTION_KEY: "{{ (n8n_k8s_encryption_record.stdout | from_json).value }}"
         N8N_RUNNERS_AUTH_TOKEN: "{{ (n8n_k8s_runner_record.stdout | from_json).value }}"
-        N8N_HOST: "{{ n8n_k8s_hostname }}.{{ n8n_k8s_tailnet_domain }}"
+        # The chart reads exactly these three host keys from the existing
+        # Secret. N8N_EDITOR_BASE_URL / N8N_WEBHOOK_URL were previously set
+        # here too and were silently DEAD: the chart renders those two from
+        # its own values, never from the Secret, so the pod ran
+        # `https://n8n`. They are now set through the chart's webhook.url and
+        # editor.url instead - do not re-add them here.
+        N8N_HOST: "{{ n8n_k8s_canonical_hostname }}"
         N8N_PORT: "5678"
         N8N_PROTOCOL: https
-        N8N_EDITOR_BASE_URL: "https://{{ n8n_k8s_hostname }}.{{ n8n_k8s_tailnet_domain }}"
-        N8N_WEBHOOK_URL: "https://{{ n8n_k8s_hostname }}.{{ n8n_k8s_tailnet_domain }}/"
   no_log: true
 
 - name: Create n8n namespace
