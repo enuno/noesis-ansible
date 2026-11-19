@@ -25,6 +25,7 @@
       kind: Namespace
       metadata:
         name: "{{ gbrain_k8s_namespace }}"
+  when: gbrain_k8s_deploy_method == 'k8s'
   tags: [gbrain, k8s, secrets]
 
 - name: Look up escrowed GBrain database URLs on the controller
@@ -83,6 +84,7 @@
          | combine({gbrain_k8s_direct_url_key: (gbrain_k8s_direct_database_url | b64encode)}) }}
   no_log: true
   when:
+    - gbrain_k8s_deploy_method == 'k8s'
     - not ansible_check_mode
     - (gbrain_k8s_database_url | default('') | length > 0)
     - (gbrain_k8s_direct_database_url | default('') | length > 0)
@@ -103,7 +105,18 @@
       data: "{{ gbrain_k8s_secret_data }}"
   no_log: true
   when:
+    - gbrain_k8s_deploy_method == 'k8s'
     - not ansible_check_mode
     - (gbrain_k8s_database_url | default('') | length > 0)
     - (gbrain_k8s_direct_database_url | default('') | length > 0)
   tags: [gbrain, k8s, secrets]
+
+- name: Create the GBrain Docker data directory
+  ansible.builtin.file:
+    path: "{{ gbrain_k8s_docker_data_dir }}"
+    state: directory
+    mode: "0700"
+    owner: "1000"
+    group: "1000"
+  when: gbrain_k8s_deploy_method == 'docker'
+  tags: [gbrain, docker, secrets]

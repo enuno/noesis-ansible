@@ -1,20 +1,21 @@
-# GBrain on k3s (Helm + Tailscale MCP + Supabase)
+# GBrain (Helm on k3s by default, Docker loopback opt-in, Supabase engine)
 
 Prepared playbook. Not deployed until you approve a live run.
 
 ## What this is
 
 GBrain (`garrytan/gbrain`, checkout `~/tools/gbrain`, VERSION `0.60.747.0`) as
-an HTTP MCP server on the praxis k3s cluster.
+an HTTP MCP server. Engine is **Supabase Postgres**, not PGLite.
 
 - Chart: in-repo `charts/gbrain` (upstream has no official chart or production image)
 - Image: built from `~/tools/gbrain` with `charts/gbrain/docker/Dockerfile`
-- Engine: **Supabase Postgres**, not PGLite and not an in-cluster database
-- MCP: `gbrain serve --http --port 3131 --bind 0.0.0.0 --public-url https://gbrain.<tailnet>.ts.net`
-- Exposure: Tailscale operator Ingress (`ingressClassName: tailscale`), same shape as MCPJungle
+- Default method: `gbrain_k8s_deploy_method: k8s` (Helm on the praxis k3s cluster)
+- Additive method: `-e gbrain_k8s_deploy_method=docker` (loopback `127.0.0.1:3131`)
+- Kubernetes exposure: Tailscale operator Ingress, same shape as MCPJungle
+- Docker is loopback-only. Tailscale Ingress is Kubernetes-only.
 
-`gbrain mcp expose` is the host Tailscale Serve path. This cluster publishes
-Services with operator Ingress instead.
+A docker image on the node is **not** in k3s containerd. The k8s path imports
+with `docker save | k3s ctr images import -` before Helm `--wait`.
 
 ## Commands (offline first)
 
@@ -24,10 +25,14 @@ ansible-playbook -i inventory/gbrain-k8s/hosts.ini playbooks/gbrain-k8s.yml --ch
 python3 tests/gbrain_k8s/test_offline.py
 ```
 
-Live apply (separate approval):
+Live apply (separate approval). Pass URLs via a 0600 extra-vars file, never argv:
 
 ```bash
-ansible-playbook -i inventory/gbrain-k8s/hosts.ini playbooks/gbrain-k8s.yml
+ansible-playbook -i inventory/gbrain-k8s/hosts.ini playbooks/gbrain-k8s.yml \
+  -e @/path/to/gbrain-extra-vars.yml
+ansible-playbook -i inventory/gbrain-k8s/hosts.ini playbooks/gbrain-k8s.yml \
+  -e gbrain_k8s_deploy_method=docker \
+  -e @/path/to/gbrain-extra-vars.yml
 ansible-playbook -i inventory/gbrain-k8s/hosts.ini playbooks/gbrain-k8s.yml \
   -e gbrain_k8s_expose_enabled=true
 ```

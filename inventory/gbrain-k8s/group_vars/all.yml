@@ -9,6 +9,8 @@ noesis_ssh_private_key_file: "~/.ssh/hashgrid_signing_key"
 ansible_ssh_private_key_file: "{{ noesis_ssh_private_key_file }}"
 noesispraxis_ansible_user: "ansible"
 
+gbrain_k8s_deploy_method: k8s
+
 gbrain_k8s_namespace: "gbrain"
 gbrain_k8s_release_name: "gbrain"
 gbrain_k8s_chart_version: "0.1.0"

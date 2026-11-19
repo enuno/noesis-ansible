@@ -47,10 +47,24 @@
       path: "{{ gbrain_k8s_checkout_path }}"
       dockerfile: "{{ gbrain_k8s_dockerfile }}"
   when: not ansible_check_mode
-  tags: [gbrain, k8s, image]
+  tags: [gbrain, image]
+
+- name: Import the image into k3s containerd
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker save "{{ gbrain_k8s_image_repository }}:{{ gbrain_k8s_image_tag }}" \
+      | "{{ gbrain_k8s_ctr }}" ctr images import -
+  args:
+    executable: /bin/bash
+  register: gbrain_k8s_ctr_import
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - gbrain_k8s_deploy_method == 'k8s'
+  tags: [gbrain, k8s, image]  # noqa: no-changed-when — import is the k3s image gate
 
 - name: Report that check mode does not build images
   ansible.builtin.debug:
     msg: check mode skips docker build and k3s import.
   when: ansible_check_mode
-  tags: [gbrain, k8s, image]
+  tags: [gbrain, image]

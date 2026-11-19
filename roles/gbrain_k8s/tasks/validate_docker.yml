@@ -1,0 +1,15 @@
+---
+- name: Validate GBrain Docker configuration before any change
+  ansible.builtin.assert:
+    that:
+      - gbrain_k8s_image_tag != 'latest'
+      - gbrain_k8s_serve_bind == '0.0.0.0'
+      - gbrain_k8s_bw_project_id == gbrain_k8s_required_bw_project_id
+      - gbrain_k8s_docker_published_port is match('^127\\.0\\.0\\.1:')
+      - not (gbrain_k8s_expose_enabled | bool)
+    fail_msg: >-
+      GBrain Docker preflight failed. Image tag must not be latest. Serve
+      bind must be 0.0.0.0. Docker is loopback-only
+      (gbrain_k8s_docker_published_port must start 127.0.0.1:). Tailscale
+      Ingress is Kubernetes-only; leave gbrain_k8s_expose_enabled false.
+  tags: [gbrain, docker, validate]

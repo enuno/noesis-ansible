@@ -1,17 +1,38 @@
 ---
+- name: Validate the requested GBrain deploy method
+  ansible.builtin.assert:
+    that:
+      - gbrain_k8s_deploy_method in ['docker', 'k8s']
+    fail_msg: >-
+      gbrain_k8s_deploy_method must be 'docker' or 'k8s' (got
+      '{{ gbrain_k8s_deploy_method | default("<unset>") }}').
+  tags: [gbrain, install]
+
 - name: Include GBrain Kubernetes preflight
   ansible.builtin.include_tasks: validate.yml
+  when: gbrain_k8s_deploy_method == 'k8s'
   tags: [gbrain, k8s, validate]
+
+- name: Include GBrain Docker preflight
+  ansible.builtin.include_tasks: validate_docker.yml
+  when: gbrain_k8s_deploy_method == 'docker'
+  tags: [gbrain, docker, validate]
 
 - name: Include GBrain image build from checkout
   ansible.builtin.include_tasks: build_image.yml
   when: gbrain_k8s_build_image | bool
-  tags: [gbrain, k8s, image]
+  tags: [gbrain, image]
 
 - name: Include GBrain secret delivery
   ansible.builtin.include_tasks: escrow.yml
-  tags: [gbrain, k8s, secrets]
+  tags: [gbrain, secrets]
 
 - name: Include GBrain Helm install
   ansible.builtin.include_tasks: install.yml
+  when: gbrain_k8s_deploy_method == 'k8s'
   tags: [gbrain, k8s, install]
+
+- name: Include GBrain Docker install
+  ansible.builtin.include_tasks: install_docker.yml
+  when: gbrain_k8s_deploy_method == 'docker'
+  tags: [gbrain, docker, install]
