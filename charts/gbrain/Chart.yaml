@@ -1,0 +1,20 @@
+---
+apiVersion: v2
+name: gbrain
+description: GBrain HTTP MCP server (first-party chart; no official upstream chart)
+type: application
+version: 0.1.0
+appVersion: "0.60.747.0"
+kubeVersion: ">=1.27.0-0"
+keywords:
+  - mcp
+  - gbrain
+  - memory
+home: https://github.com/garrytan/gbrain
+sources:
+  - https://github.com/garrytan/gbrain
+maintainers:
+  - name: enuno
+annotations:
+  noesislab.noosphere.org/image-provenance: local-build-from-checkout
+  noesislab.noosphere.org/upstream-chart: none

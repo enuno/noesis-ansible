@@ -1,0 +1,17 @@
+---
+- name: Include GBrain Kubernetes preflight
+  ansible.builtin.include_tasks: validate.yml
+  tags: [gbrain, k8s, validate]
+
+- name: Include GBrain image build from checkout
+  ansible.builtin.include_tasks: build_image.yml
+  when: gbrain_k8s_build_image | bool
+  tags: [gbrain, k8s, image]
+
+- name: Include GBrain secret delivery
+  ansible.builtin.include_tasks: secrets.yml
+  tags: [gbrain, k8s, secrets]
+
+- name: Include GBrain Helm install
+  ansible.builtin.include_tasks: install.yml
+  tags: [gbrain, k8s, install]

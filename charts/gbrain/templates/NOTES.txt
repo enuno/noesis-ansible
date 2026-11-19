@@ -1,0 +1,12 @@
+GBrain HTTP MCP ({{ .Chart.AppVersion }})
+
+Service: {{ include "gbrain.fullname" . }}:{{ .Values.service.port }}
+MCP path: /mcp
+Health: /health (liveness-only per upstream; a 200 does not prove the Supabase engine)
+
+{{- if .Values.ingress.enabled }}
+Ingress hostspec: {{ .Values.ingress.host }}
+Clients must use the operator-assigned https:// hostname, never an IP:port.
+{{- else }}
+Ingress is disabled. Enable only with an explicit expose gate.
+{{- end }}

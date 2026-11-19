@@ -1,0 +1,94 @@
+---
+# GBrain first-party chart values.
+# Upstream has no official Helm chart and no published production image.
+# The image is built from a local garrytan/gbrain checkout (see role).
+# Persistence is external Supabase Postgres (GBRAIN_DATABASE_URL), not PGLite.
+
+replicaCount: 1
+
+image:
+  repository: gbrain
+  tag: "0.60.747.0"
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext:
+  runAsNonRoot: true
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsUser: 1000
+  runAsGroup: 1000
+
+service:
+  type: ClusterIP
+  port: 3131
+  targetPort: 3131
+
+# HTTP MCP: gbrain serve --http (default port 3131).
+# Default bind is 127.0.0.1; k8s MUST pass 0.0.0.0 or the Service has no listener.
+serve:
+  http: true
+  bind: "0.0.0.0"
+  publicUrl: ""
+  surface: starter
+  advertise: verbs
+
+# External Supabase. The chart never provisions a database.
+database:
+  existingSecret: gbrain
+  urlKey: database-url
+  directUrlKey: direct-database-url
+  bootstrapTokenKey: admin-bootstrap-token
+
+ingress:
+  enabled: false
+  className: tailscale
+  annotations: {}
+  tailnet: ""
+  host: ""
+  tls: true
+  paths:
+    - path: /
+      pathType: Prefix
+
+resources:
+  limits:
+    cpu: "1"
+    memory: 2Gi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+# /health is unauthenticated liveness. Upstream documents it as liveness-only.
+probes:
+  livenessPath: /health
+  readinessPath: /health
+  livenessInitialDelaySeconds: 20
+  readinessInitialDelaySeconds: 10
+
+homeDir: /var/lib/gbrain
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+autoscaling:
+  enabled: false

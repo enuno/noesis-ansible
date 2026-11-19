@@ -1,0 +1,61 @@
+---
+- name: Refuse to expose before credential escrow is verified
+  ansible.builtin.assert:
+    that:
+      - gbrain_k8s_bw_stored | default(false) | bool
+    fail_msg: >-
+      Refusing to expose GBrain on the tailnet: required Supabase URLs are
+      not confirmed stored. Exposure stays disabled until escrow succeeds.
+  tags: [gbrain, k8s, expose]
+
+- name: Require an explicit exposure decision and a service-name hostname
+  ansible.builtin.assert:
+    that:
+      - gbrain_k8s_expose_enabled | bool
+      - gbrain_k8s_connector_hostname | length > 0
+      - gbrain_k8s_connector_hostname is match('^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')
+    fail_msg: >-
+      Tailnet exposure requires gbrain_k8s_expose_enabled=true and
+      gbrain_k8s_connector_hostname set to a valid DNS label naming the
+      SERVICE, not the server.
+  tags: [gbrain, k8s, expose]
+
+- name: Refuse a hostname that collides with the operator device or the server
+  ansible.builtin.assert:
+    that:
+      - gbrain_k8s_connector_hostname not in gbrain_k8s_reserved_hostnames
+    fail_msg: >-
+      The tailnet hostname must name the service. Got
+      {{ gbrain_k8s_connector_hostname }}. Reserved:
+      {{ gbrain_k8s_reserved_hostnames | join(', ') }}.
+  tags: [gbrain, k8s, expose]
+
+- name: Enable the Tailscale ingress in the rendered values
+  ansible.builtin.set_fact:
+    gbrain_k8s_rendered_values: >-
+      {{ (gbrain_k8s_rendered_values | default({})) | combine({
+           'ingress': ((gbrain_k8s_rendered_values | default({})).get('ingress', {})
+                       | combine({
+                           'enabled': true,
+                           'host': gbrain_k8s_connector_hostname,
+                           'className': 'tailscale',
+                           'tls': true,
+                         }))
+         }, recursive=true) }}
+  tags: [gbrain, k8s, expose]
+
+- name: Reconcile the Helm release with the operator-managed ingress
+  kubernetes.core.helm:
+    kubeconfig: "{{ gbrain_k8s_kubeconfig }}"
+    context: "{{ gbrain_k8s_context }}"
+    name: "{{ gbrain_k8s_release_name }}"
+    chart_ref: "{{ role_path }}/../../charts/gbrain"
+    release_namespace: "{{ gbrain_k8s_namespace }}"
+    wait: true
+    timeout: "{{ gbrain_k8s_timeout }}s"
+    atomic: true
+    cleanup_on_fail: true
+    state: present
+    values: "{{ gbrain_k8s_rendered_values }}"
+  register: gbrain_k8s_release_exposed
+  tags: [gbrain, k8s, expose]
