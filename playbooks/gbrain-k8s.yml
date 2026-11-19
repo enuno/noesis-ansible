@@ -1,0 +1,42 @@
+---
+# gbrain-k8s.yml — GBrain HTTP MCP on k3s via the in-repo first-party Helm
+# chart, engine on operator-escrowed Supabase Postgres, exposed privately
+# through the EXISTING Tailscale Kubernetes Operator.
+#
+# Usage (offline validation first, then an approved deploy):
+#   ansible-playbook -i inventory/gbrain-k8s/hosts.ini playbooks/gbrain-k8s.yml --syntax-check
+#   ansible-playbook -i inventory/gbrain-k8s/hosts.ini playbooks/gbrain-k8s.yml --check
+#   ansible-playbook -i inventory/gbrain-k8s/hosts.ini playbooks/gbrain-k8s.yml
+#
+# This playbook mutates nothing until secrets lookup succeeds, and it never
+# publishes tailnet policy. Exposure requires -e gbrain_k8s_expose_enabled=true.
+# It does not create a Supabase project.
+
+- name: Deploy GBrain to Kubernetes (Helm) with optional tailnet-private MCP
+  hosts: gbrain_k8s
+  become: true
+  remote_user: "{{ noesispraxis_ansible_user | default('ansible') }}"
+  gather_facts: true
+  tags: [gbrain, k8s]
+
+  pre_tasks:
+    - name: Refuse to run without an explicit target context
+      ansible.builtin.assert:
+        that:
+          - gbrain_k8s_kubeconfig | length > 0
+          - gbrain_k8s_context | length > 0
+        fail_msg: >-
+          gbrain_k8s_kubeconfig and gbrain_k8s_context must both be set
+          explicitly. Ansible must never silently select the current kubectl
+          context.
+
+  roles:
+    - role: gbrain_k8s
+
+  tasks:
+    - name: Expose privately through the Tailscale operator (approval-gated)
+      ansible.builtin.include_role:
+        name: gbrain_k8s
+        tasks_from: expose.yml
+      when: gbrain_k8s_expose_enabled | bool
+      tags: [gbrain, k8s, expose]

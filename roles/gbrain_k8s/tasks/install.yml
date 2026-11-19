@@ -1,0 +1,22 @@
+---
+- name: Render GBrain Helm values from role variables
+  ansible.builtin.set_fact:
+    gbrain_k8s_rendered_values: "{{ lookup('template', 'values.yml.j2') | from_yaml }}"
+  tags: [gbrain, k8s, install]
+
+- name: Install or upgrade the GBrain Helm release
+  kubernetes.core.helm:
+    kubeconfig: "{{ gbrain_k8s_kubeconfig }}"
+    context: "{{ gbrain_k8s_context }}"
+    name: "{{ gbrain_k8s_release_name }}"
+    chart_ref: "{{ role_path }}/../../charts/gbrain"
+    release_namespace: "{{ gbrain_k8s_namespace }}"
+    create_namespace: true
+    wait: true
+    timeout: "{{ gbrain_k8s_timeout }}s"
+    atomic: true
+    cleanup_on_fail: true
+    state: present
+    values: "{{ gbrain_k8s_rendered_values }}"
+  register: gbrain_k8s_release
+  tags: [gbrain, k8s, install]

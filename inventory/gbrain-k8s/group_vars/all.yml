@@ -1,0 +1,32 @@
+---
+# GBrain on k3s. Safe to commit: no credentials.
+# Secrets come from Bitwarden at run time (GBRAIN_K3S_*).
+
+gbrain_k8s_kubeconfig: "/etc/rancher/k3s/k3s.yaml"
+gbrain_k8s_context: "default"
+
+noesis_ssh_private_key_file: "~/.ssh/hashgrid_signing_key"
+ansible_ssh_private_key_file: "{{ noesis_ssh_private_key_file }}"
+noesispraxis_ansible_user: "ansible"
+
+gbrain_k8s_namespace: "gbrain"
+gbrain_k8s_release_name: "gbrain"
+gbrain_k8s_chart_version: "0.1.0"
+gbrain_k8s_checkout_path: "/home/elvis/tools/gbrain"
+gbrain_k8s_build_image: true
+gbrain_k8s_image_repository: "gbrain"
+gbrain_k8s_image_tag: "0.60.747.0"
+
+gbrain_k8s_required_bw_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+gbrain_k8s_bw_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+gbrain_k8s_bws_path: "/usr/local/bin/bws"
+gbrain_k8s_bws_access_token: ""
+gbrain_k8s_allow_bitwarden_write: false
+gbrain_k8s_db_bw_key: GBRAIN_K3S_DATABASE_URL
+gbrain_k8s_direct_bw_key: GBRAIN_K3S_DIRECT_DATABASE_URL
+gbrain_k8s_bootstrap_bw_key: GBRAIN_K3S_ADMIN_BOOTSTRAP_TOKEN
+
+gbrain_k8s_expose_enabled: false
+gbrain_k8s_hostname: "gbrain"
+gbrain_k8s_ingress_class: "tailscale"
+gbrain_k8s_tailnet_domain: tailf99a0.ts.net

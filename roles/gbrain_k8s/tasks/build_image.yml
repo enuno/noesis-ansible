@@ -1,0 +1,56 @@
+---
+- name: Assert the GBrain checkout path is non-empty before using it
+  ansible.builtin.assert:
+    that:
+      - gbrain_k8s_checkout_path | length > 0
+    fail_msg: >-
+      gbrain_k8s_checkout_path is empty. An empty src would rsync the wrong
+      tree into the image build.
+  tags: [gbrain, k8s, image]
+
+- name: Stat the GBrain checkout
+  ansible.builtin.stat:
+    path: "{{ gbrain_k8s_checkout_path }}"
+  register: gbrain_k8s_checkout_stat
+  tags: [gbrain, k8s, image]
+
+- name: Require a real GBrain checkout directory
+  ansible.builtin.assert:
+    that:
+      - gbrain_k8s_checkout_stat.stat.exists | default(false)
+      - gbrain_k8s_checkout_stat.stat.isdir | default(false)
+    fail_msg: >-
+      GBrain checkout {{ gbrain_k8s_checkout_path }} is missing. Clone
+      github.com/garrytan/gbrain there (this fleet uses ~/tools/gbrain).
+  tags: [gbrain, k8s, image]
+
+- name: Stat the GBrain Dockerfile
+  ansible.builtin.stat:
+    path: "{{ gbrain_k8s_dockerfile }}"
+  register: gbrain_k8s_dockerfile_stat
+  tags: [gbrain, k8s, image]
+
+- name: Require the first-party Dockerfile
+  ansible.builtin.assert:
+    that:
+      - gbrain_k8s_dockerfile_stat.stat.exists | default(false)
+    fail_msg: "Dockerfile missing at {{ gbrain_k8s_dockerfile }}"
+  tags: [gbrain, k8s, image]
+
+- name: Build the GBrain image from the local checkout
+  community.docker.docker_image:
+    name: "{{ gbrain_k8s_image_repository }}"
+    tag: "{{ gbrain_k8s_image_tag }}"
+    source: build
+    force_source: true
+    build:
+      path: "{{ gbrain_k8s_checkout_path }}"
+      dockerfile: "{{ gbrain_k8s_dockerfile }}"
+  when: not ansible_check_mode
+  tags: [gbrain, k8s, image]
+
+- name: Report that check mode does not build images
+  ansible.builtin.debug:
+    msg: check mode skips docker build and k3s import.
+  when: ansible_check_mode
+  tags: [gbrain, k8s, image]

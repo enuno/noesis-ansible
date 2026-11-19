@@ -1,0 +1,59 @@
+---
+# Prefix: gbrain_k8s_  (inventory must use this exact prefix)
+
+gbrain_k8s_kubeconfig: /etc/rancher/k3s/k3s.yaml
+gbrain_k8s_context: default
+gbrain_k8s_namespace: gbrain
+gbrain_k8s_release_name: gbrain
+gbrain_k8s_chart_version: "0.1.0"
+gbrain_k8s_timeout: 600
+gbrain_k8s_helm_binary_path: /usr/local/bin/helm
+
+# Image is built from a local checkout. Upstream publishes no production image.
+gbrain_k8s_checkout_path: /home/elvis/tools/gbrain
+gbrain_k8s_build_image: true
+gbrain_k8s_image_repository: gbrain
+gbrain_k8s_image_tag: "0.60.747.0"
+gbrain_k8s_image_digest: ""
+gbrain_k8s_dockerfile: "{{ role_path }}/../../charts/gbrain/docker/Dockerfile"
+gbrain_k8s_ctr: /usr/local/bin/k3s
+
+gbrain_k8s_secret_name: gbrain
+gbrain_k8s_database_url_key: database-url
+gbrain_k8s_direct_url_key: direct-database-url
+gbrain_k8s_bootstrap_token_key: admin-bootstrap-token
+
+# Supabase: operator-escrowed URLs. This role never creates a Supabase project.
+gbrain_k8s_required_bw_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+gbrain_k8s_bw_project_id: "72974d0e-81af-4678-bab7-b46000985859"
+gbrain_k8s_bws_path: /usr/local/bin/bws
+gbrain_k8s_bws_access_token: ""
+gbrain_k8s_allow_bitwarden_write: false
+gbrain_k8s_db_bw_key: GBRAIN_K3S_DATABASE_URL
+gbrain_k8s_direct_bw_key: GBRAIN_K3S_DIRECT_DATABASE_URL
+gbrain_k8s_bootstrap_bw_key: GBRAIN_K3S_ADMIN_BOOTSTRAP_TOKEN
+gbrain_k8s_escrow_keys:
+  - GBRAIN_K3S_DATABASE_URL
+  - GBRAIN_K3S_DIRECT_DATABASE_URL
+gbrain_k8s_bw_stored: false
+gbrain_k8s_database_url: ""
+gbrain_k8s_direct_database_url: ""
+
+gbrain_k8s_hostname: gbrain
+gbrain_k8s_tailnet_domain: tailf99a0.ts.net
+gbrain_k8s_canonical_hostname: "{{ gbrain_k8s_hostname }}.{{ gbrain_k8s_tailnet_domain }}"
+gbrain_k8s_connector_hostname: "{{ gbrain_k8s_hostname }}"
+gbrain_k8s_expose_enabled: false
+gbrain_k8s_ingress_class: tailscale
+gbrain_k8s_reserved_hostnames:
+  - tailscale-operator
+  - noesis-praxis
+  - noesis-lab
+  - mcpjungle
+  - "n8n"
+  - radar
+
+gbrain_k8s_serve_bind: "0.0.0.0"
+gbrain_k8s_serve_surface: starter
+gbrain_k8s_serve_advertise: verbs
+gbrain_k8s_service_port: 3131

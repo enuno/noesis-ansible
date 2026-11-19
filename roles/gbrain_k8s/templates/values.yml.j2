@@ -1,0 +1,30 @@
+---
+replicaCount: 1
+image:
+  repository: {{ gbrain_k8s_image_repository | quote }}
+  tag: {{ gbrain_k8s_image_tag | quote }}
+  digest: {{ gbrain_k8s_image_digest | quote }}
+  pullPolicy: IfNotPresent
+service:
+  type: ClusterIP
+  port: {{ gbrain_k8s_service_port | int }}
+  targetPort: {{ gbrain_k8s_service_port | int }}
+serve:
+  http: true
+  bind: {{ gbrain_k8s_serve_bind | quote }}
+  publicUrl: "https://{{ gbrain_k8s_canonical_hostname }}"
+  surface: {{ gbrain_k8s_serve_surface | quote }}
+  advertise: {{ gbrain_k8s_serve_advertise | quote }}
+database:
+  existingSecret: {{ gbrain_k8s_secret_name | quote }}
+  urlKey: {{ gbrain_k8s_database_url_key | quote }}
+  directUrlKey: {{ gbrain_k8s_direct_url_key | quote }}
+  bootstrapTokenKey: {{ gbrain_k8s_bootstrap_token_key | quote }}
+ingress:
+  enabled: {{ gbrain_k8s_expose_enabled | bool | lower }}
+  className: {{ gbrain_k8s_ingress_class | quote }}
+  host: {{ gbrain_k8s_connector_hostname | quote }}
+  tls: true
+  paths:
+    - path: /
+      pathType: Prefix
