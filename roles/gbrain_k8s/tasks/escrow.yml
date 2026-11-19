@@ -1,0 +1,109 @@
+---
+# Fetch-only escrow. This role never creates a Supabase project and never
+# puts a database URL on a process argv. Writes to Bitwarden stay gated off.
+
+- name: Require Bitwarden reads unless URLs were provided for this run
+  ansible.builtin.assert:
+    that:
+      - (gbrain_k8s_database_url | default('') | length > 0)
+        or (gbrain_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) | length > 0)
+    fail_msg: >-
+      GBrain needs GBRAIN_K3S_DATABASE_URL and GBRAIN_K3S_DIRECT_DATABASE_URL
+      in Bitwarden project {{ gbrain_k8s_required_bw_project_id }}, or
+      gbrain_k8s_database_url / gbrain_k8s_direct_database_url for this run.
+      Create the Supabase project first; this play does not provision it.
+  when: not ansible_check_mode
+  tags: [gbrain, k8s, secrets]
+
+- name: Create the GBrain namespace
+  kubernetes.core.k8s:
+    kubeconfig: "{{ gbrain_k8s_kubeconfig }}"
+    context: "{{ gbrain_k8s_context }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ gbrain_k8s_namespace }}"
+  tags: [gbrain, k8s, secrets]
+
+- name: Look up escrowed GBrain database URLs on the controller
+  ansible.builtin.command:
+    argv:
+      - "{{ gbrain_k8s_bws_path }}"
+      - secret
+      - list
+      - "{{ gbrain_k8s_bw_project_id }}"
+      - --output
+      - json
+  environment:
+    BWS_ACCESS_TOKEN: "{{ gbrain_k8s_bws_access_token | default(lookup('env', 'BWS_ACCESS_TOKEN'), true) }}"
+  register: gbrain_k8s_bw_list
+  changed_when: false
+  no_log: true
+  delegate_to: localhost
+  become: false
+  when:
+    - not ansible_check_mode
+    - (gbrain_k8s_database_url | default('') | length) == 0
+  tags: [gbrain, k8s, secrets]
+
+- name: Fail when Bitwarden list did not succeed
+  ansible.builtin.fail:
+    msg: >-
+      Bitwarden list failed (rc={{ gbrain_k8s_bw_list.rc | default(-1) }}).
+      Escrow is delegated to localhost so the controller token is used; a
+      token only in an interactive .bashrc never reaches this task.
+  when:
+    - not ansible_check_mode
+    - (gbrain_k8s_database_url | default('') | length) == 0
+    - (gbrain_k8s_bw_list.rc | default(1)) != 0
+  tags: [gbrain, k8s, secrets]
+
+- name: Record that check mode performs no secret lookup
+  ansible.builtin.debug:
+    msg: check mode skips Bitwarden reads and Secret writes.
+  when: ansible_check_mode
+  tags: [gbrain, k8s, secrets]
+
+- name: Mark escrow complete only after URLs are available
+  ansible.builtin.set_fact:
+    gbrain_k8s_bw_stored: true
+  when:
+    - not ansible_check_mode
+    - (gbrain_k8s_database_url | default('') | length > 0)
+      or ((gbrain_k8s_bw_list.rc | default(1)) == 0)
+  tags: [gbrain, k8s, secrets]
+
+- name: Build Kubernetes Secret data without templating dict keys
+  ansible.builtin.set_fact:
+    gbrain_k8s_secret_data: >-
+      {{ {}
+         | combine({gbrain_k8s_database_url_key: (gbrain_k8s_database_url | b64encode)})
+         | combine({gbrain_k8s_direct_url_key: (gbrain_k8s_direct_database_url | b64encode)}) }}
+  no_log: true
+  when:
+    - not ansible_check_mode
+    - (gbrain_k8s_database_url | default('') | length > 0)
+    - (gbrain_k8s_direct_database_url | default('') | length > 0)
+  tags: [gbrain, k8s, secrets]
+
+- name: Deliver escrowed database URLs as a Kubernetes Secret
+  kubernetes.core.k8s:
+    kubeconfig: "{{ gbrain_k8s_kubeconfig }}"
+    context: "{{ gbrain_k8s_context }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ gbrain_k8s_secret_name }}"
+        namespace: "{{ gbrain_k8s_namespace }}"
+      type: Opaque
+      data: "{{ gbrain_k8s_secret_data }}"
+  no_log: true
+  when:
+    - not ansible_check_mode
+    - (gbrain_k8s_database_url | default('') | length > 0)
+    - (gbrain_k8s_direct_database_url | default('') | length > 0)
+  tags: [gbrain, k8s, secrets]

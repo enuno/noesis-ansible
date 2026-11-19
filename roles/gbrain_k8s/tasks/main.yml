@@ -9,7 +9,7 @@
   tags: [gbrain, k8s, image]
 
 - name: Include GBrain secret delivery
-  ansible.builtin.include_tasks: secrets.yml
+  ansible.builtin.include_tasks: escrow.yml
   tags: [gbrain, k8s, secrets]
 
 - name: Include GBrain Helm install
