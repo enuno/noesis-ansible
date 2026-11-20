@@ -61,8 +61,10 @@ gbrain_k8s_serve_surface: starter
 gbrain_k8s_serve_advertise: verbs
 gbrain_k8s_service_port: 3131
 
-# Docker path is loopback-only. Tailscale Ingress is Kubernetes-only.
+# Docker publishes on the host Tailscale IPv4 (discovered at apply).
+# Tailscale Ingress remains Kubernetes-only.
 gbrain_k8s_docker_container_name: gbrain
 gbrain_k8s_docker_env_file: /var/lib/gbrain/gbrain.env
 gbrain_k8s_docker_data_dir: /var/lib/gbrain
-gbrain_k8s_docker_published_port: "127.0.0.1:3131:3131"
+gbrain_k8s_docker_published_port: ""
+gbrain_k8s_docker_public_url: ""

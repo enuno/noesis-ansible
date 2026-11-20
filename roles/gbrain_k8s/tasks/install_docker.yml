@@ -2,7 +2,7 @@
 - name: Reject Kubernetes-only exposure for Docker
   ansible.builtin.assert:
     that: not (gbrain_k8s_expose_enabled | bool)
-    fail_msg: Docker is loopback-only; Tailscale Ingress is Kubernetes-only.
+    fail_msg: Docker binds the Tailscale IPv4 only; Tailscale Ingress is Kubernetes-only.
   tags: [gbrain, docker, install]
 
 - name: Require escrowed database URLs before starting the container
@@ -17,7 +17,7 @@
   when: not ansible_check_mode
   tags: [gbrain, docker, install]
 
-- name: Run the GBrain container on loopback
+- name: Run the GBrain container on the Tailscale IPv4
   community.docker.docker_container:
     name: "{{ gbrain_k8s_docker_container_name }}"
     image: "{{ gbrain_k8s_image_repository }}:{{ gbrain_k8s_image_tag }}"

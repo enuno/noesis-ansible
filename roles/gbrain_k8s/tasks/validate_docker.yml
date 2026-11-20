@@ -1,15 +1,33 @@
 ---
-- name: Validate GBrain Docker configuration before any change
+- name: Read this host's Tailscale IPv4
+  ansible.builtin.command:
+    argv:
+      - tailscale
+      - ip
+      - "-4"
+  register: gbrain_k8s_tailscale_ip4
+  changed_when: false
+  check_mode: false
+  tags: [gbrain, docker, validate]
+
+- name: Require a Tailscale CGNAT IPv4 before publishing
   ansible.builtin.assert:
     that:
+      - gbrain_k8s_tailscale_ip4.rc | default(1) == 0
+      - (gbrain_k8s_tailscale_ip4.stdout | default('') | trim) == '100.119.84.26'
       - gbrain_k8s_image_tag != 'latest'
       - gbrain_k8s_serve_bind == '0.0.0.0'
       - gbrain_k8s_bw_project_id == gbrain_k8s_required_bw_project_id
-      - gbrain_k8s_docker_published_port is match('^127\\.0\\.0\\.1:')
       - not (gbrain_k8s_expose_enabled | bool)
     fail_msg: >-
-      GBrain Docker preflight failed. Image tag must not be latest. Serve
-      bind must be 0.0.0.0. Docker is loopback-only
-      (gbrain_k8s_docker_published_port must start 127.0.0.1:). Tailscale
-      Ingress is Kubernetes-only; leave gbrain_k8s_expose_enabled false.
+      GBrain Docker preflight failed. Need `tailscale ip -4` in 100.x
+      (CGNAT). Do not publish 0.0.0.0 or LAN. Image tag must not be
+      latest. In-container serve bind stays 0.0.0.0. Tailscale Ingress
+      remains Kubernetes-only (gbrain_k8s_expose_enabled false).
+  tags: [gbrain, docker, validate]
+
+- name: Publish only on the Tailscale IPv4
+  ansible.builtin.set_fact:
+    gbrain_k8s_docker_published_port: "{{ gbrain_k8s_tailscale_ip4.stdout | trim }}:{{ gbrain_k8s_service_port }}:{{ gbrain_k8s_service_port }}"
+    gbrain_k8s_docker_public_url: "http://{{ gbrain_k8s_tailscale_ip4.stdout | trim }}:{{ gbrain_k8s_service_port }}"
   tags: [gbrain, docker, validate]
